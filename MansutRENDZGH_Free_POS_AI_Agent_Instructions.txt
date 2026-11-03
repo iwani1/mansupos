@@ -1,0 +1,195 @@
+PROJECT BRIEF: MANSUTRENDZGH FREE WOOCOMMERCE POS INTEGRATION Prepared:
+3 November 2026
+
+ROLE You are an AI implementation agent working on the existing
+MansutRENDZGH WordPress/WooCommerce website. Your task is to assess and,
+only after approval, configure a free point-of-sale (POS) solution that
+uses the existing WooCommerce catalogue and inventory.
+
+PRIMARY OBJECTIVE Set up a physical-store POS workflow linked to
+MansutRENDZGH.com so that in-store and online sales use the same
+WooCommerce products and stock records.
+
+CLIENT REQUIREMENTS - One physical retail outlet. - Existing POS
+hardware is available. Do not assume compatibility; identify each device
+and model first. - 1–3 staff members. - Payment methods required: Cash,
+Mobile Money (MoMo), and Card. - Required functions: 1. Inventory
+tracking. 2. Sales reports. 3. Barcode scanning. 4. Receipt printing. -
+The existing website is MansutRENDZGH.com and uses WordPress +
+WooCommerce.
+
+PREFERRED STARTING OPTION Evaluate the free version of wePOS by weDevs:
+https://wordpress.org/plugins/wepos/
+
+Official product information: https://wedevs.com/wepos/ Check the
+current plugin listing, documentation, compatibility, free-versus-paid
+feature limits, and current release information before implementation.
+Do not rely on old feature lists or assume a feature is included in the
+free version.
+
+IMPORTANT PAYMENT REQUIREMENT The client needs Cash, MoMo, and Card
+payment recording. Distinguish clearly between: - Recording an
+externally collected payment in the POS; and - Processing/collecting a
+payment directly through an integrated payment gateway or terminal.
+
+Do not claim that the free version supports direct Ghanaian MoMo or
+card-terminal processing unless current official documentation and a
+successful test confirm it. If the free version only supports cash or
+basic/manual payment recording, document that limitation. Do not
+purchase a paid extension or subscription, connect a live payment
+gateway, or incur any charge without written approval.
+
+NON-NEGOTIABLE SAFETY RULES 1. Do not make changes to the live website
+until the audit is complete and the owner approves the implementation
+plan. 2. Create and verify a full backup of website files and database
+before making changes. 3. Prefer a staging site for installation and
+testing. If staging is unavailable, stop and request approval before
+testing on the live site. 4. Do not delete, overwrite, bulk-edit, or
+import products, variations, orders, customers, stock quantities,
+settings, or payment records. 5. Do not change the active theme,
+redesign the website, alter SEO settings, change domain/DNS/email
+settings, or modify unrelated plugins. 6. Do not disable security,
+backup, cache, or payment plugins without approval and a documented
+reason. 7. Do not expose administrator passwords, API keys, payment
+credentials, customer data, or other secrets in logs or reports. 8. Do
+not use real customer payments for tests. Use test mode or a clearly
+identified test product/order where possible. 9. Do not buy licences,
+extensions, hosting, hardware, or services. 10. If a requested function
+is unavailable in the free version, report the gap and propose options.
+Do not silently substitute a paid product.
+
+PHASE 1 — DISCOVERY AND AUDIT (READ-ONLY) Inspect and report: -
+WordPress version. - WooCommerce version and status. - PHP version and
+hosting environment, where accessible. - Active theme and relevant child
+theme. - Installed plugins that affect checkout, inventory, payments,
+shipping, caching, security, backups, or product management. - Current
+WooCommerce inventory settings, including stock management and
+stock-hold settings. - Current payment gateways and whether Paystack is
+installed/configured. - Number of products and product variations. -
+Whether products use attributes such as size, colour, style, or other
+variations. - Whether SKUs already exist and whether they are unique. -
+Current stock-data quality and any products with missing or duplicate
+SKUs. - Available backup and staging arrangements. - Exact hardware
+models: POS computer/tablet, barcode scanner, receipt printer, cash
+drawer, and any card terminal. - Whether the scanner behaves as a
+keyboard input device and whether the printer supports the POS/browser
+printing method.
+
+Do not disclose customer personal information in the audit. Use counts
+and configuration summaries only.
+
+PHASE 2 — FREE SOLUTION VERIFICATION Before installation: 1. Check the
+current official wePOS plugin page and documentation. 2. Confirm the
+free version’s current support for: - WooCommerce product catalogue. -
+Stock reduction after POS sales. - Stock updates visible to online
+shoppers. - Variable products and variations. - Barcode/SKU search or
+scanning. - Receipt printing and supported printer types. - Cash
+payment. - Manual/custom payment methods, if available. - MoMo and card
+payment recording. - Direct payment gateway or terminal integration. -
+Sales reports and daily totals. - Multiple cashier accounts and
+permissions. - Offline operation and synchronisation, if claimed. 3.
+Separate features available in the free version from paid features. 4.
+Record official documentation links and the date checked. 5. If a
+required feature is paid-only or unclear, flag it. Do not assume it
+works.
+
+PHASE 3 — IMPLEMENTATION PLAN FOR APPROVAL Prepare a short
+implementation plan containing: - Proposed plugin and exact version. -
+Confirmed free features. - Requirements not met by the free version. -
+Hardware compatibility findings. - Payment workflow for Cash, MoMo, and
+Card. - Backup and rollback plan. - Staging test plan. - Any risks,
+limitations, or costs.
+
+STOP and request owner approval before installing or configuring
+anything.
+
+PHASE 4 — STAGING INSTALLATION (ONLY AFTER APPROVAL) On staging only: 1.
+Confirm the backup can be restored or that a recent backup is available.
+2. Install wePOS from the official WordPress plugin repository. 3.
+Record plugin version and installation date. 4. Configure only the
+settings needed for the single store. 5. Use the existing WooCommerce
+catalogue. Do not create a second product database. 6. Confirm
+WooCommerce stock management is enabled where appropriate. 7. Configure
+cashier access with least privilege. Do not share the administrator
+account with cashiers. 8. Configure payment labels only where supported.
+Use clear labels such as Cash, Mobile Money, and Card for manual
+recording if the plugin supports this. 9. Configure receipt details
+using verified business information supplied by the owner. Do not invent
+a legal business name, address, phone number, or tax number. 10. Connect
+hardware only after confirming model compatibility and safe driver/setup
+requirements.
+
+PHASE 5 — PRODUCT AND BARCODE PREPARATION - Preserve all existing
+product names, prices, images, categories, attributes, and variations. -
+Do not bulk-generate or overwrite SKUs without approval. - Identify
+products/variations without SKUs and provide a report. - Recommend a
+consistent SKU pattern for approval before applying it. - For fashion
+products, stock should be tracked separately by each size/colour
+variation where the catalogue supports variations. - Test scanning
+against a small number of approved products first. - Do not print or
+attach labels in bulk until the owner approves the barcode/SKU mapping.
+
+PHASE 6 — TESTING Use staging and test products/orders. Record evidence
+for each test.
+
+A. Product and inventory - Search for an existing simple product in the
+POS. - Search for a variable product. - Scan a known barcode and confirm
+the correct product/variation is selected. - Complete a test POS sale. -
+Confirm the corresponding WooCommerce order is created. - Confirm stock
+decreases by the correct quantity. - Confirm the updated stock quantity
+appears on the online store. - Confirm that a cancelled order/refund
+behaves as documented. - Confirm that an online test order updates the
+stock seen by the POS.
+
+B. Payments - Record a cash sale. - Test the MoMo workflow using a
+test/manual record only. - Test the card workflow using a test/manual
+record only. - Confirm payment method labels appear correctly in the
+order and reports. - Do not process real payments. - Clearly document if
+MoMo/card collection happens outside the POS and is only recorded inside
+it.
+
+C. Hardware - Test barcode scanner input. - Test receipt printing, paper
+size, alignment, and readable text. - Test cash drawer operation only if
+the hardware and POS support it. - Do not change device firmware or
+install untrusted drivers.
+
+D. Reports and staff - Confirm which sales totals and reports the free
+version provides. - Confirm the report can distinguish payment methods
+if supported. - Create/test cashier accounts only with owner approval. -
+Confirm cashiers cannot access WordPress administration or sensitive
+customer/payment settings unless explicitly authorised.
+
+E. Connectivity - Test normal internet operation. - If offline POS is
+advertised, test offline sales and synchronisation in staging. - Check
+for duplicate orders, incorrect stock, or overselling after
+reconnection. - Do not promise safe offline operation until this test
+passes.
+
+PHASE 7 — HANDOVER Provide: - Summary of what was installed and
+configured. - Plugin name, version, and official documentation links. -
+Features confirmed to work in the free version. - Features not available
+or not verified. - Hardware models tested and results. - Payment
+workflow and limitations. - Test results with pass/fail status. -
+Instructions for opening the POS, searching/scanning products, recording
+payments, printing receipts, and closing the day’s sales. - Staff access
+details through the owner’s approved password-sharing method. Never
+include passwords in the handover document. - Backup location/date and
+rollback steps. - Recommended next steps and any optional costs
+requiring owner approval.
+
+ACCEPTANCE CRITERIA The project is complete only when: 1. POS sales
+create WooCommerce orders. 2. POS sales reduce the correct WooCommerce
+stock quantity. 3. Online sales update the stock available to the POS.
+4. Product variations are handled correctly. 5. Barcode scanning works
+with the client’s actual scanner. 6. Receipt printing works with the
+client’s actual printer. 7. Cash, MoMo, and Card workflows are clearly
+documented and tested to the extent possible without real payments. 8.
+Available sales reports are demonstrated. 9. Staff access is
+appropriately restricted. 10. The owner receives the handover report and
+approves any live deployment.
+
+FINAL INSTRUCTION Work in small, reversible steps. Begin with the
+read-only audit and free-version feature verification. Return the
+findings and implementation plan for approval. Do not install on the
+live site, make purchases, alter stock, or process payments until
+approval is explicitly given.
