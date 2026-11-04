@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-This application is production-hardened, but **production deployment is not complete until staging acceptance, hardware verification, backups, and written owner approval are done**. Do not paste secrets into chat or commit them.
+This application includes production-oriented controls, but **production deployment is not complete until the blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) are fixed, staging acceptance passes, hardware is verified, backups are tested, and written owner approval is recorded**. Do not paste secrets into chat or commit them.
 
 ## 1. Prerequisites
 

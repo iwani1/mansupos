@@ -6,7 +6,7 @@ A working, mobile-friendly point-of-sale application for **MansutRENDZGH**, desi
 
 The live preview runs in **isolated demo mode**. It does not create orders, change stock, send receipts, or collect money on mansutrendzgh.com.
 
-The codebase is **production-hardened** (shifts, audit, lockout, idle sessions, reconciliation sweep, diagnostics, migrations, backup/restore, preflight, Docker/Caddy/systemd/nginx examples, and CI). Production deployment still requires an approved staging clone, server-side credentials, hardware verification, and the live write gate.
+The codebase includes production-oriented controls (shifts, audit, lockout, idle sessions, reconciliation sweep, diagnostics, migrations, backup/restore, preflight, Docker/Caddy/systemd/nginx examples, and CI). **A full application audit on 4 November 2026 found release blockers; see [docs/AUDIT-2026-11-04.md](docs/AUDIT-2026-11-04.md).** Do not enable live writes until the audit blockers are fixed and re-tested. Production deployment still requires an approved staging clone, server-side credentials, hardware verification, and the live write gate.
 
 - Product names, prices, IDs, and source image URLs were sampled read-only from the public WooCommerce Store API on **3 November 2026**.
 - Demo quantities, `DEMO-` barcode aliases, register categories, and sample transactions are not live store data.
