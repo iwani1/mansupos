@@ -5,9 +5,14 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const base = process.env.TEST_BASE_URL || 'http://127.0.0.1:3000';
 fs.mkdirSync('test-results', { recursive: true });
-await require('@sparticuz/chromium/build/lambdafs.js').default.inflate(process.cwd() + '/node_modules/@sparticuz/chromium/bin/al2023.tar.br');
-process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib${process.env.LD_LIBRARY_PATH ? ':' + process.env.LD_LIBRARY_PATH : ''}`;
-const browser = await playwright.launch({ executablePath: await chromium.executablePath(), args: chromium.args, headless: true });
+let browser;
+if (process.env.TEST_CHROMIUM_PATH) {
+  browser = await playwright.launch({ executablePath: process.env.TEST_CHROMIUM_PATH, args: ['--no-sandbox', '--disable-dev-shm-usage'], headless: true });
+} else {
+  await require('@sparticuz/chromium/build/lambdafs.js').default.inflate(process.cwd() + '/node_modules/@sparticuz/chromium/bin/al2023.tar.br');
+  process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib${process.env.LD_LIBRARY_PATH ? ':' + process.env.LD_LIBRARY_PATH : ''}`;
+  browser = await playwright.launch({ executablePath: await chromium.executablePath(), args: chromium.args, headless: true });
+}
 const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
 await page.emulateMedia({ reducedMotion: 'reduce' });
 const axeSource = fs.readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');

@@ -3,6 +3,10 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -39,6 +43,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Install Chromium for CI
+        run: |
+          node node_modules/playwright-core/cli.js install --with-deps chromium
+          echo "TEST_CHROMIUM_PATH=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
       - name: Start isolated demo
         run: |
           nohup env POS_MODE=demo PORT=3000 npm run dev > /tmp/mansu-pos.log 2>&1 &
@@ -71,6 +79,26 @@ jobs:
             for f in test-results/*.json; do echo "--- $f"; cat "$f"; done || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish diagnostics check run
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, urllib.request
+          parts = []
+          log = pathlib.Path('/tmp/mansu-pos.log')
+          if log.exists(): parts.append('### Server log\n```\n' + '\n'.join(log.read_text(errors='replace').splitlines()[-200:]) + '\n```')
+          results = pathlib.Path('test-results')
+          if results.exists():
+            parts.append('### Test result files\n```\n' + '\n'.join(str(p) for p in results.iterdir()) + '\n```')
+            for f in results.glob('*.json'):
+              parts.append(f'### {f.name}\n```json\n' + f.read_text(errors='replace')[:20000] + '\n```')
+          body = '\n\n'.join(parts)[:60000] or 'No diagnostics files found.'
+          payload = {'name':'Browser diagnostics','head_sha':os.environ['GITHUB_SHA'],'status':'completed','conclusion':'failure','output':{'title':'Browser CI failure diagnostics','summary':body}}
+          req = urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/check-runs", data=json.dumps(payload).encode(), headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'}, method='POST')
+          print(urllib.request.urlopen(req).read().decode()[:500])
+          PY
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
