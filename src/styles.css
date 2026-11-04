@@ -15,6 +15,7 @@
   --danger:#8f3d36;--danger-light:#f6e7e3;--amber:#7a561f;--amber-light:#f4ead6;
   --rail:104px;--cart:380px;--serif:'Bodoni Moda',Georgia,serif;
   --shadow:0 18px 50px rgba(43,32,40,.08);--shadow-lg:0 30px 90px rgba(43,32,40,.22);
+  --ease-out:cubic-bezier(.22,1,.36,1);--ease-spring:cubic-bezier(.34,1.56,.64,1);--motion-fast:.18s;--motion-med:.32s;--motion-slow:.6s;
 }
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font:inherit}button,a,input,select,textarea{-webkit-tap-highlight-color:transparent}button{cursor:pointer;border:0;background:none;color:inherit}button:disabled{cursor:not-allowed;opacity:.45}a{color:inherit;text-decoration:none}button,a{touch-action:manipulation}
@@ -75,6 +76,78 @@ kbd{font:500 10px 'DM Sans',sans-serif;border:1px solid var(--line-dark);border-
 
 /* Login / boot */
 .boot-screen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--paper);text-align:center;padding:24px}.boot-screen .brand-mark{width:64px;height:64px;font-size:42px;background:var(--ink);color:var(--paper)}.boot-screen h1{font-size:38px}.boot-screen .notice{max-width:460px;text-align:left}.login-page{min-height:100vh;display:grid;grid-template-columns:1.05fr .95fr}.login-story{background:var(--ink);color:var(--paper);padding:52px 60px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}.login-story:after{content:'M';position:absolute;right:-40px;bottom:-120px;font-family:var(--serif);font-size:520px;line-height:1;color:#ffffff04;pointer-events:none}.login-brand{display:flex;align-items:center;gap:14px;font-size:14px;font-weight:600;letter-spacing:2px}.login-brand .brand-mark{background:var(--paper);color:var(--ink)}.login-brand small{display:block;font-size:8px;letter-spacing:2px;color:var(--brass-bright);margin-top:4px}.login-editorial{position:relative;z-index:1;max-width:560px}.login-story h1{font-size:58px;line-height:1.12;letter-spacing:-2px;margin:16px 0 22px}.login-story h1 em{color:var(--brass-light);font-weight:500}.login-story p{font-size:14px;color:#b7a7af;max-width:420px;line-height:1.8}.login-story-footer{display:flex;align-items:center;gap:9px;font-size:10px;letter-spacing:1px;color:#a9959f;position:relative;z-index:1}.login-form-wrap{display:flex;align-items:center;justify-content:center;padding:48px;background:var(--paper)}.login-form{width:100%;max-width:380px;display:flex;flex-direction:column;gap:18px}.login-form h2{font-size:38px}.login-form>p{font-size:13px;color:var(--muted);margin-top:-8px}.login-form .button{min-height:50px;margin-top:6px}.login-form>small{display:flex;align-items:center;justify-content:center;gap:7px;font-size:10px;color:var(--muted)}.force-password{width:min(420px,92vw);margin-top:18px;text-align:left}
+
+
+/* Motion layer — MotionSites-inspired editorial movement, tuned for a working register.
+   Motion confirms state and hierarchy; it never delays checkout or blocks input. */
+@keyframes mansu-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes mansu-fade{from{opacity:0}to{opacity:1}}
+@keyframes mansu-scale{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:none}}
+@keyframes mansu-pulse{0%{transform:scale(1)}40%{transform:scale(1.045)}100%{transform:scale(1)}}
+@keyframes mansu-sheen{from{transform:translateX(-130%) skewX(-18deg)}to{transform:translateX(230%) skewX(-18deg)}}
+@keyframes mansu-float{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(0,-10px,0)}}
+@keyframes mansu-drift{0%{transform:translate3d(-4%,2%,0) scale(1)}100%{transform:translate3d(4%,-3%,0) scale(1.06)}}
+@keyframes mansu-toast{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes mansu-grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+
+.page-heading{animation:mansu-rise .5s var(--ease-out) backwards}
+.surface,.connection-hero,.permission-card,.integration-facts>div{animation:mansu-rise .55s var(--ease-out) backwards}
+.stat-card{animation:mansu-rise .55s var(--ease-out) backwards;transition:transform var(--motion-fast) var(--ease-out),box-shadow var(--motion-fast) var(--ease-out)}
+.stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+.stats-grid .stat-card:nth-child(2){animation-delay:.06s}
+.stats-grid .stat-card:nth-child(3){animation-delay:.12s}
+.stats-grid .stat-card:nth-child(4){animation-delay:.18s}
+
+.product-card{animation:mansu-rise .5s var(--ease-out) backwards;animation-delay:calc(var(--i,0)*45ms);transition:transform .25s var(--ease-out),opacity .2s}
+.product-card:hover:not(:disabled){transform:translateY(-4px)}
+.product-card:hover:not(:disabled) .product-photo-wrap{box-shadow:0 16px 36px rgba(43,32,40,.14)}
+.product-photo-wrap{transition:box-shadow .25s var(--ease-out)}
+.product-image img{transition:transform .6s var(--ease-out)}
+.product-card:hover:not(:disabled) .product-image img{transform:scale(1.06)}
+.product-add{transition:background .18s,color .18s,border-color .18s,transform .25s var(--ease-spring)}
+.product-card:hover:not(:disabled) .product-add{transform:rotate(90deg) scale(1.06)}
+.in-cart-tag{animation:mansu-scale .3s var(--ease-spring)}
+.category-tabs button{transition:color .2s,border-color .2s}
+
+.cart-panel{animation:mansu-rise .5s .08s var(--ease-out) backwards}
+.cart-item{animation:mansu-rise .35s var(--ease-out) backwards}
+.grand-total>strong{display:inline-block;animation:mansu-pulse .35s var(--ease-spring)}
+.charge-button{position:relative;overflow:hidden;transition:background .18s,transform .18s var(--ease-out),box-shadow .18s}
+.charge-button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 12px 28px rgba(43,32,40,.2)}
+.charge-button::after{content:'';position:absolute;inset:0;background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.16) 50%,transparent 70%);transform:translateX(-130%) skewX(-18deg);pointer-events:none}
+.charge-button:hover:not(:disabled)::after{animation:mansu-sheen .8s var(--ease-out)}
+.charge-button>span svg{transition:transform .2s var(--ease-out)}
+.charge-button:hover:not(:disabled)>span svg{transform:translateX(3px)}
+
+.nav-item{transition:background .2s,color .2s,transform .2s var(--ease-out)}
+.nav-item:hover{transform:translateY(-1px)}
+.nav-item.active{animation:mansu-scale .3s var(--ease-spring)}
+.icon-button{transition:background .18s,color .18s,transform .18s var(--ease-out)}
+.icon-button:hover:not(:disabled){transform:translateY(-1px)}
+.button{transition:background .18s,border-color .18s,color .18s,transform .18s var(--ease-out),box-shadow .18s}
+.button.primary:hover:not(:disabled){box-shadow:0 10px 24px rgba(43,32,40,.16)}
+
+.modal-backdrop{animation:mansu-fade .2s ease}
+.modal{animation:mansu-scale .32s var(--ease-spring)}
+.notice{animation:mansu-rise .3s var(--ease-out) backwards}
+.toast{animation:mansu-toast .35s var(--ease-spring)}
+.receipt-success>span{animation:mansu-scale .45s var(--ease-spring)}
+.size-options button,.payment-options button{transition:border-color .18s,background .18s,color .18s,transform .18s var(--ease-out)}
+.size-options button:hover:not(:disabled),.payment-options button:hover:not(:disabled){transform:translateY(-1px)}
+.size-options button.selected,.payment-options button.selected{animation:mansu-scale .25s var(--ease-spring)}
+.scanner-illustration svg{animation:mansu-float 2.6s ease-in-out infinite}
+.empty-icon{animation:mansu-float 3.2s ease-in-out infinite}
+
+.bar{transform-origin:bottom;animation:mansu-grow .7s var(--ease-out) backwards;transition:height .6s var(--ease-out)}
+.progress-track span{transition:width .6s var(--ease-out)}
+tbody tr{transition:background .18s}
+
+.boot-screen .brand-mark{animation:mansu-scale .5s var(--ease-spring)}
+.login-story::before{content:'';position:absolute;inset:-20%;background:radial-gradient(circle at 25% 30%,rgba(201,164,108,.16),transparent 42%),radial-gradient(circle at 75% 70%,rgba(110,48,64,.22),transparent 46%);animation:mansu-drift 16s ease-in-out infinite alternate;pointer-events:none}
+.login-editorial{animation:mansu-rise .7s .1s var(--ease-out) backwards}
+.login-form{animation:mansu-rise .7s .2s var(--ease-out) backwards}
+
+@media print{*,*:before,*:after{animation:none!important;transition:none!important}}
 
 /* Responsive */
 @media(min-width:1700px){:root{--cart:420px}.product-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.product-photo-wrap{height:320px}}

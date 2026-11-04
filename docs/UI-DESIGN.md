@@ -22,8 +22,21 @@ Reviewed 4 November 2026:
 - Dribbble fashion POS search results, including Rakun POS by S. Andreans and mixmatch by Caraka — narrow tool rails, garment-led tiles, and a separate order/payment panel. https://dribbble.com/search/pos-fashion-ui
 - Behance POS project search — reviewed for retail/fashion POS layout patterns; no assets copied. https://www.behance.net/search/projects/point%20of%20sale
 - MansutRENDZGH public storefront — confirmed women’s fashion / in-store collection positioning. https://www.mansutrendzgh.com/
+- MotionSites.ai premium motion gallery — reviewed for editorial entrance motion, staggered reveals, tactile hover states, and ambient depth. Used as inspiration only; no MotionSites artwork, prompts, or code were copied. https://motionsites.ai/
 
 The redesign adapts usability principles; it does not copy reference artwork, logos, or product photography. Demo product images remain explicitly labelled illustrations.
+
+## Motion layer
+
+The POS uses a restrained MotionSites-inspired motion layer rather than a marketing-site animation stack:
+
+- Product cards reveal with a short stagger; hover lifts the tile and gently scales imagery.
+- Cart lines and totals confirm changes with small rise/pulse animations.
+- The charge button has a tactile hover sheen; dialogs, toasts, notices, and selected payment/size options use spring-like entrances.
+- Login and empty/scanner states use subtle ambient movement, while operational screens stay calm.
+- All motion is CSS-only, avoids layout shift, and never gates checkout.
+- `prefers-reduced-motion: reduce` disables animations and transitions globally; print also disables motion.
+- `tests/browser-motion.mjs` verifies motion is present by default and fully disabled under reduced motion.
 
 ## Usability rules
 
