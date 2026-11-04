@@ -9,7 +9,7 @@ This application includes production-oriented controls. The code blockers in [AU
 - A dedicated HTTPS hostname, for example `pos.mansutrendzgh.com`.
 - A separate WooCommerce staging clone for acceptance testing.
 - WooCommerce REST API credentials stored in a server-side secret manager or root-owned environment file.
-- Verified business receipt details, printer/scanner models, and external MoMo/card workflow.
+- Verified business receipt details, physical printer/scanner acceptance (see [HARDWARE.md](HARDWARE.md)), and external MoMo/card workflow.
 - A tested WordPress files/database backup and a POS-ledger backup location.
 
 ## 2. Configure

@@ -50,10 +50,13 @@ Automated baseline already passing in the repository: 30 backend/mocked WooComme
 
 ## Hardware
 
+Observed hardware profile: [HARDWARE.md](HARDWARE.md). Identification from photos is not a physical pass.
+
 - [ ] Actual scanner model, keyboard mode, and Enter suffix tested.
-- [ ] Actual printer model, paper width, alignment, readability, and cutting tested.
+- [ ] Xprinter XP-80T driver, 80 mm paper width, alignment, readability, and cutting tested.
 - [ ] 58 mm / 80 mm / A4 selection tested as applicable.
-- [ ] Cash drawer explicitly marked unsupported unless separately implemented and tested.
+- [ ] Cash drawer explicitly marked unsupported unless driver-triggered drawer kick is separately tested and accepted.
+- [ ] Customer display explicitly marked unsupported unless separately implemented and tested.
 - [ ] Actual standalone card terminal reference workflow verified with the acquirer.
 
 ## Reports and staff
