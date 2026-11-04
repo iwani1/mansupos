@@ -1,0 +1,51 @@
+# Security model
+
+## Secrets
+
+- WooCommerce credentials live only in server environment variables or a secret manager.
+- Never put secrets in `VITE_*`, browser storage, source control, logs, receipts, or chat.
+- Use a dedicated WooCommerce API key with the minimum required permissions.
+- Rotate keys if exposed. Revoke old keys in WooCommerce.
+
+## Authentication
+
+- Named owner/manager/cashier accounts; no shared counter login.
+- Salted scrypt password hashes.
+- Temporary bootstrap/reset passwords force a change at next sign-in.
+- Password policy rejects short, common, repetitive, or username-containing passwords.
+- Failed logins are rate-limited and accounts lock temporarily after repeated failures.
+- Sessions use random tokens; only token hashes are stored.
+- Sessions expire after 8 hours and idle out after a configurable period (default 60 minutes).
+- Password change/reset revokes other sessions.
+- Cookies are HTTP-only, SameSite=Strict, and Secure in production. The browser also keeps a bearer token in memory for embedded previews.
+
+## Authorization
+
+- Owner: staff, connection, audit, all sales/reports/shifts.
+- Manager: all POS sales/reports/shifts; no staff/connection management.
+- Cashier: own sales and own shifts; no reports/staff/connection/audit.
+- Permissions are enforced by the API, not only hidden in the UI.
+
+## Request protection
+
+- Mutating API requests require JSON and same-origin checks.
+- Production can require a configured `POS_PUBLIC_ORIGIN`.
+- Helmet sets CSP, HSTS, nosniff, referrer policy, and related headers in production.
+- Rate limits protect login and sensitive mutations.
+- CSV cells are escaped to reduce spreadsheet-formula injection.
+- Full card numbers are rejected in payment references.
+
+## Payment boundary
+
+The POS records externally collected payments. It does not process MoMo or card payments, store PAN/PIN/CVV, or connect to a payment gateway. MoMo/Card references must be merchant/terminal references, not customer card data.
+
+## Data protection
+
+- SQLite data directory should be private (`0700`) and database files `0600`.
+- Backups must be encrypted/access-controlled and stored off-host.
+- Audit logs record security, staff, shift, and sale events.
+- Reports/exports contain cashier names and external references; treat them as restricted business records.
+
+## Reporting issues
+
+Do not open public issues containing secrets or customer data. Rotate exposed credentials first, then report the issue privately to the owner/operator.

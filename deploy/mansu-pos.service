@@ -1,0 +1,25 @@
+[Unit]
+Description=Mansu POS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mansu
+Group=mansu
+WorkingDirectory=/opt/mansu-pos
+EnvironmentFile=/etc/mansu-pos/pos.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mansu-pos
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
+import { readConfig, APP_VERSION } from './config.js';
+
+const config = readConfig();
+const checks = [];
+const add = (name, ok, detail = '') => checks.push({ name, ok, detail });
+add('Node.js 22.13+', Number(process.versions.node.split('.')[0]) >= 22, process.versions.node);
+add('Application version', true, APP_VERSION);
+add('Mode', ['demo', 'staging', 'live'].includes(config.mode), config.mode);
+add('HTTPS store URL', config.storeUrl.startsWith('https://'), config.storeUrl);
+add('Production public origin', !config.production || config.mode === 'demo' || Boolean(config.publicOrigin), config.publicOrigin || 'not set');
+add('Production build', !config.production || fs.existsSync(path.resolve('dist/index.html')), 'dist/index.html');
+add('Data directory', (() => { try { fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 }); fs.accessSync(config.dataDir, fs.constants.W_OK); return true; } catch { return false; } })(), config.dataDir);
+add('WooCommerce credentials', config.mode === 'demo' || config.configured, config.configured ? 'configured' : 'missing');
+add('Staging approval', config.mode !== 'staging' || !config.writesEnabled || process.env.POS_STAGING_APPROVED === 'true', config.writesEnabled ? 'writes enabled' : 'writes locked');
+add('Live approval', config.mode !== 'live' || !config.writesEnabled || (process.env.POS_ALLOW_LIVE_WRITES === 'true' && config.approvalReference.length >= 8), config.writesEnabled ? 'writes enabled' : 'writes locked');
+add('Owner bootstrap password', config.mode === 'demo' || !config.ownerPassword || config.ownerPassword.length >= 12, config.ownerPassword ? 'present' : 'not set');
+add('Shift accountability', true, config.requireShift ? 'required' : 'optional');
+add('Session idle timeout', true, `${config.sessionIdleMinutes} minutes`);
+const failed = checks.filter(c => !c.ok);
+for (const check of checks) console.log(`${check.ok ? 'PASS' : 'FAIL'}  ${check.name}${check.detail ? ` — ${check.detail}` : ''}`);
+console.log(failed.length ? `\n${failed.length} preflight check(s) failed.` : '\nPreflight passed. This does not replace staging acceptance or owner approval.');
+process.exit(failed.length ? 1 : 0);

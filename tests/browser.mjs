@@ -1,0 +1,115 @@
+import { chromium as playwright } from 'playwright-core';
+import chromium from '@sparticuz/chromium';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const base = process.env.TEST_BASE_URL || 'http://127.0.0.1:3000';
+fs.mkdirSync('test-results', { recursive: true });
+await require('@sparticuz/chromium/build/lambdafs.js').default.inflate(process.cwd() + '/node_modules/@sparticuz/chromium/bin/al2023.tar.br');
+process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib${process.env.LD_LIBRARY_PATH ? ':' + process.env.LD_LIBRARY_PATH : ''}`;
+const browser = await playwright.launch({ executablePath: await chromium.executablePath(), args: chromium.args, headless: true });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1050 }, deviceScaleFactor: 1 });
+const errors = [];
+page.on('pageerror', e => errors.push(e.message));
+page.on('console', msg => { if (msg.type() === 'error') console.log('CONSOLE:', msg.text()); });
+try {
+  await page.goto(base, { waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
+  await page.locator('.product-card').first().waitFor();
+  await page.screenshot({ path: 'test-results/register-desktop.png', fullPage: true });
+  console.log('Loaded', await page.locator('.product-card').count(), 'products');
+  console.log('Images', await page.locator('.product-image img').evaluateAll(imgs => imgs.map(i => ({ loaded: i.complete && i.naturalWidth > 0, src: i.src })).slice(0,3)));
+  await page.getByRole('button', { name: 'Add PEARL SHIRT to sale', exact: true }).click();
+  await page.locator('.size-options button:not([disabled])').first().click();
+  await page.getByRole('button', { name: /Add to sale/ }).click();
+  await page.getByRole('button', { name: /Charge GH/ }).click();
+  await page.getByRole('heading', { name: 'Complete payment' }).waitFor();
+  await page.getByLabel('Cash received (GH₵)').fill('300');
+  await page.getByRole('checkbox', { name: /demo payment record/ }).check();
+  await page.getByRole('button', { name: 'Complete demo sale' }).click();
+  await page.getByRole('heading', { name: 'Demo sale complete' }).waitFor();
+  await page.screenshot({ path: 'test-results/receipt.png' });
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const scanSku = await page.evaluate(async () => {
+    const response = await fetch('/api/catalog', { credentials: 'same-origin' });
+    const data = await response.json();
+    for (const product of data.products || []) {
+      const variant = (product.variations || []).find(v => v.sku && v.stock > 0 && v.stockStatus !== 'outofstock');
+      if (variant) return variant.sku;
+    }
+    throw new Error('No in-stock demo variation SKU available for scanner test');
+  });
+  await page.getByRole('button', { name: 'Scan product' }).click();
+  await page.getByLabel('Barcode or SKU').fill(scanSku);
+  await page.getByRole('button', { name: 'Find product' }).click();
+  await page.locator('.cart-item').waitFor();
+  console.log('Scanner exact variation: PASS');
+  await page.getByRole('button', { name: 'Hold sale', exact: true }).click();
+  await page.getByRole('button', { name: /Held sales/ }).click();
+  await page.getByRole('button', { name: 'Resume', exact: true }).click();
+  console.log('Hold/resume: PASS');
+  page.once('dialog', d => d.accept());
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
+  await page.getByRole('button', { name: 'Sales history', exact: true }).click();
+  await page.getByRole('button', { name: 'Receipt', exact: true }).first().click();
+  await page.getByRole('heading', { name: 'Sale receipt' }).waitFor();
+  await page.pdf({ path: 'test-results/receipt.pdf', preferCSSPageSize: true, printBackground: true });
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Inventory', exact: true }).click();
+  await page.getByRole('heading', { name: 'Inventory', exact: true }).waitFor();
+  await page.screenshot({ path: 'test-results/inventory.png', fullPage: true });
+  await page.getByRole('button', { name: 'Reports', exact: true }).click();
+  await page.getByText('Net recorded sales', { exact: true }).waitFor();
+  await page.screenshot({ path: 'test-results/reports.png', fullPage: true });
+  await page.getByRole('button', { name: 'Store connection', exact: true }).click();
+  await page.getByRole('button', { name: 'Test connection', exact: true }).click();
+  await page.getByText('Demo is isolated from your website.', { exact: false }).waitFor();
+  await page.screenshot({ path: 'test-results/connection.png', fullPage: true });
+  await page.getByRole('button', { name: 'Staff & access', exact: true }).click();
+  await page.getByRole('heading', { name: 'Staff & access', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Shifts & drawer', exact: true }).click();
+  await page.getByRole('heading', { name: 'Shifts & drawer', exact: true }).waitFor();
+  // Make the walkthrough repeatable even if a previous run left a demo shift open.
+  await page.evaluate(async () => {
+    const current = await (await fetch('/api/shifts/current', { credentials: 'same-origin' })).json();
+    if (current.shift) {
+      await fetch(`/api/shifts/${current.shift.id}/close`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ closingCash: current.shift.expectedCash, note: 'Browser test cleanup' }) });
+    }
+  });
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.getByLabel('Opening cash float (GH₵)').fill('50');
+  await page.getByRole('button', { name: 'Open shift', exact: true }).click();
+  await page.getByRole('heading', { name: 'Current shift' }).waitFor();
+  await page.getByPlaceholder('Amount GH₵').fill('10');
+  await page.getByPlaceholder('Reason, e.g. supplier pickup or float top-up').fill('Browser test float top-up');
+  await page.getByRole('button', { name: 'Record movement' }).click();
+  await page.getByText('Cash movement recorded.').waitFor();
+  await page.getByLabel('Counted closing cash (GH₵)').fill('60');
+  page.once('dialog', d => d.accept());
+  await page.getByRole('button', { name: 'Close shift & record count' }).click();
+  await page.getByText('Shift closed. Variance:').waitFor();
+  await page.screenshot({ path: 'test-results/shifts.png', fullPage: true });
+  await page.getByRole('button', { name: 'Audit log', exact: true }).click();
+  await page.getByRole('heading', { name: 'Audit log', exact: true }).waitFor();
+  await page.getByText('shift.closed', { exact: false }).first().waitFor();
+  await page.getByRole('button', { name: 'Store connection', exact: true }).click();
+  await page.getByRole('button', { name: 'Run diagnostics' }).click();
+  await page.getByText('Server-side credentials', { exact: false }).waitFor();
+  await page.getByRole('button', { name: 'Help & shortcuts' }).click();
+  await page.getByRole('heading', { name: 'Your quick guide' }).waitFor();
+  await page.getByRole('button', { name: 'Got it' }).click();
+  await page.getByRole('button', { name: 'Point of sale', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'test-results/register-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: /View sale/ }).click();
+  await page.getByRole('heading', { name: /Current sale/ }).waitFor();
+  await page.screenshot({ path: 'test-results/cart-mobile.png' });
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+  if (overflow) throw new Error('Mobile horizontal overflow');
+  if (errors.length) throw new Error(errors.join('\n'));
+  console.log('PASS: register, variations, cash checkout, receipt, scanner, hold/resume, inventory, reports, connection, staff, shifts, audit, diagnostics, help, mobile.');
+} catch (error) {
+  await page.screenshot({ path: 'test-results/failure.png', fullPage: true });
+  console.error(error);
+  process.exitCode = 1;
+} finally { await browser.close(); }

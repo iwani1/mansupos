@@ -1,0 +1,43 @@
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Check, CheckCircle2, ArrowRight, Printer, ShieldCheck, Banknote, ExternalLink, ShoppingBag, AlertCircle, LoaderCircle } from 'lucide-react';
+import { api, money, dateTime, methodLabel } from './api.js';
+import { Modal, Notice, PaymentIcon, Badge } from './components.jsx';
+
+export function Checkout({ sale, config, onClose, onPaid, notify }) {
+  const [method, setMethod] = useState('cash');
+  const [tendered, setTendered] = useState('');
+  const [reference, setReference] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const amount = Math.round(Number(tendered || 0) * 100);
+  const valid = confirmed && (method === 'cash' ? Number.isFinite(amount) && amount >= sale.total : reference.trim().length > 0);
+  async function pay() {
+    if (!valid || busy) return;
+    setBusy(true); setError('');
+    try { const result = await api(`/sales/${sale.id}/pay`, { method: 'POST', body: { method, reference: reference.trim(), ...(method === 'cash' ? { tendered: amount } : {}), confirmed } }); onPaid(result.sale); }
+    catch (e) { setError(e.message); if (e.code === 'RECONCILIATION_REQUIRED') notify('Check Sales to reconcile this order before taking another payment.', 'error'); }
+    finally { setBusy(false); }
+  }
+  return <Modal title="Complete payment" subtitle={`${sale.number} · ${sale.items.reduce((n,i) => n + i.quantity,0)} items`} onClose={onClose} busy={busy} className="checkout-modal"><div className="modal-body"><div className="amount-due"><span>{config.mode === 'demo' ? 'Demo total' : 'WooCommerce order total'}</span><strong>{money(sale.total)}</strong>{config.mode !== 'demo' && <small>Includes {money(sale.tax)} tax · authoritative store total</small>}</div><label className="field-label">How was payment collected?</label><div className="payment-options">{['cash','momo','card'].map(m => <button key={m} className={method === m ? 'selected' : ''} onClick={() => { setMethod(m); setConfirmed(false); setError(''); }} disabled={busy}><PaymentIcon method={m} size={24} /><strong>{m === 'momo' ? 'MoMo' : methodLabel[m]}</strong>{method === m && <Check size={14} className="option-check" />}</button>)}</div>
+      {method === 'cash' ? <><label className="field-label" htmlFor="cash-received">Cash received (GH₵)</label><input id="cash-received" className="input money-input" type="number" min={sale.total/100} step="0.01" inputMode="decimal" placeholder={(sale.total/100).toFixed(2)} value={tendered} onChange={e => setTendered(e.target.value)} disabled={busy} /><div className="quick-cash">{[...new Set([sale.total, Math.ceil(sale.total/10000)*10000, Math.ceil(sale.total/50000)*50000])].map(value => <button key={value} onClick={() => setTendered((value/100).toFixed(2))} disabled={busy}>{value === sale.total ? 'Exact amount' : money(value)}</button>)}</div><div className="change-row"><span>Change due</span><strong>{money(Math.max(0,amount-sale.total))}</strong></div></> : <><label className="field-label" htmlFor="payment-reference">{method === 'momo' ? 'MoMo transaction reference' : 'Terminal approval / merchant reference'}</label><input id="payment-reference" className="input" value={reference} onChange={e => setReference(e.target.value)} placeholder={method === 'momo' ? 'Reference from the merchant SMS or app' : 'Reference from the terminal receipt'} maxLength={80} disabled={busy} /><p className="field-hint">Never enter a card number, PIN, CVV, or customer password.</p></>}
+      <Notice tone="warning">{config.mode === 'demo' ? 'Demo only. No money moves and no live WooCommerce order is created.' : <>This app <strong>records</strong> payment; it does not charge anything. {method === 'cash' ? 'Count the cash received.' : `Verify ${method === 'momo' ? 'the MoMo merchant notification' : 'the approved terminal receipt'} outside this app before confirming.`}</>}</Notice>
+      <label className="payment-confirm"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} disabled={busy} /><span>{config.mode === 'demo' ? 'I understand this is a demo payment record.' : method === 'cash' ? 'I have received and counted the cash for this order.' : 'I verified that this payment was successfully collected outside the POS.'}</span></label>
+      {error && <Notice tone="error">{error}</Notice>}
+    </div><footer className="modal-footer"><button className="button secondary" onClick={onClose} disabled={busy}>{config.mode === 'demo' ? 'Cancel' : 'Pay later'}</button><button className="button primary" onClick={pay} disabled={!valid || busy}>{busy ? <LoaderCircle size={17} className="spin" /> : <ShieldCheck size={17} />}{busy ? 'Recording…' : config.mode === 'demo' ? 'Complete demo sale' : 'Record verified payment'}</button></footer></Modal>;
+}
+
+export function Receipt({ sale, config, onClose }) {
+  const [width, setWidth] = useState(config.receiptWidth || '80');
+  return <>{createPortal(<div id="print-root" aria-hidden="true"><ReceiptPaper sale={sale} config={config} width={width} /></div>, document.body)}<Modal title="Sale receipt" subtitle="Ready to print or keep for your records." onClose={onClose} className="receipt-dialog"><div className="modal-body receipt-body"><div className="receipt-success"><span><CheckCircle2 size={28} /></span><div><h3>{config.mode === 'demo' ? 'Demo sale complete' : 'Payment recorded'}</h3><p>{config.mode === 'demo' ? 'Inventory updated in the demo workspace only.' : 'Order saved to WooCommerce. Stock is managed by the store.'}</p></div></div><div className="receipt-controls"><label htmlFor="paper-width">Paper width</label><select id="paper-width" value={width} onChange={e => setWidth(e.target.value)}><option value="80">80 mm thermal</option><option value="58">58 mm thermal</option><option value="a4">A4 / standard printer</option></select></div><ReceiptPaper sale={sale} config={config} width={width} /><p className="field-hint center">Printing uses your browser and installed printer driver. Test alignment on your actual printer before going live.</p></div><footer className="modal-footer"><button className="button secondary" onClick={onClose}>Done</button><button className="button primary" onClick={() => window.print()}><Printer size={17} />Print receipt</button></footer></Modal></>;
+}
+
+function ReceiptPaper({ sale, config, width }) {
+  return <div className={`receipt-paper paper-${width}`}>
+    {config.mode === 'demo' && <div className="receipt-demo">DEMO — NOT A PAYMENT RECEIPT</div>}
+    <div className="receipt-brand">{(config.businessName || 'MansutRENDZGH').toUpperCase()}<span>IN-STORE COLLECTION</span></div>{(config.businessAddress || config.businessPhone || config.businessTaxId) && <div className="receipt-business">{config.businessAddress && <span>{config.businessAddress}</span>}{config.businessPhone && <span>Tel: {config.businessPhone}</span>}{config.businessTaxId && <span>Tax ID: {config.businessTaxId}</span>}</div>}<div className="receipt-rule" /><div className="receipt-meta"><span>Receipt</span><strong>{sale.number}</strong><span>Date</span><strong>{dateTime(sale.paidAt || sale.createdAt)}</strong><span>Cashier</span><strong>{sale.cashierName}</strong>{sale.wooOrderId && <><span>WooCommerce</span><strong>#{sale.wooOrderId}</strong></>}</div><div className="receipt-rule" />
+    {sale.items.map((item,i) => <div className="receipt-item" key={i}><div><strong>{item.name}</strong>{item.label && <span>Size {item.label}</span>}<small>{item.quantity} × {money(item.price)}</small></div><strong>{money(item.total ?? item.price * item.quantity)}</strong></div>)}
+    <div className="receipt-rule" /><div className="receipt-meta"><span>Subtotal</span><strong>{money(sale.subtotal)}</strong><span>Tax</span><strong>{money(sale.tax)}</strong><span className="receipt-total">Total</span><strong className="receipt-total">{money(sale.total)}</strong><span>Payment</span><strong>{methodLabel[sale.paymentMethod] || 'Unpaid'}</strong>{sale.paymentMethod === 'cash' ? <><span>Cash received</span><strong>{money(sale.tendered)}</strong><span>Change</span><strong>{money(sale.changeDue)}</strong></> : sale.paymentReference ? <><span>External ref.</span><strong className="receipt-reference">{sale.paymentReference}</strong></> : null}</div><div className="receipt-rule" /><p className="receipt-footer">{config.receiptFooter}</p>{config.mode !== 'demo' && <p className="receipt-payment-note">{sale.paymentMethod === 'cash' ? 'Cash payment recorded at the counter.' : 'Payment collected externally; recorded in POS.'}</p>}<p className="receipt-thanks">Made for your everyday style.</p>
+  </div>;
+}

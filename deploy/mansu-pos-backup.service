@@ -1,0 +1,11 @@
+[Unit]
+Description=Mansu POS ledger backup
+
+[Service]
+Type=oneshot
+User=mansu
+Group=mansu
+WorkingDirectory=/opt/mansu-pos
+EnvironmentFile=/etc/mansu-pos/pos.env
+ExecStart=/opt/mansu-pos/deploy/backup.sh /var/backups/mansu-pos
+UMask=0077

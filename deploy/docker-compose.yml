@@ -1,0 +1,52 @@
+services:
+  pos:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      NODE_ENV: production
+      POS_DATA_DIR: /var/lib/mansu-pos
+      POS_TRUST_PROXY: "1"
+    volumes:
+      - pos-data:/var/lib/mansu-pos
+    expose:
+      - "3000"
+    networks: [posnet]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      POS_DOMAIN: ${POS_DOMAIN:?Set POS_DOMAIN in the shell or a private .env next to this file}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [posnet]
+    depends_on:
+      pos:
+        condition: service_healthy
+
+volumes:
+  pos-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  posnet:
