@@ -51,6 +51,14 @@ jobs:
           exit 1
       - run: npm run test:browser
       - run: npm run test:a11y
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo '--- server log ---'
+          cat /tmp/mansu-pos.log || true
+          echo '--- test results ---'
+          ls -la test-results || true
+          for f in test-results/*.json; do echo "--- $f"; cat "$f"; done || true
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
