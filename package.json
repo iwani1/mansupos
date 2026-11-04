@@ -18,6 +18,7 @@
     "preflight": "node server/preflight.js"
   },
   "dependencies": {
+    "@fontsource/bodoni-moda": "^5.3.0",
     "@fontsource/dm-sans": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
     "dotenv": "^16.6.1",

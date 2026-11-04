@@ -243,7 +243,7 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   app.get('/api/connection/diagnostics', auth, role('owner'), async (req, res) => {
     const checks = [
       { name: 'HTTPS store URL', ok: config.storeUrl.startsWith('https://') },
-      { name: 'Server-side credentials', ok: config.configured },
+      { name: 'Server-side credentials', ok: config.mode === 'demo' || config.configured, detail: config.mode === 'demo' ? 'Not needed for demo' : config.configured ? 'Configured' : 'Missing' },
       { name: 'Public origin configured', ok: !config.production || Boolean(config.publicOrigin) || config.mode === 'demo' },
       { name: 'Write gate', ok: config.mode === 'demo' ? true : config.writesEnabled, detail: config.mode === 'demo' ? 'Demo only' : config.writesEnabled ? 'Enabled' : 'Locked' },
     ];

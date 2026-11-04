@@ -22,8 +22,10 @@ try {
   await page.getByRole('button', { name: 'Add PEARL SHIRT to sale', exact: true }).click();
   await page.locator('.size-options button:not([disabled])').first().click();
   await page.getByRole('button', { name: /Add to sale/ }).click();
+  await page.screenshot({ path: 'test-results/cart-desktop.png', fullPage: true });
   await page.getByRole('button', { name: /Charge GH/ }).click();
   await page.getByRole('heading', { name: 'Complete payment' }).waitFor();
+  await page.screenshot({ path: 'test-results/checkout.png' });
   await page.getByLabel('Cash received (GH₵)').fill('300');
   await page.getByRole('checkbox', { name: /demo payment record/ }).check();
   await page.getByRole('button', { name: 'Complete demo sale' }).click();
