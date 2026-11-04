@@ -54,6 +54,11 @@ try {
   await page.getByRole('heading', { name: 'Open your register.' }).waitFor();
   if (await page.locator('.cart-panel').count()) throw new Error('Expired session left the authenticated register visible.');
   console.log('PASS: expired session clears the authenticated register.');
+  await page.unroute('**/api/catalog*');
+  await page.getByRole('button', { name: 'Open demo workspace', exact: true }).click();
+  await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
+  if (!(await page.locator('.cart-panel').count())) throw new Error('Demo re-entry did not restore the register.');
+  console.log('PASS: demo workspace re-enters without username/password.');
 } catch (error) {
   await recordFailure(page, error, 'recovery-failure', pageErrors);
   process.exitCode = 1;

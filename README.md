@@ -45,7 +45,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`. The default configuration is demo mode; no credentials are required.
+Open `http://localhost:3000`. The default configuration is demo mode; no credentials are required. The app enters automatically as **Demo Owner**. If a session expires and the sign-in screen appears, choose **Open demo workspace**.
 
 ```bash
 npm test                 # backend and mocked WooCommerce integration tests
