@@ -14,9 +14,15 @@ import { createLogger, requestId } from './logger.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
-const cookieOptions = config => ({ httpOnly: true, sameSite: 'strict', secure: config.production, path: '/', maxAge: SESSION_MS });
+const cookieOptions = config => ({ httpOnly: true, sameSite: config.production && config.mode === 'demo' ? 'none' : 'strict', secure: config.production, path: '/', maxAge: SESSION_MS });
 function readCookie(req) { return (req.headers.cookie || '').split(';').map(v => v.trim()).find(v => v.startsWith('mansu_session='))?.slice(14) || ''; }
-function bearer(req) { return req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : ''; }
+function bearer(req) {
+  if (req.headers.authorization?.startsWith('Bearer ')) return req.headers.authorization.slice(7);
+  // Some embedded preview proxies remove Authorization. This custom header is an equivalent
+  // bearer credential; it is not auto-sent cross-origin and mutations still require JSON/origin checks.
+  const custom = req.headers['x-mansu-session'];
+  return typeof custom === 'string' && custom.length > 0 && custom.length <= 256 ? custom : '';
+}
 function sessionUser(req, db, config) {
   const token = bearer(req) || readCookie(req);
   if (!token) return null;

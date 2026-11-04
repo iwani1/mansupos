@@ -2,7 +2,7 @@
 
 Record **Pass / Fail / Not tested**, date, tester, environment, plugin/app version, and evidence reference. Do not include secrets or customer personal information.
 
-Automated baseline already passing in the repository: 30 backend/mocked WooCommerce/restore regression tests, the Chromium demo walkthrough, lost-prepare-response recovery after reload, session-expiry handling, reduced-motion preference checks, axe accessibility scans, lint, receipt PDF content check, production build, dependency audit, preflight, SQLite backup/restore integrity check, and clean Docker image build/smoke in GitHub Actions. The items below must still be executed against the approved staging clone and real hardware.
+Automated baseline already passing in the repository: 31 backend/mocked WooCommerce/restore regression tests, the Chromium demo walkthrough, lost-prepare-response recovery after reload, session-expiry handling, embedded-preview session fallback when Authorization/cookies are stripped, reduced-motion preference checks, axe accessibility scans, lint, receipt PDF content check, production build, dependency audit, preflight, SQLite backup/restore integrity check, and clean Docker image build/smoke in GitHub Actions. The items below must still be executed against the approved staging clone and real hardware.
 
 ## Environment and safety
 

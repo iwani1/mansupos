@@ -75,7 +75,7 @@ The short version:
 
 ## Verification
 
-- `npm test`: 30 backend/mocked WooCommerce/restore regression tests pass.
+- `npm test`: 31 backend/mocked WooCommerce/restore regression tests pass.
 - `npm run test:browser`: full demo register → checkout → receipt → scanner → hold/resume → reports/staff/shifts/audit/diagnostics/mobile flow, plus lost-prepare-response recovery, session-expiry handling, and reduced-motion checks, passes.
 - `npm run test:a11y`: axe WCAG A/AA + best-practice scans and 320px overflow check pass.
 - `npm run lint`: ESLint passes.

@@ -65,6 +65,16 @@ test('unauthenticated and cross-origin requests are rejected',async t=>{
   assert.equal((await h.request('/auth/demo',{method:'POST',body:{},headers:{Origin:'https://evil.example'}})).status,403);
 });
 
+test('embedded preview session survives stripped Authorization/cookie headers via fallback bearer header',async t=>{
+  const h=await harness(t);
+  const catalog=await h.request('/catalog',{headers:{'X-Mansu-Session':h.token}});
+  assert.equal(catalog.status,200);
+  assert.ok(catalog.data.products.length>0);
+  const sale=await h.request('/sales/prepare',{method:'POST',headers:{'X-Mansu-Session':h.token},body:{idempotencyKey:randomUUID(),items:[{productId:7331,quantity:1}]}});
+  assert.equal(sale.status,201);
+  assert.equal((await h.request('/catalog',{headers:{'X-Mansu-Session':'invalid-token'}})).status,401);
+});
+
 test('demo checkout records all payment methods, reduces only demo stock, and is idempotent',async t=>{
   const h=await harness(t);
   const before=(await h.request('/catalog',{token:h.token})).data.products.find(p=>p.id===7325).variations.find(v=>v.id===7327).stock;

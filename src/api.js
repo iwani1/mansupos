@@ -1,8 +1,8 @@
 let sessionToken = '';
 export function setSessionToken(token = '') { sessionToken = token; }
-export function authHeaders() { return sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}; }
+export function authHeaders() { return sessionToken ? { Authorization: `Bearer ${sessionToken}`, 'X-Mansu-Session': sessionToken } : {}; }
 export async function api(path, options = {}) {
-  const response = await fetch(`/api${path}`, { credentials: 'same-origin', ...options, headers: { 'Content-Type': 'application/json', ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}), ...options.headers }, ...(options.body ? { body: JSON.stringify(options.body) } : {}) });
+  const response = await fetch(`/api${path}`, { credentials: 'same-origin', ...options, headers: { 'Content-Type': 'application/json', ...authHeaders(), ...options.headers }, ...(options.body ? { body: JSON.stringify(options.body) } : {}) });
   const data = await response.json();
   if (!response.ok) { const error = new Error(data.error || 'The request could not be completed.'); error.code = data.code; error.status = response.status; if (response.status === 401 && !path.startsWith('/auth/login')) window.dispatchEvent(new CustomEvent('mansu:session-expired')); throw error; }
   return data;

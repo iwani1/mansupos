@@ -17,7 +17,7 @@
 - Sessions use random tokens; only token hashes are stored.
 - Sessions expire after 8 hours and idle out after a configurable period (default 60 minutes).
 - Password change/reset revokes other sessions.
-- Cookies are HTTP-only, SameSite=Strict, and Secure in production. The browser also keeps a bearer token in memory for embedded previews.
+- Cookies are HTTP-only and Secure in production. Staging/live cookies are SameSite=Strict; the isolated production demo uses SameSite=None so it can run inside an embedded preview. The browser also keeps a bearer token in memory and sends it as `Authorization: Bearer …` plus an explicit `X-Mansu-Session` fallback for preview proxies that strip `Authorization`. The fallback carries the same server-side session token and does not bypass authentication, origin checks, roles, or live-write gates.
 
 ## Authorization
 
