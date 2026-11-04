@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, CheckCircle2, ArrowRight, Printer, ShieldCheck, Banknote, ExternalLink, ShoppingBag, AlertCircle, LoaderCircle } from 'lucide-react';
+import { Check, CheckCircle2, Printer, ShieldCheck, LoaderCircle } from 'lucide-react';
 import { api, money, dateTime, methodLabel } from './api.js';
-import { Modal, Notice, PaymentIcon, Badge } from './components.jsx';
+import { Modal, Notice, PaymentIcon } from './components.jsx';
 
 export function Checkout({ sale, config, onClose, onPaid, notify }) {
   const [method, setMethod] = useState('cash');

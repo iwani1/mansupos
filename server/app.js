@@ -4,7 +4,7 @@ import { rateLimit } from 'express-rate-limit';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
 import { readConfig, publicConfig, APP_VERSION } from './config.js';
-import { openDatabase, hashPassword, verifyPassword, passwordProblem, userView, audit } from './db.js';
+import { openDatabase, hashPassword, verifyPassword, passwordProblem, userView, audit, saleView } from './db.js';
 import { WooCommerce } from './woocommerce.js';
 import { Catalog } from './catalog.js';
 import { SalesService, prepareSchema, paymentSchema } from './sales.js';
@@ -73,11 +73,15 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
       if (!req.is('application/json')) return next(new AppError('Use application/json for API requests.', 415));
       const origin = req.headers.origin;
-      const allowed = config.publicOrigin ? [new URL(config.publicOrigin).host] : [req.headers.host, req.headers['x-forwarded-host']?.split(',')[0]?.trim()].filter(Boolean);
       if (origin) {
         try {
           const parsed = new URL(origin);
-          if (!allowed.includes(parsed.host)) return next(new AppError('Cross-origin request rejected.', 403));
+          if (config.publicOrigin) {
+            if (parsed.origin !== new URL(config.publicOrigin).origin) return next(new AppError('Cross-origin request rejected.', 403));
+          } else {
+            const allowedHosts = [req.headers.host, req.headers['x-forwarded-host']?.split(',')[0]?.trim()].filter(Boolean);
+            if (!allowedHosts.includes(parsed.host)) return next(new AppError('Cross-origin request rejected.', 403));
+          }
         } catch { return next(new AppError('Invalid request origin.', 403)); }
       } else if (config.production && config.publicOrigin && !bearer(req)) {
         return next(new AppError('Missing request origin.', 403));
@@ -155,7 +159,11 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   });
 
   app.get('/api/catalog', auth, async (req, res) => res.json(await catalog.get(req.query.refresh === '1')));
-  app.get('/api/sales', auth, (req, res) => res.json({ sales: sales.list(req.user) }));
+  app.get('/api/sales', auth, (req, res) => {
+    const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 250);
+    const cursor = z.string().max(500).optional().parse(req.query.cursor);
+    res.json(sales.listPage(req.user, { limit, cursor }));
+  });
   app.post('/api/sales/prepare', auth, sensitiveLimit, async (req, res) => {
     const input = prepareSchema.parse(req.body);
     res.status(201).json({ sale: await sales.prepare(req.user, input) });
@@ -174,24 +182,34 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   app.post('/api/shifts/:id/close', auth, async (req, res) => res.json({ shift: shifts.close(req.user, req.params.id, closeShiftSchema.parse(req.body)) }));
   app.post('/api/shifts/:id/cash', auth, async (req, res) => res.json({ shift: shifts.movement(req.user, req.params.id, cashMovementSchema.parse(req.body)) }));
 
+  const settledStatuses = ['paid', 'partially_refunded', 'refunded'];
+  const reportRows = (user, since) => {
+    const sql = `SELECT * FROM sales WHERE status IN (${settledStatuses.map(() => '?').join(',')}) AND paid_at IS NOT NULL AND paid_at>=? ${user.role === 'cashier' ? 'AND cashier_id=?' : ''} ORDER BY paid_at ASC, id ASC`;
+    const params = [...settledStatuses, since.toISOString(), ...(user.role === 'cashier' ? [user.id] : [])];
+    return db.prepare(sql).all(...params).map(saleView);
+  };
   app.get('/api/reports', auth, role('owner', 'manager'), (req, res) => {
     const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
     const since = new Date(); since.setUTCHours(0,0,0,0); since.setUTCDate(since.getUTCDate() - days + 1);
-    const rows = sales.list(req.user, 10000).filter(s => s.paidAt && new Date(s.paidAt) >= since);
-    const paid = rows.filter(s => s.status === 'paid');
-    const total = paid.reduce((sum,s) => sum + s.total - (s.refunded || 0), 0);
-    const methods = ['cash','momo','card'].map(method => { const matches = paid.filter(s => s.paymentMethod === method); return { method, count: matches.length, total: matches.reduce((sum,s) => sum + s.total - (s.refunded || 0), 0) }; });
-    const daily = Array.from({ length: days }, (_, i) => { const date = new Date(since); date.setUTCDate(date.getUTCDate() + i); const key = date.toISOString().slice(0,10); const matches = paid.filter(s => s.paidAt?.startsWith(key)); return { date: key, total: matches.reduce((sum,s) => sum + s.total - (s.refunded || 0), 0), count: matches.length }; });
+    const rows = reportRows(req.user, since);
+    const net = sale => sale.total - (sale.refunded || 0);
+    const total = rows.reduce((sum, sale) => sum + net(sale), 0);
+    const gross = rows.reduce((sum, sale) => sum + sale.total, 0);
+    const refunded = rows.reduce((sum, sale) => sum + (sale.refunded || 0), 0);
+    const active = rows.filter(sale => sale.status !== 'refunded');
+    const methods = ['cash','momo','card'].map(method => { const matches = rows.filter(s => s.paymentMethod === method); return { method, count: matches.length, total: matches.reduce((sum,s) => sum + net(s), 0) }; });
+    const daily = Array.from({ length: days }, (_, i) => { const date = new Date(since); date.setUTCDate(date.getUTCDate() + i); const key = date.toISOString().slice(0,10); const matches = rows.filter(s => s.paidAt?.startsWith(key)); return { date: key, total: matches.reduce((sum,s) => sum + net(s), 0), count: matches.length }; });
     const products = new Map();
-    for (const sale of paid) for (const item of sale.items) { const key = `${item.productId}:${item.variationId}`; const p = products.get(key) || { name: item.name, label: item.label, quantity: 0, total: 0 }; p.quantity += item.quantity; p.total += item.total; products.set(key,p); }
-    res.json({ days, since: since.toISOString(), total, orders: paid.length, items: paid.reduce((sum,s) => sum + s.items.reduce((n,i) => n + i.quantity,0),0), average: paid.length ? Math.round(total / paid.length) : 0, methods, daily, topProducts: [...products.values()].sort((a,b) => b.quantity - a.quantity).slice(0,8), sales: rows, scope: 'POS sales recorded by this app; not all online-store orders.' });
+    for (const sale of active) for (const item of sale.items) { const key = `${item.productId}:${item.variationId}`; const p = products.get(key) || { name: item.name, label: item.label, quantity: 0, total: 0 }; p.quantity += item.quantity; p.total += item.total; products.set(key,p); }
+    res.json({ days, since: since.toISOString(), total, gross, refunded, orders: rows.length, activeOrders: active.length, refundedOrders: rows.length - active.length, items: active.reduce((sum,s) => sum + s.items.reduce((n,i) => n + i.quantity,0),0), average: rows.length ? Math.round(total / rows.length) : 0, methods, daily, topProducts: [...products.values()].sort((a,b) => b.quantity - a.quantity).slice(0,8), sales: rows, scope: 'POS sales recorded by this app; not all online-store orders.' });
   });
   app.get('/api/reports/export', auth, role('owner', 'manager'), (req, res) => {
     const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
     const since = new Date(); since.setUTCHours(0,0,0,0); since.setUTCDate(since.getUTCDate() - days + 1);
-    const rows = sales.list(req.user, 10000).filter(s => s.status === 'paid' && s.paidAt && new Date(s.paidAt) >= since);
-    const cell = value => { let text = String(value ?? ''); if (/^[=+@\-\t\r]/.test(text)) text = `'${text}`; return `"${text.replaceAll('"','""')}"`; };
-    const csv = [['Receipt','WooCommerce order','Paid at (UTC)','Cashier','Shift','Payment method','External reference','Gross GHS','Refunded GHS','Net GHS','Mode'], ...rows.map(s => [s.number,s.wooOrderId || '',s.paidAt,s.cashierName,s.shiftId || '',s.paymentMethod,s.paymentReference,(s.total/100).toFixed(2),((s.refunded||0)/100).toFixed(2),((s.total-(s.refunded||0))/100).toFixed(2),config.mode])].map(row => row.map(cell).join(',')).join('\r\n');
+    const rows = reportRows(req.user, since);
+    // eslint-disable-next-line no-control-regex -- CSV formula hardening intentionally strips control characters.
+    const cell = value => { let text = String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); if (/^[\s]*[=+@\-\t\r]/.test(text)) text = `'${text}`; return `"${text.replaceAll('"','""')}"`; };
+    const csv = [['Receipt','WooCommerce order','Paid at (UTC)','Cashier','Shift','Payment method','External reference','Status','Gross GHS','Refunded GHS','Net GHS','Mode'], ...rows.map(s => [s.number,s.wooOrderId || '',s.paidAt,s.cashierName,s.shiftId || '',s.paymentMethod,s.paymentReference,s.status,(s.total/100).toFixed(2),((s.refunded||0)/100).toFixed(2),((s.total-(s.refunded||0))/100).toFixed(2),config.mode])].map(row => row.map(cell).join(',')).join('\r\n');
     audit(db, req.user.id, 'reports.export', `${rows.length} rows`);
     res.type('text/csv').attachment(`mansu-pos-${config.mode}-${now().slice(0,10)}.csv`).send(csv);
   });
@@ -257,7 +275,7 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   });
 
   app.use('/api', (req, res, next) => next(new AppError('API endpoint not found.', 404)));
-  app.use((error, req, res, next) => {
+  app.use((error, req, res, _next) => {
     if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '), code: 'VALIDATION_ERROR' });
     if (error.type === 'entity.too.large') return res.status(413).json({ error: 'Request is too large.' });
     if (error instanceof SyntaxError && 'body' in error) return res.status(400).json({ error: 'Invalid JSON request.' });

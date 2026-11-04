@@ -1,6 +1,6 @@
 import { demoProducts, demoLine, SNAPSHOT_DATE } from './demo-catalog.js';
 import { fetchLiveCatalog, freshLine } from './woocommerce.js';
-import { AppError, RemoteError } from './errors.js';
+import { AppError } from './errors.js';
 
 export class Catalog {
   constructor(db, api, config) { this.db = db; this.api = api; this.config = config; this.cache = null; this.refreshing = null; }
@@ -61,13 +61,21 @@ export class Catalog {
 
 export function validateAvailability(lines) {
   const grouped = new Map();
+  const soldIndividually = new Map();
   for (const line of lines) {
     if (!line.purchasable) throw new AppError(`${line.name} is not available for sale.`, 409);
-    if (line.soldIndividually && line.quantity > 1) throw new AppError(`${line.name} can only be sold one at a time.`, 409);
+    if (line.parentStockStatus === 'outofstock') throw new AppError(`${line.name} is out of stock at the parent product level.`, 409, 'INSUFFICIENT_STOCK');
+    if (line.soldIndividually) {
+      const quantity = (soldIndividually.get(line.productId)?.quantity || 0) + line.quantity;
+      soldIndividually.set(line.productId, { quantity, line });
+    }
     if (line.manageStock || ['outofstock', 'onbackorder'].includes(line.stockStatus)) {
       const quantity = (grouped.get(line.stockKey)?.quantity || 0) + line.quantity;
       grouped.set(line.stockKey, { quantity, line });
     }
+  }
+  for (const { line, quantity } of soldIndividually.values()) {
+    if (quantity > 1) throw new AppError(`${line.name} can only be sold one at a time.`, 409);
   }
   for (const { line, quantity } of grouped.values()) {
     const backorders = line.backorders === 'yes' ? Infinity : 0;

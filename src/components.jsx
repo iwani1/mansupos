@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { X, LoaderCircle, Check, AlertCircle, ShoppingBag, Shirt, Banknote, Smartphone, CreditCard, SearchX } from 'lucide-react';
 import { money, methodLabel, statusLabel } from './api.js';
 
@@ -9,8 +9,9 @@ export function Spinner({ label = 'Loading…' }) { return <div className="loadi
 export function ProductImage({ src, name, className = '' }) { return <div className={`product-image ${className}`}>{src ? <img src={src} alt={name} loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} /> : null}<Shirt className="image-fallback" size={44} strokeWidth={1} /></div>; }
 export function PaymentIcon({ method, size = 19 }) { const Icon = method === 'cash' ? Banknote : method === 'momo' ? Smartphone : CreditCard; return <Icon size={size} strokeWidth={1.7} />; }
 export function MethodBadge({ method }) { return method ? <span className="method-label"><PaymentIcon method={method} size={15} />{methodLabel[method]}</span> : <span className="muted">Not recorded</span>; }
-export function StatusBadge({ status }) { return <Badge dot tone={status === 'paid' ? 'green' : status === 'needs_reconciliation' || status === 'failed' ? 'red' : status === 'cancelled' ? 'neutral' : 'amber'}>{statusLabel[status] || status}</Badge>; }
+export function StatusBadge({ status }) { return <Badge dot tone={status === 'paid' ? 'green' : status === 'needs_reconciliation' || status === 'failed' ? 'red' : status === 'cancelled' || status === 'refunded' ? 'neutral' : status === 'partially_refunded' ? 'amber' : 'amber'}>{statusLabel[status] || status}</Badge>; }
 export function Modal({ title, subtitle, children, onClose, wide = false, busy = false, className = '' }) {
+  const titleId = useId();
   const ref = useRef(null);
   const closeRef = useRef(onClose);
   const busyRef = useRef(busy);
@@ -33,7 +34,7 @@ export function Modal({ title, subtitle, children, onClose, wide = false, busy =
     document.addEventListener('keydown', key);
     return () => { clearTimeout(timer); document.body.style.overflow = overflow; document.removeEventListener('keydown', key); previous?.focus?.(); };
   }, []);
-  return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}><section ref={ref} className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-labelledby="dialog-title"><header className="modal-header"><div><h2 id="dialog-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div><IconButton icon={X} label="Close dialog" onClick={onClose} disabled={busy} /></header>{children}</section></div>;
+  return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}><section ref={ref} className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-labelledby={titleId}><header className="modal-header"><div><h2 id={titleId}>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><IconButton icon={X} label="Close dialog" onClick={onClose} disabled={busy} /></header>{children}</section></div>;
 }
 export function Notice({ children, tone = 'info', icon: Icon = AlertCircle }) { return <div className={`notice ${tone}`}><Icon size={18} /><div>{children}</div></div>; }
 export function PageHeading({ eyebrow, title, description, children }) { return <div className="page-heading"><div>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h1>{title}</h1>{description && <p>{description}</p>}</div><div className="heading-actions">{children}</div></div>; }

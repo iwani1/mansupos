@@ -149,6 +149,7 @@ export async function freshLine(api, productId, variationId) {
     productId, variationId: variationId || 0, name: p.name, label: variant?.label || '',
     sku: source.sku, barcode: source.barcode, image: source.image, price: source.price,
     manageStock: source.manageStock, stock: source.stock, stockStatus: source.stockStatus,
+    parentStockStatus: variant ? mapped.stockStatus : undefined,
     backorders: source.backorders, purchasable: source.purchasable, soldIndividually: mapped.soldIndividually,
   };
 }

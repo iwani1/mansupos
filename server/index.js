@@ -6,6 +6,16 @@ import { createApp } from './app.js';
 import { APP_VERSION } from './config.js';
 
 const { app, config, db, sales, logger } = createApp();
+const lockFile = path.join(config.dataDir, `pos-${config.mode}.lock`);
+if (fs.existsSync(lockFile)) {
+  let existingPid = Number.NaN;
+  try { existingPid = Number(JSON.parse(fs.readFileSync(lockFile, 'utf8')).pid); } catch {}
+  if (Number.isInteger(existingPid) && existingPid > 0) {
+    try { process.kill(existingPid, 0); throw new Error(`Another POS instance appears to be using this data directory (pid ${existingPid}).`); }
+    catch (error) { if (error.code !== 'ESRCH') throw error; }
+  }
+}
+fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }), { mode: 0o600 });
 const server = createServer(app);
 server.requestTimeout = 30000;
 server.headersTimeout = 35000;
@@ -16,9 +26,12 @@ if (config.production) {
   if (!fs.existsSync(path.join(dist, 'index.html'))) throw new Error('Production build missing. Run npm run build before npm start.');
   app.use(express.static(dist, {
     index: false,
-    maxAge: '1y',
-    immutable: true,
-    setHeaders(res, filePath) { if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); },
+    maxAge: 0,
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+      else if (filePath.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      else res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
+    },
   }));
   app.get('/{*path}', (req, res) => res.sendFile(path.join(dist, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
 } else {
@@ -60,6 +73,7 @@ function shutdown(signal) {
   force.unref();
   server.close(() => {
     try { db.exec('PRAGMA wal_checkpoint(TRUNCATE);'); db.close(); } catch {}
+    try { fs.rmSync(lockFile, { force: true }); } catch {}
     logger.info({ msg: 'server.stopped' });
     process.exit(0);
   });

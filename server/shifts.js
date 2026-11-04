@@ -27,17 +27,21 @@ export class ShiftService {
   expectedCash(shiftId) {
     const shift = this.db.prepare('SELECT * FROM shifts WHERE id=?').get(shiftId);
     if (!shift) return 0;
-    const sales = this.db.prepare("SELECT COALESCE(SUM(total - refunded),0) AS total FROM sales WHERE shift_id=? AND status='paid' AND payment_method='cash'").get(shiftId).total;
+    if (shift.status !== 'open') return shift.expected_cash ?? 0;
+    const sales = this.db.prepare("SELECT COALESCE(SUM(total - refunded),0) AS total FROM sales WHERE shift_id=? AND status IN ('paid','partially_refunded','refunded') AND payment_method='cash'").get(shiftId).total;
     const movements = this.db.prepare("SELECT COALESCE(SUM(CASE WHEN type='in' THEN amount ELSE -amount END),0) AS total FROM cash_movements WHERE shift_id=?").get(shiftId).total;
     return shift.opening_float + sales + movements;
   }
-  view(row) {
-    const expected = this.expectedCash(row.id);
-    const summary = this.db.prepare(`SELECT COUNT(*) AS orders, COALESCE(SUM(total - refunded),0) AS net,
+  summary(shiftId) {
+    return this.db.prepare(`SELECT COUNT(*) AS orders, COALESCE(SUM(total - refunded),0) AS net,
       COALESCE(SUM(CASE WHEN payment_method='cash' THEN total - refunded ELSE 0 END),0) AS cash,
       COALESCE(SUM(CASE WHEN payment_method='momo' THEN total - refunded ELSE 0 END),0) AS momo,
       COALESCE(SUM(CASE WHEN payment_method='card' THEN total - refunded ELSE 0 END),0) AS card
-      FROM sales WHERE shift_id=? AND status='paid'`).get(row.id);
+      FROM sales WHERE shift_id=? AND status IN ('paid','partially_refunded','refunded')`).get(shiftId);
+  }
+  view(row) {
+    const expected = this.expectedCash(row.id);
+    const summary = row.status === 'closed' && row.summary_json ? JSON.parse(row.summary_json) : this.summary(row.id);
     const movements = this.db.prepare('SELECT * FROM cash_movements WHERE shift_id=? ORDER BY created_at').all(row.id);
     return {
       id: row.id, userId: row.user_id, userName: row.user_name, status: row.status,
@@ -62,8 +66,9 @@ export class ShiftService {
     if (pending) throw new AppError(`${pending} sale(s) still need payment or reconciliation. Resolve them before closing the shift.`, 409);
     const expected = this.expectedCash(id);
     const variance = input.closingCash - expected;
-    this.db.prepare("UPDATE shifts SET status='closed',closing_cash=?,expected_cash=?,variance=?,note=?,closed_at=? WHERE id=?")
-      .run(input.closingCash, expected, variance, input.note || row.note, now(), id);
+    const summary = this.summary(id);
+    this.db.prepare("UPDATE shifts SET status='closed',closing_cash=?,expected_cash=?,variance=?,note=?,closed_at=?,summary_json=? WHERE id=?")
+      .run(input.closingCash, expected, variance, input.note || row.note, now(), JSON.stringify(summary), id);
     audit(this.db, user.id, 'shift.closed', `${id}:variance=${variance}`);
     return this.view(this.db.prepare('SELECT * FROM shifts WHERE id=?').get(id));
   }

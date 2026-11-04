@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { demoProducts } from './demo-catalog.js';
 
+export const SCHEMA_VERSION = 3;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
@@ -59,6 +60,16 @@ function migrate(db) {
       CREATE INDEX IF NOT EXISTS idx_shifts_user_status ON shifts(user_id, status);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_shift_per_user ON shifts(user_id) WHERE status='open';
     `),
+    () => db.exec(`
+      ALTER TABLE sales ADD COLUMN prepared_total INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sales ADD COLUMN last_reconciled_at TEXT;
+      ALTER TABLE sales ADD COLUMN reconcile_attempts INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE shifts ADD COLUMN summary_json TEXT;
+      CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_sales_recovery ON sales(cashier_id, fingerprint, status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_sales_reconcile ON sales(status, last_reconciled_at);
+      UPDATE sales SET prepared_total=total WHERE prepared_total=0;
+    `),
   ];
   for (let version = current + 1; version <= migrations.length; version++) {
     db.exec('BEGIN IMMEDIATE');
@@ -94,6 +105,8 @@ export function openDatabase(config) {
         .run(randomUUID(), config.ownerUsername, 'Store Owner', 'owner', hashPassword(config.ownerPassword), new Date().toISOString());
     }
   }
+  db.prepare('INSERT INTO app_meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('mode', config.mode);
+  db.prepare('INSERT INTO app_meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('schema_version', String(SCHEMA_VERSION));
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   return db;
 }

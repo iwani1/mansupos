@@ -2,6 +2,7 @@ name: CI
 on:
   push:
   pull_request:
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -14,5 +15,62 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=high
       - run: npm run preflight
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Start isolated demo
+        run: |
+          nohup env POS_MODE=demo PORT=3000 npm run dev > /tmp/mansu-pos.log 2>&1 &
+          echo $! > /tmp/mansu-pos.pid
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/api/health > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/mansu-pos.log
+          exit 1
+      - run: npm run test:browser
+      - run: npm run test:a11y
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-results
+          path: |
+            test-results/
+            /tmp/mansu-pos.log
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build -t mansu-pos:ci .
+      - name: Smoke test container
+        run: |
+          docker run -d --name mansu-pos-ci -e POS_MODE=demo -e PORT=3000 -p 3000:3000 mansu-pos:ci
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/api/health > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker logs mansu-pos-ci
+          exit 1

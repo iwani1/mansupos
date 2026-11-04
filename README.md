@@ -6,7 +6,7 @@ A working, mobile-friendly point-of-sale application for **MansutRENDZGH**, desi
 
 The live preview runs in **isolated demo mode**. It does not create orders, change stock, send receipts, or collect money on mansutrendzgh.com.
 
-The codebase includes production-oriented controls (shifts, audit, lockout, idle sessions, reconciliation sweep, diagnostics, migrations, backup/restore, preflight, Docker/Caddy/systemd/nginx examples, and CI). **A full application audit on 4 November 2026 found release blockers; see [docs/AUDIT-2026-11-04.md](docs/AUDIT-2026-11-04.md).** Do not enable live writes until the audit blockers are fixed and re-tested. Production deployment still requires an approved staging clone, server-side credentials, hardware verification, and the live write gate.
+The codebase includes production-oriented controls (shifts, audit, lockout, idle sessions, reconciliation sweep, diagnostics, migrations, backup/restore, preflight, Docker/Caddy/systemd/nginx examples, and CI). **A full application audit on 4 November 2026 found release blockers; the code remediation and regression tests are documented in [docs/AUDIT-2026-11-04.md](docs/AUDIT-2026-11-04.md).** Do not enable live writes until staging acceptance, hardware verification, backups, and owner approval are complete. Production deployment still requires an approved staging clone, server-side credentials, hardware verification, and the live write gate.
 
 - Product names, prices, IDs, and source image URLs were sampled read-only from the public WooCommerce Store API on **3 November 2026**.
 - Demo quantities, `DEMO-` barcode aliases, register categories, and sample transactions are not live store data.
@@ -50,7 +50,9 @@ Open `http://localhost:3000`. The default configuration is demo mode; no credent
 ```bash
 npm test                 # backend and mocked WooCommerce integration tests
 npm run build            # production frontend build
-npm run test:browser     # browser workflow tests; expects the dev server on port 3000
+npm run test:browser     # browser workflow + lost-response recovery; expects port 3000
+npm run test:a11y        # axe WCAG A/AA + best-practice scans; expects port 3000
+npm run lint             # ESLint
 npm run backup           # consistent SQLite backup + integrity check
 ```
 
@@ -73,8 +75,10 @@ The short version:
 
 ## Verification
 
-- `npm test`: 15 backend/mocked WooCommerce integration tests pass.
-- `npm run test:browser`: full demo register → checkout → receipt → scanner → hold/resume → reports/staff/shifts/audit/diagnostics/mobile flow passes.
+- `npm test`: 30 backend/mocked WooCommerce/restore regression tests pass.
+- `npm run test:browser`: full demo register → checkout → receipt → scanner → hold/resume → reports/staff/shifts/audit/diagnostics/mobile flow, plus lost-prepare-response recovery, passes.
+- `npm run test:a11y`: axe WCAG A/AA + best-practice scans and 320px overflow check pass.
+- `npm run lint`: ESLint passes.
 - Receipt PDF was checked for one-page layout and extractable receipt text.
 - `npm run build`: production frontend build passes.
 - `npm run preflight`: configuration/build/data-directory/gate checks pass.

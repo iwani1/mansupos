@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Search, ScanLine, RefreshCw, Plus, Minus, Trash2, ShoppingBag, ArrowRight, X, Pause, Play, ChevronDown, ChevronRight, UserRound, StickyNote, Check, WifiOff, LayoutGrid, List, SlidersHorizontal, PackageCheck, CircleHelp, Banknote, ShieldCheck } from 'lucide-react';
+import { Search, ScanLine, RefreshCw, Plus, Minus, Trash2, ShoppingBag, ArrowRight, X, Pause, Play, UserRound, StickyNote, Check, WifiOff, LayoutGrid, List, Banknote, ShieldCheck } from 'lucide-react';
 import { api, money, uuid } from './api.js';
 import { IconButton, Badge, ProductImage, Empty, Modal, Notice, PageHeading, NoResults } from './components.jsx';
 
-export default function Register({ active = true, catalog, config, refresh, notify, onPrepared, onOpenSales, savedCarts, setSavedCarts, setHelp, shift, onOpenShift }) {
+export default function Register({ active = true, catalog, config, checkoutScope, refresh, notify, onPrepared, onOpenSales, savedCarts, setSavedCarts, setHelp, shift, onOpenShift }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All products');
   const [stockOnly, setStockOnly] = useState(false);
@@ -23,8 +23,9 @@ export default function Register({ active = true, catalog, config, refresh, noti
   const [online, setOnline] = useState(navigator.onLine);
   const searchRef = useRef(null);
   const checkoutKey = useRef(uuid());
+  const checkoutStorageKey = `mansu-checkout-${checkoutScope || `${config.mode}-anonymous`}`;
   const scanBuffer = useRef({ value: '', time: 0 });
-  const products = catalog?.products || [];
+  const products = useMemo(() => catalog?.products || [], [catalog]);
   const categories = ['All products', ...new Set(products.map(p => p.category))];
   const available = line => line.purchasable && line.stockStatus !== 'outofstock' && (!line.manageStock || line.stock == null || line.stock > 0);
   const productStock = p => p.type === 'variable' ? p.variations.reduce((sum,v) => sum + (v.manageStock ? Math.max(0, v.stock || 0) : 0),0) : p.stock;
@@ -36,7 +37,23 @@ export default function Register({ active = true, catalog, config, refresh, noti
   const count = cart.reduce((sum,item) => sum + item.quantity, 0);
 
   useEffect(() => { const on = () => setOnline(true), off = () => setOnline(false); window.addEventListener('online', on); window.addEventListener('offline', off); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); }; }, []);
-  useEffect(() => { checkoutKey.current = uuid(); setError(''); }, [cart, note]);
+  const cartFingerprint = useMemo(() => JSON.stringify({ note: note.trim(), items: [...cart].sort((a,b) => a.productId - b.productId || a.variationId - b.variationId).map(({productId,variationId,quantity}) => ({productId,variationId,quantity})) }), [cart, note]);
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(checkoutStorageKey) || 'null');
+      if (stored?.fingerprint === cartFingerprint && stored.key) checkoutKey.current = stored.key;
+      else checkoutKey.current = uuid();
+    } catch { checkoutKey.current = uuid(); }
+    setError('');
+  }, [cartFingerprint, checkoutStorageKey]);
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(checkoutStorageKey) || 'null');
+      if (stored?.uncertain && stored.fingerprint === cartFingerprint) setError('A previous checkout for this cart was interrupted. Retry safely with the same checkout key, or review Sales before starting another order.');
+    } catch {}
+    // Mount-only recovery notice for the initial cart fingerprint.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     const key = e => {
       if (!active) return;
@@ -102,10 +119,24 @@ export default function Register({ active = true, catalog, config, refresh, noti
   async function checkout() {
     if (!cart.length || busy) return;
     setBusy(true); setError('');
+    const attempt = { key: checkoutKey.current, fingerprint: cartFingerprint, uncertain: false };
+    try { sessionStorage.setItem(checkoutStorageKey, JSON.stringify(attempt)); } catch {}
     try {
       const { sale } = await api('/sales/prepare', { method: 'POST', body: { idempotencyKey: checkoutKey.current, items: cart.map(({productId,variationId,quantity}) => ({productId,variationId,quantity})), note } });
+      try { sessionStorage.removeItem(checkoutStorageKey); } catch {}
       onPrepared(sale); setCart([]); setNote(''); setMobileCart(false); refresh();
-    } catch (e) { setError(e.message); if (e.code === 'RECONCILIATION_REQUIRED') onOpenSales(); else checkoutKey.current = uuid(); }
+    } catch (e) {
+      const uncertain = !e.status || e.status >= 500 || e.code === 'RECONCILIATION_REQUIRED' || e.code === 'SALE_BUSY';
+      if (uncertain) {
+        try { sessionStorage.setItem(checkoutStorageKey, JSON.stringify({ ...attempt, uncertain: true })); } catch {}
+        setError(e.code === 'RECONCILIATION_REQUIRED' ? e.message : 'Checkout was interrupted. Retry safely with the same checkout key, or review Sales before creating another order.');
+        if (e.code === 'RECONCILIATION_REQUIRED') onOpenSales();
+      } else {
+        try { sessionStorage.removeItem(checkoutStorageKey); } catch {}
+        checkoutKey.current = uuid();
+        setError(e.message);
+      }
+    }
     finally { setBusy(false); }
   }
   const shiftRequired = config.requireShift && config.mode !== 'demo';
@@ -123,11 +154,14 @@ export default function Register({ active = true, catalog, config, refresh, noti
         <div className="catalog-search-row"><form className="search-field" onSubmit={searchSubmit}><Search size={20} /><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search products, scan a barcode, or enter SKU…" aria-label="Search products or SKU" />{query ? <button type="button" aria-label="Clear search" onClick={() => setQuery('')}><X size={16} /></button> : <kbd>/</kbd>}</form><IconButton icon={RefreshCw} label="Refresh catalogue" onClick={refresh} /></div>
         <div className="category-tabs" role="tablist" aria-label="Product categories">{categories.map(c => <button role="tab" aria-selected={category === c} className={category === c ? 'active' : ''} key={c} onClick={() => setCategory(c)}>{c}{c === 'All products' && <span>{products.length}</span>}</button>)}</div>
         <div className="catalog-meta"><span><strong>{filtered.length}</strong> products <span className="muted">· {config.mode === 'demo' ? 'Sample catalogue' : 'WooCommerce catalogue'}</span></span><div><label className="check-label"><input type="checkbox" checked={stockOnly} onChange={e => setStockOnly(e.target.checked)} />In stock only</label><div className="view-switch"><IconButton icon={LayoutGrid} label="Grid view" className={view === 'grid' ? 'active' : ''} onClick={() => setView('grid')} /><IconButton icon={List} label="List view" className={view === 'list' ? 'active' : ''} onClick={() => setView('list')} /></div></div></div>
+        <h2 className="sr-only">Products</h2>
         {!filtered.length ? <NoResults clear={() => { setQuery(''); setCategory('All products'); setStockOnly(false); }} /> : <div className={`product-grid ${view === 'list' ? 'list-view' : ''}`}>{filtered.map(p => {
           const inStock = available(p); const qty = productStock(p); const inCart = cart.filter(i => i.productId === p.id).reduce((n,i) => n + i.quantity,0);
-          return <button key={p.id} className={`product-card ${!inStock ? 'unavailable' : ''}`} onClick={() => selectProduct(p)} disabled={!inStock} aria-label={`Add ${p.name} to sale`}>
-            <div className="product-photo-wrap"><ProductImage src={p.image} name={p.name} />{config.mode === 'demo' && <span className="image-credit">Demo image</span>}{p.type === 'variable' && <span className="variant-tag">{p.variations.length} sizes</span>}{inCart > 0 && <span className="in-cart-tag"><Check size={12} />{inCart} in sale</span>}{!inStock && <span className="sold-out-overlay">Out of stock</span>}</div>
-            <div className="product-info"><span className="product-category">{p.category}</span><h3>{p.name}</h3><div className="product-bottom"><strong>{money(p.price)}</strong><span className="product-add"><Plus size={18} /></span></div><div className={`stock-caption ${qty !== null && qty <= config.lowStockThreshold ? 'low' : ''}`}><span className="status-dot" />{!inStock ? 'Out of stock' : !p.manageStock && p.type === 'simple' ? 'Stock not tracked' : config.mode === 'demo' ? `${qty} in demo stock` : p.manageStock ? `${qty} in stock` : 'Stock not tracked'}</div></div>
+          const stockText = !inStock ? 'Out of stock' : !p.manageStock && p.type === 'simple' ? 'Stock not tracked' : config.mode === 'demo' ? `${qty} in demo stock` : p.manageStock ? `${qty} in stock` : 'Stock not tracked';
+          return <button key={p.id} className={`product-card ${!inStock ? 'unavailable' : ''}`} onClick={() => selectProduct(p)} disabled={!inStock}>
+            <span className="sr-only">Add to sale: </span>
+            <div className="product-photo-wrap" aria-hidden="true"><ProductImage src={p.image} name={p.name} />{config.mode === 'demo' && <span className="image-credit">Demo image</span>}{p.type === 'variable' && <span className="variant-tag">{p.variations.length} sizes</span>}{inCart > 0 && <span className="in-cart-tag"><Check size={12} />{inCart} in sale</span>}{!inStock && <span className="sold-out-overlay">Out of stock</span>}</div>
+            <div className="product-info"><span className="product-category">{p.category}</span><h3>{p.name}</h3><div className="product-bottom"><strong>{money(p.price)}</strong><span className="product-add" aria-hidden="true"><Plus size={18} /></span></div><div className={`stock-caption ${qty !== null && qty <= config.lowStockThreshold ? 'low' : ''}`}><span className="status-dot" aria-hidden="true" />{stockText}</div></div>
           </button>;
         })}</div>}
         <div className="catalog-footer"><ShieldCheck size={15} /><span>{config.mode === 'demo' ? 'Store product details. Illustrative demo images and sample stock. No live changes.' : 'Inventory is owned by WooCommerce. No separate product database.'}</span><button onClick={setHelp}>Quick guide <ArrowRight size={13} /></button></div>

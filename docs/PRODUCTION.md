@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-This application includes production-oriented controls, but **production deployment is not complete until the blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) are fixed, staging acceptance passes, hardware is verified, backups are tested, and written owner approval is recorded**. Do not paste secrets into chat or commit them.
+This application includes production-oriented controls. The code blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) have been remediated and regression-tested, but **production deployment is not complete until staging acceptance passes, hardware is verified, backups are tested off-host, and written owner approval is recorded**. Do not paste secrets into chat or commit them.
 
 ## 1. Prerequisites
 

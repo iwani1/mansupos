@@ -13,7 +13,7 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
 COPY --chown=node:node server ./server
-COPY --chown=node:node dist ./dist
+COPY --from=build --chown=node:node /app/dist ./dist
 RUN mkdir -p /var/lib/mansu-pos && chown node:node /var/lib/mansu-pos
 USER node
 EXPOSE 3000
