@@ -5,14 +5,13 @@ on:
 
 permissions:
   contents: read
-  checks: write
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -23,10 +22,10 @@ jobs:
       - run: npm run preflight
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -34,10 +33,10 @@ jobs:
       - run: npm run lint
 
   browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -47,7 +46,7 @@ jobs:
         run: |
           node node_modules/playwright-core/cli.js install --with-deps chromium
           echo "TEST_CHROMIUM_PATH=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
-      - name: Start isolated demo
+      - name: Start isolated production demo
         run: |
           nohup env POS_MODE=demo PORT=3000 POS_DATA_DIR="$RUNNER_TEMP/mansu-browser-data" npm start > /tmp/mansu-pos.log 2>&1 &
           echo $! > /tmp/mansu-pos.pid
@@ -59,65 +58,30 @@ jobs:
           exit 1
       - run: npm run test:browser
       - run: npm run test:a11y
-      - name: Diagnostics on failure
+      - name: Collect browser diagnostics
         if: failure()
-        run: |
-          echo '--- server log ---'
-          cat /tmp/mansu-pos.log || true
-          echo '--- test results ---'
-          ls -la test-results || true
-          for f in test-results/*.json; do echo "--- $f"; cat "$f"; done || true
-          {
-            echo '## Browser failure diagnostics'
-            echo '### Server log'
-            echo '```'
-            tail -200 /tmp/mansu-pos.log || true
-            echo '```'
-            echo '### Test result files'
-            echo '```'
-            ls -la test-results || true
-            for f in test-results/*.json; do echo "--- $f"; cat "$f"; done || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Publish diagnostics check run
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          import json, os, pathlib, urllib.request
-          parts = []
-          log = pathlib.Path('/tmp/mansu-pos.log')
-          if log.exists(): parts.append('### Server log\n```\n' + '\n'.join(log.read_text(errors='replace').splitlines()[-200:]) + '\n```')
-          results = pathlib.Path('test-results')
-          if results.exists():
-            parts.append('### Test result files\n```\n' + '\n'.join(str(p) for p in results.iterdir()) + '\n```')
-            for f in results.glob('*.json'):
-              parts.append(f'### {f.name}\n```json\n' + f.read_text(errors='replace')[:20000] + '\n```')
-          body = '\n\n'.join(parts)[:60000] or 'No diagnostics files found.'
-          payload = {'name':'Browser diagnostics','head_sha':os.environ['GITHUB_SHA'],'status':'completed','conclusion':'failure','output':{'title':'Browser CI failure diagnostics','summary':body}}
-          req = urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/check-runs", data=json.dumps(payload).encode(), headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'}, method='POST')
-          print(urllib.request.urlopen(req).read().decode()[:500])
-          PY
-      - uses: actions/upload-artifact@v4
+        run: cp /tmp/mansu-pos.log test-results/server.log || true
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: browser-test-results
-          path: |
-            test-results/
-            /tmp/mansu-pos.log
+          path: test-results/
 
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build production image
         run: docker build -t mansu-pos:ci .
       - name: Smoke test container
         run: |
+          trap 'docker rm -f mansu-pos-ci >/dev/null 2>&1 || true' EXIT
           docker run -d --name mansu-pos-ci -e POS_MODE=demo -e PORT=3000 -p 3000:3000 mansu-pos:ci
           for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:3000/api/health > /dev/null; then exit 0; fi
+            if curl -fsS http://127.0.0.1:3000/api/health > /dev/null; then
+              curl -fsS http://127.0.0.1:3000/ | grep -q '/assets/index-'
+              exit 0
+            fi
             sleep 1
           done
           docker logs mansu-pos-ci

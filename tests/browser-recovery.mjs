@@ -33,6 +33,14 @@ try {
   await page.getByRole('button', { name: /Charge GH/ }).click();
   await page.locator('.cart-bottom .notice.error').waitFor();
   await page.unroute('**/api/sales/prepare');
+  // Rebuild the same cart after a reload: the persisted checkout key must still be reused.
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
+  await page.locator('.product-card:not([disabled])').filter({ hasText: target.name }).click();
+  if (target.variable) {
+    await page.locator('.size-options button:not([disabled])').first().click();
+    await page.getByRole('dialog').getByRole('button', { name: /Add to sale/ }).click();
+  }
   await page.getByRole('button', { name: /Charge GH/ }).click();
   await page.getByRole('heading', { name: 'Complete payment' }).waitFor();
   const after = await page.evaluate(async () => (await (await fetch('/api/sales', { credentials: 'same-origin' })).json()).sales.map(s => s.id));
@@ -40,7 +48,12 @@ try {
   if (newIds.length !== 1) throw new Error(`Lost-response retry created ${newIds.length} sales, expected 1`);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.evaluate(async id => { await fetch(`/api/sales/${id}/cancel`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' }); }, newIds[0]);
-  console.log('PASS: lost prepare response retried safely with one sale.');
+  console.log('PASS: lost prepare response recovered after reload with one sale.');
+  await page.route('**/api/catalog*', route => route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'Sign in to continue.' }) }));
+  await page.getByRole('button', { name: 'Refresh catalogue', exact: true }).click();
+  await page.getByRole('heading', { name: 'Open your register.' }).waitFor();
+  if (await page.locator('.cart-panel').count()) throw new Error('Expired session left the authenticated register visible.');
+  console.log('PASS: expired session clears the authenticated register.');
 } catch (error) {
   await recordFailure(page, error, 'recovery-failure', pageErrors);
   process.exitCode = 1;

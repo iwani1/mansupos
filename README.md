@@ -81,6 +81,7 @@ The short version:
 - `npm run lint`: ESLint passes.
 - Receipt PDF was checked for one-page layout and extractable receipt text.
 - `npm run build`: production frontend build passes.
+- GitHub Actions: backend, lint, production-browser/recovery/accessibility, and clean Docker build/smoke jobs pass.
 - `npm run preflight`: configuration/build/data-directory/gate checks pass.
 - `npm audit --omit=dev`: no known production dependency vulnerabilities at the time of the build.
 - `npm run backup` and guarded `npm run restore`: SQLite online backup, restore, and integrity check pass in an isolated test directory.
