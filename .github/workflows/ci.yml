@@ -59,6 +59,18 @@ jobs:
           echo '--- test results ---'
           ls -la test-results || true
           for f in test-results/*.json; do echo "--- $f"; cat "$f"; done || true
+          {
+            echo '## Browser failure diagnostics'
+            echo '### Server log'
+            echo '```'
+            tail -200 /tmp/mansu-pos.log || true
+            echo '```'
+            echo '### Test result files'
+            echo '```'
+            ls -la test-results || true
+            for f in test-results/*.json; do echo "--- $f"; cat "$f"; done || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
