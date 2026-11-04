@@ -49,7 +49,7 @@ jobs:
           echo "TEST_CHROMIUM_PATH=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
       - name: Start isolated demo
         run: |
-          nohup env POS_MODE=demo PORT=3000 npm run dev > /tmp/mansu-pos.log 2>&1 &
+          nohup env POS_MODE=demo PORT=3000 POS_DATA_DIR="$RUNNER_TEMP/mansu-browser-data" npm start > /tmp/mansu-pos.log 2>&1 &
           echo $! > /tmp/mansu-pos.pid
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3000/api/health > /dev/null; then exit 0; fi

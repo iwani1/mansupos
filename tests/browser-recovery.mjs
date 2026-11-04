@@ -1,19 +1,5 @@
-import { chromium as playwright } from 'playwright-core';
-import chromium from '@sparticuz/chromium';
-import fs from 'node:fs';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const base = process.env.TEST_BASE_URL || 'http://127.0.0.1:3000';
-fs.mkdirSync('test-results', { recursive: true });
-let browser;
-if (process.env.TEST_CHROMIUM_PATH) {
-  browser = await playwright.launch({ executablePath: process.env.TEST_CHROMIUM_PATH, args: ['--no-sandbox', '--disable-dev-shm-usage'], headless: true });
-} else {
-  await require('@sparticuz/chromium/build/lambdafs.js').default.inflate(process.cwd() + '/node_modules/@sparticuz/chromium/bin/al2023.tar.br');
-  process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib${process.env.LD_LIBRARY_PATH ? ':' + process.env.LD_LIBRARY_PATH : ''}`;
-  browser = await playwright.launch({ executablePath: await chromium.executablePath(), args: chromium.args, headless: true });
-}
-const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+import { openBrowser, recordFailure, testBase as base } from './browser-helpers.mjs';
+const { browser, page, pageErrors } = await openBrowser();
 const created = [];
 try {
   await page.goto(base, { waitUntil: 'networkidle' });
@@ -56,8 +42,7 @@ try {
   await page.evaluate(async id => { await fetch(`/api/sales/${id}/cancel`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' }); }, newIds[0]);
   console.log('PASS: lost prepare response retried safely with one sale.');
 } catch (error) {
-  await page.screenshot({ path: 'test-results/recovery-failure.png', fullPage: true });
-  console.error(error);
+  await recordFailure(page, error, 'recovery-failure', pageErrors);
   process.exitCode = 1;
 } finally {
   for (const id of created) {
