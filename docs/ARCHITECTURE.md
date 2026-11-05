@@ -10,7 +10,7 @@
 
 ## Source of truth
 
-WooCommerce owns the live product catalogue, prices, taxes, stock, and orders. The POS keeps a read cache for display, but checkout fetches fresh product/variation availability. The browser never receives WooCommerce credentials and never chooses the authoritative live total.
+WooCommerce owns the live product catalogue, prices, taxes, stock, and orders. The POS keeps a read cache for display, but checkout fetches fresh product/variation availability. Variations reporting parent-managed stock share a single quantity in cart validation; independently managed variations remain separate. Unknown stock ownership or a missing required quantity fails closed. Both WooCommerce backorder policies are recognized; the register prompts staff to notify the customer for `notify` (it does not send a notification). The browser never receives WooCommerce credentials and never chooses the authoritative live total.
 
 Demo mode is separate. It uses a small public-product snapshot, illustrative local images, sample stock, and a local demo ledger. It never calls the WooCommerce write adapter.
 
@@ -23,7 +23,7 @@ Demo mode is separate. It uses a small public-product snapshot, illustrative loc
 5. WooCommerce returns the authoritative total and tax. The POS displays that amount.
 6. Cash is counted, or MoMo/Card collection is verified externally.
 7. Staff explicitly confirms the payment record and supplies a reference where required.
-8. Server updates the existing WooCommerce order with `set_paid: true`, the configured fulfilment status, and a manual POS payment-method label.
+8. Server re-fetches availability, then updates the existing WooCommerce order with `set_paid: true`, the configured fulfilment status, and a manual POS payment-method label.
 9. WooCommerce performs its normal paid-order stock reduction. The POS does not overwrite stock quantities.
 10. The local ledger stores the confirmed order and receipt details.
 
@@ -41,7 +41,7 @@ Demo mode is separate. It uses a small public-product snapshot, illustrative loc
 - A periodic read-only reconciliation sweep checks pending/interrupted sales and older paid sales for remote changes. It never creates orders or records payments automatically.
 - Shifts gate checkout in staging/live by default. Cash movements and counted closes produce expected-cash and variance records.
 
-This design reduces duplicate-order risk but cannot replace staging tests, owner reconciliation procedures, or WooCommerce’s own concurrency behavior. Test simultaneous online/POS purchases of the last item.
+This design reduces duplicate-order risk but cannot replace staging tests or owner reconciliation procedures. **The availability read and paid-order update are separate operations; the POS does not provide an atomic stock reservation across online and POS channels.** Concurrent sales can race between those operations. Before live trading, establish and verify a WooCommerce-side safeguard shared by both channels or an owner-approved operational control that prevents last-item overselling. Test it on staging; a passing sequential stock check is not proof of concurrency safety.
 
 ## Security
 

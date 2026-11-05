@@ -1,4 +1,4 @@
-# MansutRENDZGH Retail Studio — UI redesign
+# MansutRENDZGH Retail Studio — UI design
 
 ## Direction
 
@@ -8,41 +8,56 @@ Visual system:
 
 - Warm ivory paper and deep aubergine-black ink.
 - Restrained brass accents; sage/amber/red only for operational meaning.
-- Bodoni Moda display serif for headings and brand moments; DM Sans for dense operational text.
+- Bodoni Moda display serif for headings and brand moments; DM Sans for product names and operational text.
 - Narrow icon-and-label navigation rail on desktop; full drawer navigation on tablet/mobile.
-- Product-first grid with large portrait imagery, minimal chrome, and clear price/stock hierarchy.
+- Product-first grid with illustrative demo imagery, minimal chrome, and clear price/stock hierarchy.
 - Persistent, high-contrast cart and checkout total.
 - Receipt styling that matches the brand while remaining printer-safe.
 
 ## Research reviewed
 
-Reviewed 4 November 2026:
-
 - Shopify, “Shopify POS: Designed for Your Brand, Built for Modern Retail” — brand theming, more line items in view, prominent checkout totals, vertical navigation, and scoped search. https://shopify.com/retail/shopify-pos-design-update
 - Dribbble fashion POS search results, including Rakun POS by S. Andreans and mixmatch by Caraka — narrow tool rails, garment-led tiles, and a separate order/payment panel. https://dribbble.com/search/pos-fashion-ui
 - Behance POS project search — reviewed for retail/fashion POS layout patterns; no assets copied. https://www.behance.net/search/projects/point%20of%20sale
 - MansutRENDZGH public storefront — confirmed women’s fashion / in-store collection positioning. https://www.mansutrendzgh.com/
-- MotionSites.ai premium motion gallery — reviewed for editorial entrance motion, staggered reveals, tactile hover states, and ambient depth. Used as inspiration only; no MotionSites artwork, prompts, or code were copied. https://motionsites.ai/
+- MotionSites.ai premium motion gallery — inspiration for editorial entrances, staggered reveals and tactile feedback; no artwork, prompts, or code copied. https://motionsites.ai/
+- **Unslop**, by Damir Sokolovsky — reviewed 5 November 2026 for its product-specific, layered visual-audit approach. The skill is licensed CC BY 4.0; attribution: Damir Sokolovsky ([@heydamir](https://x.com/heydamir)), https://github.com/heydamir/unslop. Its methodology informed this pass; no skill scripts, assets or dependency were installed in the POS.
 
-The redesign adapts usability principles; it does not copy reference artwork, logos, or product photography. Demo product images remain explicitly labelled illustrations.
+The redesign adapts usability principles; it does not copy reference artwork, logos, or product photography. Demo product images remain explicitly labelled illustrations. Connected environments use WooCommerce image URLs.
+
+## Unslop-informed audit and polish — 5 November 2026
+
+**Direction:** A selling and stock workspace for a boutique counter; composed, tactile and quick; rooted in warm paper, ink and garment photography. Product imagery and the current-sale total carry the emphasis. The existing MansutRENDZGH wordmark, brass accents, compact rail and editorial headings remain the visual signature.
+
+| Audit observation | Refinement |
+| --- | --- |
+| On a 1280 × 800 counter screen, the charge button and profile control extended below the viewport. | Start the cart beside the register heading, size it to the viewport, keep its charge action outside the scrollable details, and compact/scroll the navigation independently. Error notices scroll into view and announce themselves. |
+| Stock, category, table, badge and form text was often 8–10 px, especially on mobile; operational labels used widely tracked uppercase. | Raise operational text sizes, use sentence case and a clearer sans-serif product/stock hierarchy, while keeping the serif headings and existing palette. Controls for scanning, refreshing and cart quantities have larger touch areas. |
+| A 1280 px screen showed only two oversized product columns; the scanner was separated from search. | Use three product columns at that width, a shorter image proportion, and place scanning beside product search. The card remains the add-to-sale target. |
+| At 320 px, the stock filter disappeared and some page headers overflowed horizontally. A toast could cover the mobile charge action. | Keep the stock filter and scanner visible, stack small-screen report/page actions, and move cart-open notifications away from the charge button. Tables retain their own horizontal scrollers. |
+| Demo product parents could appear selectable after every option sold out. The scanner example could point to a depleted size. Mixed attributes were called sizes, and live variation stock could be double-counted when options share parent stock. | Base product availability on its options; label backorders and prompt staff when the customer should be notified; exclude backorder-only items from the physical-stock filter; suggest an available demo barcode; use generic option labels where appropriate. Identify parent-shared quantities, count them once in inventory, and avoid presenting unknown ownership or old cached live rows without ownership metadata as untracked or sellable. A removed option cannot silently turn into an invalid cart line. WooCommerce remains authoritative at checkout. |
+| Empty report days looked like full-height placeholder bars, and longer periods could crowd the graph. | Use a zero baseline, proportional positive/negative bars, a dense 30/90-day layout and an expandable, keyboard-accessible list of daily values. The report still covers POS records only. |
+| The interface included unsupported “Accra flagship” copy and decorative or looping movement on inactive elements. | Use “Main store”, simplify secondary labels, remove decorative stat icons and perpetual empty-state motion, and retain short motion for state changes. |
+
+`tests/browser-design.mjs` exercises counter-sized viewport visibility, responsive overflow, touch targets, error visibility, stock/backorder/variation states, shared-pool cart limits, inventory totals and report values using intercepted demo responses. It also simulates an unapproved staging **UI** while the server remains in demo mode. Real staging data, hardware and live deployment remain untested.
 
 ## Motion layer
 
-The POS uses a restrained MotionSites-inspired motion layer rather than a marketing-site animation stack:
+The POS keeps the MotionSites-inspired motion layer, tuned for a working register:
 
-- Product cards reveal with a short stagger; hover lifts the tile and gently scales imagery.
-- Cart lines and totals confirm changes with small rise/pulse animations.
-- The charge button has a tactile hover sheen; dialogs, toasts, notices, and selected payment/size options use spring-like entrances.
-- Login and empty/scanner states use subtle ambient movement, while operational screens stay calm.
+- Product cards reveal with a short stagger; hover uses a small lift and restrained image movement.
+- Cart lines and totals confirm changes with short rise/pulse animations.
+- Charge-button arrow feedback, dialogs, toasts, notices and selected options use short transitions and a consistent ease-out curve.
+- Decorative infinite movement is removed; the loading spinner remains animated while work is in progress.
 - All motion is CSS-only, avoids layout shift, and never gates checkout.
 - `prefers-reduced-motion: reduce` disables animations and transitions globally; print also disables motion.
 - `tests/browser-motion.mjs` verifies motion is present by default and fully disabled under reduced motion.
 
 ## Usability rules
 
-- Checkout total and primary action remain visible in the cart.
-- Search is product/SKU focused; scanner shortcut remains `F2`.
-- Variation selection shows per-size availability.
+- Checkout total and primary action remain visible in the cart at tested counter sizes.
+- Search supports product names, SKU and barcode; scanner shortcut remains `F2`.
+- Variation selection shows per-option availability, including size when size is the only attribute.
 - Demo/live/staging state is always visible.
 - Payment recording is visually distinct from payment processing.
 - Tables, reports, shifts, and staff screens share the same tokens and controls.

@@ -10,16 +10,19 @@ import { paymentSchema, prepareSchema } from '../server/sales.js';
 
 function fakeApi(opts = {}) {
   const state = { orders: [], creates: 0, updates: 0, stock: 10, refunds: [], driftTotal: opts.driftTotal, driftCurrency: opts.driftCurrency, failCancel: opts.failCancel, parentOut: opts.parentOut, soldIndividually: opts.soldIndividually };
-  const product = { id: 10, name: 'Probe Dress', type: 'variable', sku: 'DRESS', price: '100.00', images: [], categories: [], status: 'publish', purchasable: true, manage_stock: false, stock_status: state.parentOut ? 'outofstock' : 'instock', backorders: 'no', sold_individually: Boolean(state.soldIndividually) };
+  const product = { id: 10, name: 'Probe Dress', type: 'variable', sku: 'DRESS', price: '100.00', images: [], categories: [], status: 'publish', purchasable: true, manage_stock: false, stock_status: state.parentOut ? 'outofstock' : 'instock', backorders: 'no', sold_individually: Boolean(state.soldIndividually), ...opts.product };
   const variation = { id: 11, sku: 'DRESS-M', price: '100.00', attributes: [{ name: 'Size', option: 'M' }], manage_stock: true, stock_quantity: state.stock, stock_status: 'instock', backorders: 'no', purchasable: true };
+  const variations = opts.variations || [variation];
+  state.product = product;
+  state.variations = variations;
   const view = o => ({ ...o, line_items: o.line_items.map(i => ({ ...i, name: 'Probe Dress', sku: 'DRESS-M', price: 100, subtotal: '100.00', total: '100.00', total_tax: '15.00', meta_data: [{ key: 'Size', value: 'M' }] })), refunds: state.refunds });
   return {
     state,
     async request() { return { data: [product], total: 1, pages: 1 }; },
     async products() { return { data: [product], total: 1, pages: 1 }; },
-    async variations() { return { data: [variation], total: 1, pages: 1 }; },
+    async variations() { return { data: variations, total: variations.length, pages: 1 }; },
     async product() { return product; },
-    async variation() { return variation; },
+    async variation(_productId, id) { const found = variations.find(v => v.id === id); if (!found) throw new Error('Unexpected variation'); return found; },
     async createOrder(body) { state.creates++; const o = { ...body, id: 500 + state.creates, number: String(500 + state.creates), currency: 'GHS', total: '115.00', total_tax: '15.00', date_paid: null }; state.orders.push(o); return view(o); },
     async updateOrder(id, body) {
       state.updates++;
@@ -108,6 +111,147 @@ test('out-of-stock parent blocks in-stock variation', async t => {
   const h = await harness(t, { parentOut: true });
   const p = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: cart() });
   assert.equal(p.status, 409);
+  assert.equal(h.api.state.creates, 0);
+});
+
+// These responses model the WooCommerce v3 variation API. A variation can report
+// manage_stock='parent', true, or false; parent stock is one pool across options.
+const option = (id, manageStock, stock, backorders = 'no', status = 'instock') => ({
+  id, sku: `DRESS-${id}`, price: '100.00', attributes: [{ name: 'Size', option: String(id) }],
+  manage_stock: manageStock, stock_quantity: stock, stock_status: status, backorders, purchasable: true,
+});
+const optionCart = (...pairs) => ({ idempotencyKey: randomUUID(), items: pairs.map(([variationId, quantity]) => ({ productId: 10, variationId, quantity })), note: '' });
+
+test('sold-individually applies across different variations', async t => {
+  const h = await harness(t, { soldIndividually: true, variations: [option(11, true, 5), option(12, true, 5)] });
+  const result = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 1], [12, 1]) });
+  assert.equal(result.status, 409);
+  assert.equal(h.api.state.creates, 0);
+});
+
+test('parent-managed variations share stock before order creation and on payment recheck', async t => {
+  const h = await harness(t, { product: { manage_stock: true, stock_quantity: 3 }, variations: [option(11, 'parent', 3), option(12, 'parent', 3)] });
+  const excess = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 2], [12, 2]) });
+  assert.equal(excess.status, 409);
+  assert.equal(excess.data.code, 'INSUFFICIENT_STOCK');
+  assert.equal(h.api.state.creates, 0, 'reject the whole cart before creating any Woo order');
+  const catalog = await h.request('/catalog', { token: h.token });
+  assert.deepEqual(catalog.data.products[0].variations.map(v => [v.stockSource, v.stock]), [['parent', 3], ['parent', 3]]);
+  const exact = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 2], [12, 1]) });
+  assert.equal(exact.status, 201);
+  assert.equal(h.api.state.creates, 1);
+  h.api.state.product.stock_quantity = 2; // another channel used one unit after prepare
+  const payment = await h.request(`/sales/${exact.data.sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 11500, confirmed: true } });
+  assert.equal(payment.status, 409);
+  assert.equal(payment.data.code, 'INSUFFICIENT_STOCK');
+  assert.equal(h.api.state.updates, 0, 'do not mark the Woo order paid after stock changes');
+  assert.equal(h.sales.get(exact.data.sale.id, { role: 'owner' }).status, 'needs_reconciliation');
+});
+
+test('false or missing variation management conservatively inherits a managed parent', async t => {
+  const h = await harness(t, { product: { manage_stock: true, stock_quantity: 3 }, variations: [option(11, false, 99), option(12, undefined, 99)] });
+  const catalog = await h.request('/catalog', { token: h.token });
+  assert.deepEqual(catalog.data.products[0].variations.map(v => [v.stockSource, v.stock]), [['parent', 3], ['parent', 3]]);
+  const excess = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 2], [12, 2]) });
+  assert.equal(excess.status, 409);
+  assert.equal(excess.data.code, 'INSUFFICIENT_STOCK');
+  assert.equal(h.api.state.creates, 0);
+});
+
+test('independently managed variations do not consume parent or sibling stock', async t => {
+  const h = await harness(t, { product: { manage_stock: true, stock_quantity: 3 }, variations: [option(11, 'parent', 3), option(12, true, 2), option(13, true, 2)] });
+  const catalog = await h.request('/catalog', { token: h.token });
+  assert.deepEqual(catalog.data.products[0].variations.map(v => [v.stockSource, v.stock]), [['parent', 3], ['variation', 2], ['variation', 2]]);
+  const exact = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 3], [12, 2], [13, 2]) });
+  assert.equal(exact.status, 201);
+  assert.equal(h.api.state.creates, 1);
+  const excess = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([12, 3], [13, 1]) });
+  assert.equal(excess.status, 409);
+  assert.equal(excess.data.code, 'INSUFFICIENT_STOCK');
+  assert.equal(h.api.state.creates, 1);
+});
+
+test('untracked stock is allowed but missing ownership or managed quantities fail closed', async t => {
+  const untracked = await harness(t, { variations: [option(11, false, null)] });
+  const catalog = await untracked.request('/catalog', { token: untracked.token });
+  assert.equal(catalog.data.products[0].variations[0].stockSource, 'untracked');
+  assert.equal((await untracked.request('/sales/prepare', { method: 'POST', token: untracked.token, body: optionCart([11, 20]) })).status, 201);
+  const unknown = await harness(t, { variations: [option(11, undefined, null)] });
+  const missingSource = await unknown.request('/sales/prepare', { method: 'POST', token: unknown.token, body: optionCart([11, 1]) });
+  assert.equal(missingSource.status, 409);
+  assert.equal(missingSource.data.code, 'STOCK_UNAVAILABLE');
+  assert.equal(unknown.api.state.creates, 0);
+  const missingQuantity = await harness(t, { product: { manage_stock: true, stock_quantity: null }, variations: [option(11, 'parent', null)] });
+  const missingStock = await missingQuantity.request('/sales/prepare', { method: 'POST', token: missingQuantity.token, body: optionCart([11, 1]) });
+  assert.equal(missingStock.status, 409);
+  assert.equal(missingStock.data.code, 'STOCK_UNAVAILABLE');
+  assert.equal(missingQuantity.api.state.creates, 0);
+});
+
+test('contradictory parent-stock ownership cannot be sold as a backorder', async t => {
+  const h = await harness(t, { product: { manage_stock: false, backorders: 'yes' }, variations: [option(11, 'parent', null, 'yes')] });
+  const catalog = await h.request('/catalog', { token: h.token });
+  assert.equal(catalog.data.products[0].variations[0].stockSource, 'unknown');
+  const result = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 1]) });
+  assert.equal(result.status, 409);
+  assert.equal(result.data.code, 'STOCK_UNAVAILABLE');
+  assert.equal(h.api.state.creates, 0);
+});
+
+test('simple products also fail closed when stock management or quantity is missing', async t => {
+  for (const product of [
+    { type: 'simple', manage_stock: undefined, stock_quantity: 10 },
+    { type: 'simple', manage_stock: true, stock_quantity: 'not-a-number' },
+  ]) {
+    const h = await harness(t, { product });
+    const result = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: { idempotencyKey: randomUUID(), items: [{ productId: 10, quantity: 1 }] } });
+    assert.equal(result.status, 409);
+    assert.equal(result.data.code, 'STOCK_UNAVAILABLE');
+    assert.equal(h.api.state.creates, 0);
+  }
+});
+
+test('both Woo backorder policies allow shared-parent backorders', async t => {
+  for (const policy of ['yes', 'notify']) {
+    const inherited = option(12, 'parent', 0, policy, 'onbackorder');
+    delete inherited.backorders;
+    const h = await harness(t, { product: { manage_stock: true, stock_quantity: 0, stock_status: 'onbackorder', backorders: policy }, variations: [option(11, 'parent', 0, policy, 'onbackorder'), inherited] });
+    const catalog = await h.request('/catalog', { token: h.token });
+    assert.equal(catalog.data.products[0].variations[1].backorders, policy);
+    const result = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 2], [12, 2]) });
+    assert.equal(result.status, 201, `${policy} should permit a backorder`);
+    assert.equal(h.api.state.creates, 1);
+  }
+});
+
+test('an explicit variation no-backorders policy overrides an inherited parent permission', async t => {
+  const noBackorders = option(11, 'parent', 0, 'no', 'onbackorder');
+  const h = await harness(t, {
+    product: { manage_stock: true, stock_quantity: 0, stock_status: 'onbackorder', backorders: 'yes', backorders_allowed: true },
+    variations: [noBackorders],
+  });
+  const catalog = await h.request('/catalog', { token: h.token });
+  assert.equal(catalog.data.products[0].variations[0].backordersAllowed, false);
+  const result = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 1]) });
+  assert.equal(result.status, 409);
+  assert.equal(result.data.code, 'INSUFFICIENT_STOCK');
+  assert.equal(h.api.state.creates, 0);
+});
+
+test('every variation in a shared pool must permit its stock status and backorders', async t => {
+  const first = option(11, 'parent', 3, 'no', 'outofstock');
+  const second = option(12, 'parent', 3, 'yes');
+  const h = await harness(t, { product: { manage_stock: true, stock_quantity: 3 }, variations: [first, second] });
+  const unavailable = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 1], [12, 1]) });
+  assert.equal(unavailable.status, 409);
+  assert.equal(unavailable.data.code, 'INSUFFICIENT_STOCK');
+  first.stock_status = 'instock';
+  const mixedPolicy = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 2], [12, 2]) });
+  assert.equal(mixedPolicy.status, 409, 'a later backorderable option cannot override the first option');
+  first.backorders = 'notify';
+  first.backorders_allowed = false; // Woo filters can explicitly disable backorders.
+  const disabled = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: optionCart([11, 2], [12, 2]) });
+  assert.equal(disabled.status, 409);
   assert.equal(h.api.state.creates, 0);
 });
 

@@ -50,13 +50,14 @@ Open `http://localhost:3000`. The default configuration is demo mode; no credent
 ```bash
 npm test                 # backend and mocked WooCommerce integration tests
 npm run build            # production frontend build
-npm run test:browser     # browser workflow + lost-response recovery; expects port 3000
+npm run test:browser     # demo workflow, recovery, proxy, motion and design checks; expects port 3000
+npm run test:design      # counter/mobile layout and mocked visual-state checks
 npm run test:a11y        # axe WCAG A/AA + best-practice scans; expects port 3000
 npm run lint             # ESLint
 npm run backup           # consistent SQLite backup + integrity check
 ```
 
-The browser test uses a development-only Chromium package. On a normal workstation, an existing Chrome/Chromium installation can be substituted in `tests/browser.mjs`.
+The browser walkthrough creates demo sales and may close an open demo shift. Run it only against a separate `POS_MODE=demo` server with an isolated `POS_DATA_DIR`—never staging or live. Set `TEST_BASE_URL` if that server is not on port 3000. The browser tests use a development-only Chromium package; set `TEST_CHROMIUM_PATH` to use an existing Chrome/Chromium installation instead.
 
 ## Connect the store
 
@@ -75,8 +76,8 @@ The short version:
 
 ## Verification
 
-- `npm test`: 31 backend/mocked WooCommerce/restore regression tests pass.
-- `npm run test:browser`: full demo register → checkout → receipt → scanner → hold/resume → reports/staff/shifts/audit/diagnostics/mobile flow, plus lost-prepare-response recovery, session-expiry handling, and reduced-motion checks, passes.
+- `npm test`: 41 backend/mocked WooCommerce/restore regression tests pass, including shared-parent and independent variation stock, backorders, and stock changes before payment.
+- `npm run test:browser`: full demo register → checkout → receipt → scanner → hold/resume → reports/staff/shifts/audit/diagnostics/mobile flow, plus lost-response recovery, embedded-preview sessions, reduced motion, counter/mobile layout and mocked stock/variation/report checks, passes. Run it against an isolated demo database.
 - `npm run test:a11y`: axe WCAG A/AA + best-practice scans and 320px overflow check pass.
 - `npm run lint`: ESLint passes.
 - Receipt PDF was checked for one-page layout and extractable receipt text.
@@ -92,6 +93,7 @@ These checks use demo data and mocked WooCommerce responses. They do not prove c
 
 - This application **records** payments; it does not process MoMo or card payments.
 - Internet access is required for checkout. There is no offline payment queue.
+- Fresh stock checks and order updates are separate requests, not an atomic reservation. Concurrent online/POS sales can still race; a WooCommerce-side safeguard shared by both channels or an approved operational control must be established and verified before live trading.
 - Printer/scanner/cash-drawer compatibility must be verified on the actual hardware. Cash-drawer triggering is not implemented.
 - Refunds are initiated in WooCommerce, then reconciled into POS reports. The POS does not issue payment refunds.
 - Reports cover POS transactions recorded by this application, not every online order.

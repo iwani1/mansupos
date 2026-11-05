@@ -73,7 +73,7 @@ sudo systemctl status mansu-pos
 2. Sign in as owner, change the temporary password, create named cashier/manager accounts.
 3. Run `docs/ACCEPTANCE.md` against test products and simulated external payments.
 4. Verify scanner, printer, paper width, shift open/close, cash movements, reports, audit log, backup, and restore.
-5. Verify concurrent online/POS last-item behavior and interrupted-order reconciliation.
+5. Establish a WooCommerce-side stock safeguard shared by online/POS sales, or an owner-approved operational control; verify it prevents concurrent last-item overselling on staging. Fresh POS stock reads followed by Woo order updates are not atomic. Also verify interrupted-order reconciliation.
 6. Record evidence without customer secrets.
 
 ## 6. Live approval gate

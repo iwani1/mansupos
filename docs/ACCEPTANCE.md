@@ -2,7 +2,7 @@
 
 Record **Pass / Fail / Not tested**, date, tester, environment, plugin/app version, and evidence reference. Do not include secrets or customer personal information.
 
-Automated baseline already passing in the repository: 31 backend/mocked WooCommerce/restore regression tests, the Chromium demo walkthrough, lost-prepare-response recovery after reload, session-expiry handling, embedded-preview session fallback when Authorization/cookies are stripped, reduced-motion preference checks, axe accessibility scans, lint, receipt PDF content check, production build, dependency audit, preflight, SQLite backup/restore integrity check, and clean Docker image build/smoke in GitHub Actions. The items below must still be executed against the approved staging clone and real hardware.
+Automated baseline already passing in the repository: 41 backend/mocked WooCommerce/restore regression tests, the isolated Chromium demo walkthrough, lost-prepare-response recovery after reload, session-expiry handling, embedded-preview session fallback when Authorization/cookies are stripped, reduced-motion preference checks, counter/mobile layout and mocked shared-stock/variation/backorder/report checks, axe accessibility scans, lint, receipt PDF content check, production build, dependency audit, preflight, SQLite backup/restore integrity check, and clean Docker image build/smoke in GitHub Actions. The items below must still be executed against the approved staging clone and real hardware.
 
 ## Environment and safety
 
@@ -23,11 +23,12 @@ Automated baseline already passing in the repository: 31 backend/mocked WooComme
 - [ ] Missing/duplicate SKU report reviewed; no unapproved SKU changes.
 - [ ] POS test sale creates exactly one WooCommerce order.
 - [ ] Correct variation stock decreases by the sold quantity.
+- [ ] Parent-managed options share one stock pool; independently managed options use their own stock. Combined cart quantities are tested against the real staging responses.
 - [ ] Online storefront reflects the updated stock.
 - [ ] Online test order updates stock seen by the POS after refresh.
-- [ ] Simultaneous online/POS purchase of the last item does not silently oversell.
+- [ ] A safeguard shared by online and POS sales, or an owner-approved operational control, prevents simultaneous last-item overselling. Exercise concurrent purchases on staging; the POS read-check and order update are not atomic.
 - [ ] Cancelled unpaid order and refunded paid order behave as documented.
-- [ ] Backorder and untracked-stock behavior reviewed.
+- [ ] Backorder (`yes` and `notify`) and untracked-stock behavior reviewed; customers are notified where required.
 
 ## Payments
 

@@ -79,31 +79,48 @@ export class WooCommerce {
 }
 
 const cents = value => Math.round(Number(value || 0) * 100);
+const stockQuantity = value => value == null || String(value).trim() === '' || !Number.isFinite(Number(value)) ? null : Number(value);
+const backordersAllowed = (raw, policy) => typeof raw.backorders_allowed === 'boolean' ? raw.backorders_allowed : ['yes', 'notify'].includes(policy);
 const cleanImage = value => {
   try { const url = new URL(value); return url.protocol === 'https:' ? url.href : ''; } catch { return ''; }
 };
 function mapProduct(p) {
+  const stockSource = p.manage_stock === true ? 'product' : p.manage_stock === false ? 'untracked' : 'unknown';
+  const backorders = p.backorders || 'no';
   return {
     id: p.id, name: p.name, type: p.type, sku: p.sku || '', barcode: p.sku || '',
     price: cents(p.price), image: cleanImage(p.images?.[0]?.src),
     category: p.categories?.[0]?.name || 'Uncategorized', categories: (p.categories || []).map(c => c.name),
-    permalink: cleanImage(p.permalink), manageStock: Boolean(p.manage_stock),
-    stock: p.stock_quantity == null ? null : Number(p.stock_quantity),
-    stockStatus: p.stock_status || 'instock', backorders: p.backorders || 'no',
+    permalink: cleanImage(p.permalink), stockSource, manageStock: stockSource === 'product',
+    stock: stockQuantity(p.stock_quantity),
+    stockStatus: p.stock_status || 'instock', backorders, backordersAllowed: backordersAllowed(p, backorders),
     purchasable: p.purchasable !== false && p.price !== '' && p.price != null,
     soldIndividually: Boolean(p.sold_individually), variations: [],
   };
 }
 function mapVariation(v, p) {
-  const manages = v.manage_stock === 'parent' ? Boolean(p.manage_stock) : Boolean(v.manage_stock ?? p.manage_stock);
-  const source = v.manage_stock === true ? v : p;
+  // Woo v3 can return the literal 'parent'. Its stock is shared by all such
+  // variations, not a separate copy for each option. A contradictory parent
+  // with no managed stock is unknown rather than a sellable backorder. Treat a
+  // false/missing variation flag conservatively when the parent manages stock.
+  let stockSource = 'unknown';
+  if (v.manage_stock === 'parent') stockSource = p.manage_stock === true ? 'parent' : 'unknown';
+  else if (v.manage_stock === true) stockSource = 'variation';
+  else if ((v.manage_stock === false || v.manage_stock == null) && p.manage_stock === true) stockSource = 'parent';
+  else if (v.manage_stock === false && p.manage_stock === false) stockSource = 'untracked';
+  const source = stockSource === 'parent' ? p : v;
+  const manages = stockSource === 'parent' || stockSource === 'variation';
+  const backorders = v.backorders || (stockSource === 'parent' ? p.backorders : '') || 'no';
+  // If Woo supplies an explicit variation policy, do not let the parent's
+  // backorders_allowed flag override it when the variation flag is absent.
+  const backorderSource = typeof v.backorders_allowed === 'boolean' || v.backorders ? v : stockSource === 'parent' && typeof p.backorders_allowed === 'boolean' ? p : v;
   return {
     id: v.id, sku: v.sku || '', barcode: v.sku || '',
     label: (v.attributes || []).map(a => a.option).join(' / ') || `Variation ${v.id}`,
     attributes: (v.attributes || []).map(a => ({ name: a.name, option: a.option })),
     price: cents(v.price), image: cleanImage(v.image?.src) || cleanImage(p.images?.[0]?.src),
-    manageStock: manages, stock: manages ? Number(source.stock_quantity ?? 0) : null,
-    stockStatus: v.stock_status || 'instock', backorders: v.backorders || 'no',
+    stockSource, manageStock: manages, stock: manages ? stockQuantity(source.stock_quantity) : null,
+    stockStatus: v.stock_status || 'instock', backorders, backordersAllowed: backordersAllowed(backorderSource, backorders),
     purchasable: v.purchasable !== false && v.price !== '' && v.price != null,
   };
 }
@@ -145,11 +162,11 @@ export async function freshLine(api, productId, variationId) {
   const source = variant || mapped;
   if (!source.purchasable) throw new RemoteError(`${p.name} is not purchasable.`, 409);
   return {
-    key: `${productId}:${variationId || 0}`, stockKey: variant && !variant.manageStock && mapped.manageStock ? `${productId}:0` : `${productId}:${variationId || 0}`,
+    key: `${productId}:${variationId || 0}`, stockKey: variant?.stockSource === 'parent' ? `${productId}:0` : `${productId}:${variationId || 0}`,
     productId, variationId: variationId || 0, name: p.name, label: variant?.label || '',
     sku: source.sku, barcode: source.barcode, image: source.image, price: source.price,
-    manageStock: source.manageStock, stock: source.stock, stockStatus: source.stockStatus,
+    stockSource: source.stockSource, manageStock: source.manageStock, stock: source.stock, stockStatus: source.stockStatus,
     parentStockStatus: variant ? mapped.stockStatus : undefined,
-    backorders: source.backorders, purchasable: source.purchasable, soldIndividually: mapped.soldIndividually,
+    backorders: source.backorders, backordersAllowed: source.backordersAllowed, purchasable: source.purchasable, soldIndividually: mapped.soldIndividually,
   };
 }

@@ -205,6 +205,8 @@ test('owner can change password and reset staff password; old sessions are revok
 test('shared parent stock is aggregated across variations',()=>{
   const line={purchasable:true,manageStock:true,stock:3,stockStatus:'instock',backorders:'no',name:'Dress'};
   assert.throws(()=>validateAvailability([{...line,stockKey:'1:0',quantity:2},{...line,stockKey:'1:0',quantity:2}]),/Not enough stock/);
+  // A later (larger) snapshot must not hide an earlier, more restrictive one.
+  assert.throws(()=>validateAvailability([{...line,stock:2,stockKey:'1:0',quantity:2},{...line,stockKey:'1:0',quantity:1}]),/Not enough stock/);
 });
 
 test('production shifts gate checkout, track cash movements, and close with variance',async t=>{

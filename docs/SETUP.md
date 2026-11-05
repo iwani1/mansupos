@@ -82,7 +82,7 @@ See [HARDWARE.md](HARDWARE.md) for the owner-supplied counter hardware profile a
 
 ## 5. Acceptance and live approval
 
-Complete `docs/ACCEPTANCE.md`. Keep evidence without customer secrets. Obtain written approval identifying the tested version, staging URL, hardware, payment workflow, limitations, and rollback plan.
+Complete `docs/ACCEPTANCE.md`, including the parent-shared variation stock and concurrent online/POS last-item checks. The POS does not atomically reserve stock: agree on a WooCommerce-side safeguard shared by both channels or an approved operational control, then verify it on staging before live trading. Keep evidence without customer secrets. Obtain written approval identifying the tested version, staging URL, hardware, payment workflow, limitations, and rollback plan.
 
 Live mode requires **all** of these deliberate gates:
 

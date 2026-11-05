@@ -47,7 +47,7 @@ export class Catalog {
       const v = p?.variations.find(v => v.id === item.variationId);
       if (!p || (p.type === 'variable' && !v)) throw new AppError('Product or variation not found. Refresh the catalogue.', 404);
       const source = v || p;
-      return { ...source, key: `${p.id}:${v?.id || 0}`, stockKey: v && !v.manageStock && p.manageStock ? `${p.id}:0` : `${p.id}:${v?.id || 0}`, productId: p.id, variationId: v?.id || 0, name: p.name, label: v?.label || '', quantity: item.quantity, soldIndividually: p.soldIndividually };
+      return { ...source, key: `${p.id}:${v?.id || 0}`, stockKey: v?.stockSource === 'parent' ? `${p.id}:0` : `${p.id}:${v?.id || 0}`, productId: p.id, variationId: v?.id || 0, name: p.name, label: v?.label || '', quantity: item.quantity, parentStockStatus: v ? p.stockStatus : undefined, soldIndividually: p.soldIndividually };
     });
   }
   async fresh(items) {
@@ -65,22 +65,23 @@ export function validateAvailability(lines) {
   for (const line of lines) {
     if (!line.purchasable) throw new AppError(`${line.name} is not available for sale.`, 409);
     if (line.parentStockStatus === 'outofstock') throw new AppError(`${line.name} is out of stock at the parent product level.`, 409, 'INSUFFICIENT_STOCK');
+    if (line.stockSource === 'unknown') throw new AppError(`Stock ownership for ${line.name} could not be confirmed. Refresh and review WooCommerce before selling.`, 409, 'STOCK_UNAVAILABLE');
+    if (line.stockStatus === 'outofstock') throw new AppError(`Not enough stock for ${line.name}${line.label ? ` (${line.label})` : ''}. Refresh and adjust the cart.`, 409, 'INSUFFICIENT_STOCK');
     if (line.soldIndividually) {
       const quantity = (soldIndividually.get(line.productId)?.quantity || 0) + line.quantity;
       soldIndividually.set(line.productId, { quantity, line });
     }
-    if (line.manageStock || ['outofstock', 'onbackorder'].includes(line.stockStatus)) {
-      const quantity = (grouped.get(line.stockKey)?.quantity || 0) + line.quantity;
-      grouped.set(line.stockKey, { quantity, line });
-    }
+    if (line.manageStock) grouped.set(line.stockKey, (grouped.get(line.stockKey) || 0) + line.quantity);
   }
   for (const { line, quantity } of soldIndividually.values()) {
     if (quantity > 1) throw new AppError(`${line.name} can only be sold one at a time.`, 409);
   }
-  for (const { line, quantity } of grouped.values()) {
-    const backorders = line.backorders === 'yes' ? Infinity : 0;
-    if (line.stockStatus === 'outofstock' || (line.manageStock && line.stock != null && quantity > Number(line.stock) + backorders)) {
-      throw new AppError(`Not enough stock for ${line.name}${line.label ? ` (${line.label})` : ''}. Refresh and adjust the cart.`, 409, 'INSUFFICIENT_STOCK');
-    }
+  // Check each member against the whole stock pool. This also handles differing
+  // statuses, policies, or snapshots without the last variation overriding the rest.
+  for (const line of lines) {
+    const allowsBackorders = typeof line.backordersAllowed === 'boolean' ? line.backordersAllowed : ['yes', 'notify'].includes(line.backorders);
+    if (!line.manageStock || allowsBackorders) continue;
+    if (line.stock == null || !Number.isFinite(Number(line.stock))) throw new AppError(`Stock quantity for ${line.name} could not be confirmed. Refresh and review WooCommerce before selling.`, 409, 'STOCK_UNAVAILABLE');
+    if (grouped.get(line.stockKey) > Number(line.stock)) throw new AppError(`Not enough stock for ${line.name}${line.label ? ` (${line.label})` : ''}. Refresh and adjust the cart.`, 409, 'INSUFFICIENT_STOCK');
   }
 }
