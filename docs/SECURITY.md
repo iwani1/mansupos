@@ -4,7 +4,7 @@
 
 - WooCommerce credentials live only in server environment variables or a secret manager.
 - Never put secrets in `VITE_*`, browser storage, source control, logs, receipts, or chat.
-- Use a dedicated WooCommerce API key with the minimum required permissions.
+- Use a dedicated WooCommerce API key with the minimum required permissions. The live catalogue pilot uses a new **Read-only** key; checkout later requires separate reviewed credentials and approval. Never put a Read/Write live key in the pilot environment.
 - Rotate keys if exposed. Revoke old keys in WooCommerce.
 
 ## Authentication
@@ -41,7 +41,7 @@ The POS records externally collected payments. It does not process MoMo or card 
 
 ## Data protection
 
-- SQLite data directory should be private (`0700`) and database files `0600`. The Docker image creates its persistent data directory with `0700` permissions; the POS-only Compose variant binds only a chosen loopback host port. On the reported host-Nginx VPS, the staging-only systemd unit instead enforces `127.0.0.1:3187` and a separate data directory. Neither route takes over an existing 80/443 proxy or port 3000. Keep staging/live ledgers separate from other apps and from each other.
+- SQLite data directory should be private (`0700`) and database files `0600`. The Docker image creates its persistent data directory with `0700` permissions; the POS-only Compose variant binds only a chosen loopback host port. On the reported host-Nginx VPS, the staging unit **or** the new live-catalogue pilot unit enforces `127.0.0.1:3187` and a distinct private ledger (not both on that port). Neither route takes over the existing 80/443 proxy or port 3000. The pilot unit forces all checkout flags off, and the Woo adapter also refuses non-read requests when writes are locked. Keep staging/pilot/future trading ledgers separate from other apps and from each other.
 - A SQLite exclusive-transaction lease prevents a second POS process or a restore operation from using the same ledger concurrently, even if both containers report PID 1. Abrupt exit releases the lease; it is not multi-server replication.
 - Preflight requires a valid first-owner bootstrap credential or an active owner already in the ledger. Remove the bootstrap secret from the server environment after the first owner changes the password.
 - Backups must be encrypted/access-controlled and stored off-host. Use the app's integrity-checked online SQLite backup, not a copy of a live WAL database, and test restore on an isolated volume.

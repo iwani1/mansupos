@@ -107,14 +107,14 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   const loginLimit = rateLimit({ windowMs: 15 * 60000, limit: 12, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'Too many sign-in attempts. Try again later.' } });
   const sensitiveLimit = rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'Too many attempts. Please wait a moment.' } });
 
-  app.get('/api/health', (req, res) => res.json({ ok: true, mode: config.mode, version: APP_VERSION }));
+  app.get('/api/health', (req, res) => res.json({ ok: true, mode: config.mode, liveReadOnly: config.liveReadOnly, version: APP_VERSION }));
   app.get('/api/ready', (req, res) => {
     try {
       db.prepare('SELECT 1').get();
       const issues = [];
       if (config.mode !== 'demo' && !config.configured) issues.push('WooCommerce credentials are not configured.');
-      if (config.mode === 'live' && !config.writesEnabled) issues.push('Live write gate is disabled.');
-      res.status(issues.length ? 503 : 200).json({ ok: issues.length === 0, mode: config.mode, version: APP_VERSION, issues });
+      if (config.mode === 'live' && !config.liveReadOnly && !config.writesEnabled) issues.push('Live write gate is disabled.');
+      res.status(issues.length ? 503 : 200).json({ ok: issues.length === 0, mode: config.mode, liveReadOnly: config.liveReadOnly, version: APP_VERSION, issues });
     } catch { res.status(503).json({ ok: false, error: 'Database is not ready.' }); }
   });
   app.get('/api/session', (req, res) => res.json({ user: sessionUser(req, db, config), config: publicConfig(config) }));
@@ -200,9 +200,11 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
     const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
     res.json({ shifts: shifts.list(req.user, days) });
   });
-  app.post('/api/shifts/open', auth, async (req, res) => res.status(201).json({ shift: shifts.open(req.user, openShiftSchema.parse(req.body)) }));
-  app.post('/api/shifts/:id/close', auth, async (req, res) => res.json({ shift: shifts.close(req.user, req.params.id, closeShiftSchema.parse(req.body)) }));
-  app.post('/api/shifts/:id/cash', auth, async (req, res) => res.json({ shift: shifts.movement(req.user, req.params.id, cashMovementSchema.parse(req.body)) }));
+  const requireTrading = (_req, _res, next) => config.liveReadOnly
+    ? next(new AppError('Shifts and cash movements are disabled in the live catalogue pilot.', 403, 'CHECKOUT_LOCKED')) : next();
+  app.post('/api/shifts/open', auth, requireTrading, async (req, res) => res.status(201).json({ shift: shifts.open(req.user, openShiftSchema.parse(req.body)) }));
+  app.post('/api/shifts/:id/close', auth, requireTrading, async (req, res) => res.json({ shift: shifts.close(req.user, req.params.id, closeShiftSchema.parse(req.body)) }));
+  app.post('/api/shifts/:id/cash', auth, requireTrading, async (req, res) => res.json({ shift: shifts.movement(req.user, req.params.id, cashMovementSchema.parse(req.body)) }));
 
   const settledStatuses = ['paid', 'partially_refunded', 'refunded'];
   const reportRows = (user, since) => {
@@ -288,13 +290,17 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
       { name: 'HTTPS store URL', ok: config.storeUrl.startsWith('https://') },
       { name: 'Server-side credentials', ok: config.mode === 'demo' || config.configured, detail: config.mode === 'demo' ? 'Not needed for demo' : config.configured ? 'Configured' : 'Missing' },
       { name: 'Public origin configured', ok: !config.production || Boolean(config.publicOrigin) || config.mode === 'demo' },
-      { name: 'Write gate', ok: config.mode === 'demo' ? true : config.writesEnabled, detail: config.mode === 'demo' ? 'Demo only' : config.writesEnabled ? 'Enabled' : 'Locked' },
+      { name: config.liveReadOnly ? 'Live catalogue pilot' : 'Write gate',
+        ok: config.liveReadOnly ? !config.writesEnabled && !config.wholesaleWritesEnabled : config.mode === 'demo' || config.writesEnabled,
+        detail: config.liveReadOnly ? 'Checkout locked; only catalogue reads are tested' : config.mode === 'demo' ? 'Demo only' : config.writesEnabled ? 'Enabled' : 'Locked' },
     ];
     if (config.mode !== 'demo' && config.configured) {
       try { const products = await api.request('products', { query: { per_page: 1, status: 'publish' } }); checks.push({ name: 'WooCommerce catalogue read', ok: true, detail: `${products.total} published products` }); }
       catch (error) { checks.push({ name: 'WooCommerce catalogue read', ok: false, detail: error.message }); }
-      try { await api.request('orders', { query: { per_page: 1 } }); checks.push({ name: 'WooCommerce orders read', ok: true }); }
-      catch (error) { checks.push({ name: 'WooCommerce orders read', ok: false, detail: error.message }); }
+      if (!config.liveReadOnly) {
+        try { await api.request('orders', { query: { per_page: 1 } }); checks.push({ name: 'WooCommerce orders read', ok: true }); }
+        catch (error) { checks.push({ name: 'WooCommerce orders read', ok: false, detail: error.message }); }
+      }
     }
     res.json({ mode: config.mode, version: APP_VERSION, checks, ok: checks.every(c => c.ok) });
   });

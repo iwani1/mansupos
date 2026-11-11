@@ -197,7 +197,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
     const mayBeBackordered = onBackorder(source) || (source.manageStock && allowsBackorders(source) && (!hasKnownStock(source) || quantity > source.stock));
     return mayBeBackordered ? (source.backorders === 'notify' ? 'Backorder · notify customer' : 'Backorder') : '';
   }
-  const shiftRequired = config.requireShift && config.mode !== 'demo';
+  const shiftRequired = config.requireShift && config.mode !== 'demo' && !config.liveReadOnly;
   const checkoutDisabled = !cart.length || busy || !online || (config.mode !== 'demo' && !config.writesEnabled) || (shiftRequired && !shift);
   return <div className="register-page">
     <div className="register-layout">
@@ -205,6 +205,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
         <PageHeading eyebrow="In-store · MansutRENDZGH" title="Point of sale" description="Search, scan or select products.">
           <button className="button secondary held-button" onClick={() => setHeldOpen(true)}><Pause size={16} />Held sales <span className="count-pill">{savedCarts.length}</span></button>
         </PageHeading>
+        {config.liveReadOnly && <Notice tone="warning">Live catalogue preview only. Cart amounts are references, not verified payable totals. Checkout and payment recording are disabled; do not collect money or release goods through this POS.</Notice>}
         {!online && <Notice tone="warning" icon={WifiOff}>You’re offline. Checkout is disabled; no offline payment queue is stored. Reconnect and refresh before selling.</Notice>}
         {shiftRequired && !shift && <Notice tone="warning" icon={Banknote}>Open a shift before selling. This keeps cash, refunds, and day-end totals accountable. <button className="text-button" onClick={onOpenShift}>Open shift</button></Notice>}
         {shiftRequired && shift && <div className="shift-strip"><Banknote size={16}/><span>Shift open · {shift.userName} · opening float {money(shift.openingFloat)}</span><button className="text-button" onClick={onOpenShift}>Manage shift</button></div>}
@@ -225,7 +226,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
         <div className="catalog-footer"><ShieldCheck size={15} /><span>{config.mode === 'demo' ? 'Store product details. Illustrative demo images and sample stock. No live changes.' : 'Inventory is owned by WooCommerce. No separate product database.'}</span><button onClick={setHelp}>Quick guide <ArrowRight size={13} /></button></div>
       </section>
       <div ref={cartPanelRef} className={`cart-panel ${mobileCart ? 'mobile-open' : ''}`} role={mobileCart ? 'dialog' : 'complementary'} aria-modal={mobileCart || undefined} aria-label="Current sale">
-        <div className="cart-header"><div><h2>Current sale <span className="count-pill">{count}</span></h2><span className="cart-order-label">New sale · Walk-in</span></div><IconButton icon={X} label="Close cart" className="mobile-only" onClick={() => setMobileCart(false)} /><Badge tone="green" dot>{config.mode === 'demo' ? 'Demo' : config.mode === 'live' ? 'Live' : 'Staging'}</Badge></div>
+        <div className="cart-header"><div><h2>Current sale <span className="count-pill">{count}</span></h2><span className="cart-order-label">New sale · Walk-in</span></div><IconButton icon={X} label="Close cart" className="mobile-only" onClick={() => setMobileCart(false)} /><Badge tone={config.liveReadOnly ? 'amber' : 'green'} dot>{config.liveReadOnly ? 'Read-only' : config.mode === 'demo' ? 'Demo' : config.mode === 'live' ? 'Live' : 'Staging'}</Badge></div>
         <div className="customer-strip"><span className="customer-avatar"><UserRound size={18} /></span><div><strong>Walk-in customer</strong><span>No customer account required</span></div><ShoppingBag size={17} /></div>
         <div className="cart-items" role="region" aria-label="Items in current sale" tabIndex={0}>{!cart.length ? <Empty icon={ShoppingBag} title="A fresh start">Add products to begin a new sale.<br />Search, tap, or scan to get started.</Empty> : cart.map(item => <div className="cart-item" key={item.key}><ProductImage src={item.image} name={item.name} /><div className="cart-item-content">
             <div className="cart-item-title"><h3>{item.name}</h3><button aria-label={`Remove ${item.name}`} onClick={() => setCart(previous => previous.filter(i => i.key !== item.key))}><Trash2 size={14} /></button></div>
@@ -237,10 +238,10 @@ export default function Register({ active = true, catalog, config, checkoutScope
           <div className="cart-tools"><button onClick={() => setShowNote(!showNote)}><StickyNote size={15} />{note ? 'Edit note' : 'Add note'}</button><button disabled={!cart.length} onClick={hold}><Pause size={15} />Hold sale</button><button disabled={!cart.length} onClick={() => { if (window.confirm('Clear this unsubmitted sale? No order has been created.')) { setCart([]); setNote(''); } }}><Trash2 size={15} />Clear</button></div>
           {showNote && <textarea className="sale-note" aria-label="Sale note" placeholder="Internal note for this order…" value={note} maxLength={250} onChange={e => setNote(e.target.value)} />}
           <div className="cart-totals"><div><span>Subtotal <small>({count} {count === 1 ? 'item' : 'items'})</small></span><strong>{money(total)}</strong></div><div><span>Tax</span><span className="muted">{config.mode === 'demo' ? 'Not applied in demo' : 'Calculated by WooCommerce'}</span></div><div className="grand-total"><span>Total</span><strong key={total}>{money(total)}</strong></div></div>
-          {config.mode !== 'demo' && <p className="total-disclaimer">Estimated total. WooCommerce confirms the final amount before payment.</p>}
+          {config.mode !== 'demo' && <p className="total-disclaimer">{config.liveReadOnly?'Reference amount only. Tax and the final total have not been checked by WooCommerce.':'Estimated total. WooCommerce confirms the final amount before payment.'}</p>}
           {error && <Notice tone="error">{error}</Notice>}
-          {config.mode !== 'demo' && !config.writesEnabled && <Notice tone="warning">Checkout is locked until the owner approves this environment.</Notice>}
-          </div><div className="cart-checkout"><button className="charge-button" onClick={checkout} disabled={checkoutDisabled}><span>{busy ? 'Preparing order…' : 'Prepare order'}<ArrowRight size={19} /></span><strong>{money(total)}</strong></button><div className="cart-secure"><ShieldCheck size={13} />{config.mode === 'demo' ? 'Demo checkout · No real payments' : 'Payments collected outside this app'}</div></div>
+          {config.mode !== 'demo' && !config.writesEnabled && <Notice tone="warning">{config.liveReadOnly?'This catalogue pilot cannot take payments or create orders; it requires a separate reviewed deployment to begin trading.':'Checkout is locked until the owner approves this environment.'}</Notice>}
+          </div><div className="cart-checkout"><button className="charge-button" onClick={checkout} disabled={checkoutDisabled}><span>{busy ? 'Preparing order…' : config.liveReadOnly ? 'Checkout locked' : 'Prepare order'}<ArrowRight size={19} /></span><strong>{money(total)}</strong></button><div className="cart-secure"><ShieldCheck size={13} />{config.mode === 'demo' ? 'Demo checkout · No real payments' : config.liveReadOnly ? 'Live catalogue only · No POS payments' : 'Payments collected outside this app'}</div></div>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 
-export const APP_VERSION = '1.1.2';
+export const APP_VERSION = '1.1.3';
 const PRODUCTION_HOSTS = ['mansutrendzgh.com', 'www.mansutrendzgh.com'];
 
 function httpsOrigin(value, label) {
@@ -21,6 +21,12 @@ export function readConfig(env = process.env) {
   const productionHost = PRODUCTION_HOSTS.includes(url.hostname);
   if (mode === 'staging' && productionHost) throw new Error('Staging must use a separate staging URL, not the production store.');
   if (mode === 'live' && !productionHost) throw new Error('Live mode is restricted to the approved MansutRENDZGH store hostname.');
+  // A live catalogue pilot may read the real store, but can never create or
+  // update WooCommerce orders, even if an approval flag is later copied in.
+  if (env.POS_LIVE_READ_ONLY && !['true', 'false'].includes(env.POS_LIVE_READ_ONLY)) throw new Error('POS_LIVE_READ_ONLY must be true or false.');
+  const liveReadOnly = env.POS_LIVE_READ_ONLY === 'true';
+  if (liveReadOnly && mode !== 'live') throw new Error('POS_LIVE_READ_ONLY is only valid with POS_MODE=live.');
+  if (liveReadOnly && env.POS_ALLOW_LIVE_WRITES === 'true') throw new Error('A read-only live pilot cannot enable POS_ALLOW_LIVE_WRITES.');
 
   const production = env.NODE_ENV === 'production';
   const publicOrigin = httpsOrigin(env.POS_PUBLIC_ORIGIN || '', 'POS_PUBLIC_ORIGIN');
@@ -31,7 +37,7 @@ export function readConfig(env = process.env) {
   const approvalReference = (env.POS_OWNER_APPROVAL_REFERENCE || '').trim();
   const writesEnabled = mode === 'staging'
     ? configured && env.POS_STAGING_APPROVED === 'true'
-    : mode === 'live' && configured && env.POS_ALLOW_LIVE_WRITES === 'true' && approvalReference.length >= 8;
+    : mode === 'live' && !liveReadOnly && configured && env.POS_ALLOW_LIVE_WRITES === 'true' && approvalReference.length >= 8;
   // Wholesale is a separate, explicitly approved write path. Legacy trade
   // flags never enable it; replacing the workflow must not inherit approval.
   const wholesaleWritesEnabled = mode === 'demo' || (writesEnabled && env.POS_STAGING_WHOLESALE_APPROVED === 'true' &&
@@ -51,7 +57,7 @@ export function readConfig(env = process.env) {
   if (!Number.isInteger(reconcileIntervalSeconds) || reconcileIntervalSeconds < 15 || reconcileIntervalSeconds > 3600) throw new Error('POS_RECONCILE_INTERVAL_SECONDS must be an integer from 15 to 3600.');
 
   return {
-    mode, storeUrl, configured, writesEnabled, wholesaleWritesEnabled, approvalReference,
+    mode, storeUrl, configured, liveReadOnly, writesEnabled, wholesaleWritesEnabled, approvalReference,
     consumerKey: env.WOO_CONSUMER_KEY || '', consumerSecret: env.WOO_CONSUMER_SECRET || '',
     dataDir: env.POS_DATA_DIR || path.resolve('.data'),
     port, bindHost, production, publicOrigin,
@@ -72,7 +78,8 @@ export function readConfig(env = process.env) {
 export function publicConfig(config) {
   return {
     mode: config.mode, storeUrl: config.storeUrl, configured: config.configured,
-    writesEnabled: config.writesEnabled, wholesaleWritesEnabled: config.wholesaleWritesEnabled, currency: config.currency,
+    liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
+    wholesaleWritesEnabled: config.wholesaleWritesEnabled, currency: config.currency,
     lowStockThreshold: config.lowStockThreshold, receiptFooter: config.receiptFooter,
     receiptWidth: config.receiptWidth, orderStatus: config.orderStatus,
     requireShift: config.requireShift, version: APP_VERSION,

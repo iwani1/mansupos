@@ -1,5 +1,7 @@
 # Contabo with existing host Nginx and no Docker: staging POS
 
+**For the owner-requested live WooCommerce catalogue without a separate staging clone, use [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md) instead. Do not point this staging-only unit at the live store or run both units on port 3187.**
+
 **Use this path only after confirming Node.js 22.13+ is available without replacing the runtime used by the existing app.** The reported VPS has host Nginx on 80/443, an existing Next.js app on 3000 and PostgreSQL on localhost:5432; Docker is not installed. This plan does **not** install Docker, start Caddy, stop the existing app, change its Nginx virtual host, or use ports 3000/5432. It installs a **separate staging-only systemd service** on `127.0.0.1:3187` with its own code directory and SQLite ledger. No commands here authorize live checkout.
 
 The native service example enforces `POS_MODE=staging`, `POS_BIND_HOST=127.0.0.1`, `PORT=3187`, a separate data directory and loopback-only proxy trust **even if someone copies a different `.env` template**. Verify the port is still free before use; change *both* service commands together if another process has taken it. The existing Docker instructions remain an alternative only if an administrator deliberately installs Docker later.

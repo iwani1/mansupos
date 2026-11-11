@@ -1,6 +1,6 @@
 # Setup and safe deployment
 
-On the reported Contabo VPS with host Nginx/Next.js and no Docker, follow [CONTABO-NATIVE.md](CONTABO-NATIVE.md) for an isolated localhost-only systemd service. [CONTABO.md](CONTABO.md) is the optional POS-only Compose path if an administrator installs Docker. The all-in-one Caddy example binds 80/443 and must not be started over the existing app.
+On the reported Contabo VPS with host Nginx/Next.js and no Docker, the requested **live WooCommerce catalogue, no-staging pilot** is [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md): localhost-only, Read-only Woo key, no order/payment writes. For a separate Woo staging clone and its own localhost-only service use [CONTABO-NATIVE.md](CONTABO-NATIVE.md). [CONTABO.md](CONTABO.md) is optional POS-only Compose only if an administrator installs Docker. The all-in-one Caddy example binds 80/443 and must not be started over the existing app. The remainder of this guide covers staging acceptance for eventual trading, **not** the live catalogue pilot.
 
 ## 1. Read-only audit first
 

@@ -2,7 +2,15 @@
 
 Record **Pass / Fail / Not tested**, date, tester, environment, plugin/app version, and evidence reference. Do not include secrets or customer personal information.
 
-Automated baseline already passing locally: 67 backend/mocked WooCommerce/restore and deployment-safety regression tests, including optional/unnamed Wholesale quote, tax, historical-order compatibility and payment-recovery cases; the isolated Chromium demo walkthrough, lost-prepare-response recovery after reload, session-expiry handling, embedded-preview session fallback when Authorization/cookies are stripped, reduced-motion preference checks, counter/mobile layout and mocked shared-stock/variation/backorder/report checks, axe accessibility scans, lint, receipt PDF content check, production build, dependency audit, preflight, SQLite backup/restore integrity check, and clean Docker image build/smoke in GitHub Actions. The items below must still be executed against the approved staging clone and real hardware.
+Automated baseline: backend/mocked WooCommerce/restore and deployment-safety regression tests include live-read-only pilot config/unit/Woo write guards, optional/unnamed Wholesale quotes, tax, historical-order compatibility and payment-recovery cases; the isolated Chromium demo walkthrough, lost-prepare-response recovery after reload, session-expiry handling, embedded-preview session fallback when Authorization/cookies are stripped, reduced-motion preference checks, counter/mobile layout and mocked shared-stock/variation/backorder/report checks, pilot checkout-lock UI, axe accessibility scans, lint, receipt PDF content check, production build, dependency audit, preflight, SQLite backup/restore integrity check, and Docker image build/smoke in CI. The items below must still be executed against an approved staging clone and real hardware **before any trading approval**. Connecting to the live catalogue in the read-only pilot does not pass these tests.
+
+## Live catalogue pilot only (not permission to trade)
+
+- [ ] `pos.mansutrendzgh.com` resolves to the intended VPS and has a valid HTTPS certificate; the old Next.js app still works and 3187 is loopback-only.
+- [ ] New dedicated WooCommerce key has **Read** permission only; canonical `https://mansutrendzgh.com` or approved `www` origin is configured without a redirect. No keys or customer records are included in evidence.
+- [ ] `/api/health` reports `mode: live`, `liveReadOnly: true`; owner-only Store connection test loads real products/stock. Diagnostics do **not** read customer orders. Local POS ledger and backups are separate.
+- [ ] UI explicitly says live catalogue only; retail/Wholesale checkout, payment recording and cash movements are blocked; no test creates, updates or cancels a real Woo order.
+- [ ] Owner acknowledges that no tax/total, stock concurrency, recovery, payment or hardware acceptance has been demonstrated; do not collect money or release goods through this POS. See [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md).
 
 ## Environment and safety
 

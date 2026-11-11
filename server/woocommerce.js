@@ -26,6 +26,20 @@ export class WooCommerce {
     throw lastError;
   }
   async once(url, { method, body, allowMissing }) {
+    // A catalogue pilot is deliberately narrower than a generic Woo Read key:
+    // do not fetch customer orders even if someone restores a foreign ledger.
+    if (this.config.liveReadOnly) {
+      const target = new URL(url);
+      if (!['GET', 'HEAD'].includes(method) || target.origin !== this.config.storeUrl ||
+        !/^\/wp-json\/wc\/v3\/products(?:\/[1-9]\d*(?:\/variations(?:\/[1-9]\d*)?)?)?$/.test(target.pathname)) {
+        throw new RemoteError('Live catalogue pilot permits WooCommerce product reads only. No order request was sent.', 403);
+      }
+    }
+    // Defence in depth: a future caller must not bypass the checkout-service
+    // gate and mutate WooCommerce from demo or locked staging/live deployments.
+    if (!['GET', 'HEAD'].includes(method) && !this.config.writesEnabled) {
+      throw new RemoteError('WooCommerce writes are locked for this POS instance. No order or stock change was attempted.', 403);
+    }
     let response;
     try {
       response = await this.fetch(url, {

@@ -14,6 +14,8 @@ WooCommerce owns the live product catalogue, reference prices, taxes, stock, and
 
 Demo mode is separate. It uses a small public-product snapshot, illustrative local images, sample stock, and a local demo ledger. It never calls the WooCommerce write adapter.
 
+For a direct connection to the real store **without a staging clone**, the `POS_LIVE_READ_ONLY=true` catalogue pilot may fetch products/variations with a dedicated Woo Read-only key. The adapter allows only Woo product/variation GET/HEAD requests (not customer/order reads), never performs remote order/stock writes, and blocks checkout/payment/shift cash recording. It still stores local POS owner sessions, audit events and catalogue cache in an isolated `pos-live.db` under `/var/lib/mansu-pos-live-pilot`. The shared-host systemd pilot unit forces this flag, all write gates off, the HTTPS POS origin, and loopback listener in both preflight and the running process. Real checkout requires a separate reviewed deployment and ledger; a read-only catalogue test is not tax/stock/payment acceptance.
+
 ## Checkout sequence
 
 1. Browser submits product IDs, variation IDs, quantities, a note, and a UUID idempotency key.
@@ -62,7 +64,7 @@ This design reduces duplicate-order risk but cannot replace staging tests or own
 - Cashiers can view only their own sales and cannot create or approve new wholesale quotes. Staff/connection management is owner-only. Reports and wholesale buyer management are owner/manager-only.
 - API errors are sanitized before returning to the browser.
 - CSV cells are escaped to reduce spreadsheet-formula injection.
-- The production frontend uses a restrictive Content Security Policy and locally bundled fonts. `POS_BIND_HOST` selects a validated loopback-only or all-interface listen address: the shared-host systemd staging unit forces `127.0.0.1`, while Docker listens on `0.0.0.0` **inside its container** with only a loopback host publish. Neither path exposes a direct public POS port.
+- The production frontend uses a restrictive Content Security Policy and locally bundled fonts. `POS_BIND_HOST` selects a validated loopback-only or all-interface listen address: the shared-host systemd staging **and** live-read-only-pilot units force `127.0.0.1` on distinct ledgers (only one unit on port 3187 at a time), while Docker listens on `0.0.0.0` **inside its container** with only a loopback host publish. Neither path exposes a direct public POS port.
 
 ## Deliberate exclusions
 

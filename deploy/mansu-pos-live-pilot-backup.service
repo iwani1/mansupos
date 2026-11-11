@@ -1,0 +1,17 @@
+[Unit]
+Description=Verified online backup of the Mansu POS live catalogue pilot ledger
+
+[Service]
+Type=oneshot
+User=mansu-pos-pilot
+Group=mansu-pos-pilot
+WorkingDirectory=/opt/mansu-pos-live-pilot
+EnvironmentFile=/etc/mansu-pos-live-pilot/pos.env
+# Never accidentally back up a staging/live trading ledger with this unit.
+ExecStart=/usr/bin/env NODE_ENV=production POS_MODE=live POS_LIVE_READ_ONLY=true POS_ALLOW_LIVE_WRITES=false POS_PUBLIC_ORIGIN=https://pos.mansutrendzgh.com POS_DATA_DIR=/var/lib/mansu-pos-live-pilot /usr/bin/node server/backup.js /var/lib/mansu-pos-live-pilot/backups
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mansu-pos-live-pilot
+UMask=0077

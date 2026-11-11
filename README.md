@@ -6,7 +6,7 @@ A working, mobile-friendly point-of-sale application for **MansutRENDZGH**, desi
 
 The live preview runs in **isolated demo mode**. It does not create orders, change stock, send receipts, or collect money on mansutrendzgh.com. The wholesale workflow can be tried safely in that demo; separate staging tax acceptance and written live approval are still required before any real wholesale checkout is enabled.
 
-The codebase includes production-oriented controls (shifts, audit, lockout, idle sessions, reconciliation sweep, diagnostics, migrations, backup/restore, preflight, Docker/Caddy/systemd/nginx examples, and CI). **A full application audit on 4 November 2026 found release blockers; the code remediation and regression tests are documented in [docs/AUDIT-2026-11-04.md](docs/AUDIT-2026-11-04.md).** Do not enable live writes until staging acceptance, hardware verification, backups, and owner approval are complete. Production deployment still requires an approved staging clone, server-side credentials, hardware verification, and the live write gate.
+The codebase includes production-oriented controls (shifts, audit, lockout, idle sessions, reconciliation sweep, diagnostics, migrations, backup/restore, preflight, Docker/Caddy/systemd/nginx examples, and CI). **A full application audit on 4 November 2026 found release blockers; the code remediation and regression tests are documented in [docs/AUDIT-2026-11-04.md](docs/AUDIT-2026-11-04.md).** Connecting to the live catalogue **read-only** is possible without staging; live checkout is **not** approved and still needs real WooCommerce tax/stock/recovery acceptance, hardware verification, off-host backups and separate written owner approval. Do not enable live writes from a read-only pilot.
 
 - Product names, prices, IDs, and source image URLs were sampled read-only from the public WooCommerce Store API on **3 November 2026**.
 - Demo quantities, `DEMO-` barcode aliases, register categories, and sample transactions are not live store data.
@@ -62,9 +62,9 @@ The browser walkthrough creates demo sales and may close an open demo shift. Run
 
 ## Connect the store
 
-For the reported Contabo VPS with **host Nginx, another Node app on port 3000 and no Docker**, follow **[docs/CONTABO-NATIVE.md](docs/CONTABO-NATIVE.md)**: the staging-only service uses its own ledger and `127.0.0.1:3187`. **[docs/CONTABO.md](docs/CONTABO.md)** covers the optional POS-only Docker/Compose route if an administrator decides to install Docker. See **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for deployment gates, **[docs/SETUP.md](docs/SETUP.md)** for staging, **[docs/OPERATIONS.md](docs/OPERATIONS.md)** for daily use, and **[docs/SECURITY.md](docs/SECURITY.md)** for security.
+For the reported Contabo VPS with **host Nginx, another Node app on port 3000 and no Docker**, the requested route is **[docs/CONTABO-LIVE-PILOT.md](docs/CONTABO-LIVE-PILOT.md)**: a separate, localhost-only service can read the **live WooCommerce catalogue** with a **Read-only** key. It cannot create orders, record payments or open cash shifts; `pos.mansutrendzgh.com` still needs DNS and HTTPS. **[docs/CONTABO-NATIVE.md](docs/CONTABO-NATIVE.md)** is the distinct Woo-staging route, not a way to bypass the live pilot lock. Both use their own ledger on `127.0.0.1:3187` and cannot run concurrently on that port. **[docs/CONTABO.md](docs/CONTABO.md)** covers optional POS-only Docker/Compose only if an administrator chooses to install Docker. See **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for trading gates, **[docs/SETUP.md](docs/SETUP.md)** for acceptance, **[docs/OPERATIONS.md](docs/OPERATIONS.md)** for daily use, and **[docs/SECURITY.md](docs/SECURITY.md)** for security.
 
-The short version:
+A read-only live catalogue pilot needs the new POS DNS/HTTPS hostname, a private owner account and dedicated WooCommerce key with **Read** permission; it does **not** require or authorize real Woo test orders. For eventual trading, the short version remains:
 
 1. Audit the existing site and verify a full WordPress files/database backup.
 2. Create a separate staging clone with outbound email/fulfilment/payment side effects controlled.
@@ -77,8 +77,8 @@ The short version:
 
 ## Verification
 
-- `npm test`: 67 backend/mocked WooCommerce/restore and deployment-safety regression tests pass, including optional-name and unnamed wholesale quotes, exact tax-inclusive amounts, historical-order compatibility, loss/reconciliation recovery, retail stock checks, container-safe single-instance locking and first-owner preflight.
-- `npm run test:browser`: demo retail and wholesale quotes, lost-response recovery, receipt, proxy session, reduced motion, counter/mobile layout and accessibility checks pass. Run only against an isolated demo database.
+- `npm test`: 72 backend/mocked WooCommerce/restore and deployment-safety regression tests pass, including the live catalogue pilot's forced loopback/write locks and a Woo request guard, optional-name and unnamed wholesale quotes, exact tax-inclusive amounts, historical-order compatibility, loss/reconciliation recovery, stock checks, single-instance locking and owner preflight.
+- `npm run test:browser`: demo retail/Wholesale quotes, recovery, receipt, proxy session, reduced motion, counter/mobile layout and the pilot's checkout-lock labels. Run only against an isolated demo database, never the live site.
 - `npm run test:a11y`: axe WCAG A/AA + best-practice scans and 320px overflow check pass.
 - `npm run lint`: ESLint passes.
 - Receipt PDF was checked for one-page layout and extractable receipt text.
@@ -88,7 +88,7 @@ The short version:
 - `npm audit --omit=dev`: no known production dependency vulnerabilities at the time of the build.
 - `npm run backup` and guarded `npm run restore`: SQLite online backup, restore, and integrity check pass in an isolated test directory.
 
-These checks use demo data and mocked WooCommerce responses. They do not prove compatibility with the live WordPress/WooCommerce installation; staging acceptance is still required.
+These checks use demo data and mocked WooCommerce responses. They do not prove compatibility with the live WordPress/WooCommerce installation; the read-only pilot verifies only catalogue connectivity, not taxes or safe checkout. An isolated staging clone remains the recommended way to complete trading acceptance.
 
 ## Important limitations
 

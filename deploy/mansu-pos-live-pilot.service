@@ -1,0 +1,27 @@
+[Unit]
+Description=Mansu POS live-store catalogue pilot (WooCommerce read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mansu-pos-pilot
+Group=mansu-pos-pilot
+WorkingDirectory=/opt/mansu-pos-live-pilot
+EnvironmentFile=/etc/mansu-pos-live-pilot/pos.env
+# These values override the env file in BOTH preflight and the server. This
+# unit must never be repurposed for checkout; use a new reviewed deployment.
+ExecStartPre=/usr/bin/env NODE_ENV=production POS_MODE=live POS_LIVE_READ_ONLY=true POS_ALLOW_LIVE_WRITES=false POS_STAGING_APPROVED=false POS_STAGING_WHOLESALE_APPROVED=false POS_LIVE_WHOLESALE_APPROVED=false POS_OWNER_APPROVAL_REFERENCE= POS_BIND_HOST=127.0.0.1 PORT=3187 POS_DATA_DIR=/var/lib/mansu-pos-live-pilot POS_TRUST_PROXY=loopback POS_REQUIRE_SHIFT=false POS_PUBLIC_ORIGIN=https://pos.mansutrendzgh.com /usr/bin/node server/preflight.js
+ExecStart=/usr/bin/env NODE_ENV=production POS_MODE=live POS_LIVE_READ_ONLY=true POS_ALLOW_LIVE_WRITES=false POS_STAGING_APPROVED=false POS_STAGING_WHOLESALE_APPROVED=false POS_LIVE_WHOLESALE_APPROVED=false POS_OWNER_APPROVAL_REFERENCE= POS_BIND_HOST=127.0.0.1 PORT=3187 POS_DATA_DIR=/var/lib/mansu-pos-live-pilot POS_TRUST_PROXY=loopback POS_REQUIRE_SHIFT=false POS_PUBLIC_ORIGIN=https://pos.mansutrendzgh.com /usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mansu-pos-live-pilot
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

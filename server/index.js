@@ -41,7 +41,7 @@ if (config.production) {
 }
 
 let reconciling = false;
-const reconcileTimer = config.mode !== 'demo' && config.configured ? setInterval(async () => {
+const reconcileTimer = config.mode !== 'demo' && !config.liveReadOnly && config.configured ? setInterval(async () => {
   if (reconciling) return;
   reconciling = true;
   try {

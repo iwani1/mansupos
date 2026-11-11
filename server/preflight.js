@@ -23,6 +23,8 @@ add('Data directory', (() => { try { fs.mkdirSync(config.dataDir, { recursive: t
 add('WooCommerce credentials', config.mode === 'demo' || config.configured, config.configured ? 'configured' : 'missing');
 add('Staging approval', config.mode !== 'staging' || !config.writesEnabled || process.env.POS_STAGING_APPROVED === 'true', config.writesEnabled ? 'writes enabled' : 'writes locked');
 add('Live approval', config.mode !== 'live' || !config.writesEnabled || (process.env.POS_ALLOW_LIVE_WRITES === 'true' && config.approvalReference.length >= 8), config.writesEnabled ? 'writes enabled' : 'writes locked');
+add('Live catalogue pilot', !config.liveReadOnly || (!config.writesEnabled && !config.wholesaleWritesEnabled && config.mode === 'live'),
+  config.liveReadOnly ? 'live WooCommerce reads only; retail and wholesale checkout locked' : 'not requested');
 add('Separate wholesale gate', true, config.mode === 'demo' ? 'isolated demo only' : config.wholesaleWritesEnabled ? 'wholesale writes enabled; confirm staging acceptance and written approval' : 'wholesale checkout locked');
 let existingOwner = false;
 if (config.mode !== 'demo') {
@@ -45,5 +47,5 @@ add('Shift accountability', true, config.requireShift ? 'required' : 'optional')
 add('Session idle timeout', true, `${config.sessionIdleMinutes} minutes`);
 const failed = checks.filter(c => !c.ok);
 for (const check of checks) console.log(`${check.ok ? 'PASS' : 'FAIL'}  ${check.name}${check.detail ? ` — ${check.detail}` : ''}`);
-console.log(failed.length ? `\n${failed.length} preflight check(s) failed.` : '\nPreflight passed. This does not replace staging acceptance or owner approval.');
+console.log(failed.length ? `\n${failed.length} preflight check(s) failed.` : '\nPreflight passed. Live checkout still requires separate acceptance and written owner approval.');
 process.exit(failed.length ? 1 : 0);

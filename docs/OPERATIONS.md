@@ -1,5 +1,7 @@
 # Daily operations
 
+**Not for the live catalogue pilot.** [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md) connects to the real store with a Read-only Woo key: checkout, payments and cash shifts are disabled. The steps below apply only after a separately reviewed trading deployment and acceptance. The pilot's local owner/session/audit/catalogue cache still needs a verified backup.
+
 ## Opening the register
 
 1. Sign in with your named account.
@@ -55,7 +57,7 @@ Initiate refunds in WooCommerce. Then reconcile the POS sale so net reports upda
 npm run backup -- /private/backup/directory
 ```
 
-This creates an integrity-checked SQLite backup of the POS ledger **only when the command has the correct `POS_MODE`/`POS_DATA_DIR` environment**. On the host-Nginx Contabo staging installation, the private settings live in a systemd EnvironmentFile rather than the Git checkout: use the documented `mansu-pos-staging-backup.service` in [CONTABO-NATIVE.md](CONTABO-NATIVE.md), not a bare `npm run backup` with demo defaults. WordPress files/database require separate host-level backups. Store backups off-host and restrict access.
+This creates an integrity-checked SQLite backup of the POS ledger **only when the command has the correct `POS_MODE`/`POS_DATA_DIR` environment**. On the host-Nginx Contabo installations, the private settings live in a systemd EnvironmentFile rather than the Git checkout: use `mansu-pos-live-pilot-backup.service` in [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md) for the live-read-only pilot, or `mansu-pos-staging-backup.service` in [CONTABO-NATIVE.md](CONTABO-NATIVE.md) for staging. Do not run a bare `npm run backup` with demo defaults. WordPress files/database require separate host-level backups. Store backups off-host and restrict access.
 
 ## Restore
 
@@ -70,7 +72,7 @@ The restore command verifies integrity, preserves the existing database, and res
 ## Health checks
 
 - `GET /api/health`: process liveness.
-- `GET /api/ready`: database readiness and configuration issues.
+- `GET /api/ready`: database readiness and configuration issues. In the live catalogue pilot, a 200 means the **read-only** process is configured, not that checkout is enabled or Woo credentials work; use owner diagnostics for the authenticated catalogue read.
 - Owner UI: **Store connection → Run diagnostics**.
 - Owner UI: **Audit log** for security/staff/shift/sale events.
 

@@ -5,6 +5,7 @@ dist/
 .env.*
 !.env.example
 !.env.production.example
+!.env.live-pilot.example
 *.log
 test-results/
 playwright-report/
