@@ -84,12 +84,17 @@ jobs:
           done
           docker logs mansu-pos-ci
           exit 1
-      - name: Verify POS-only compose never claims the existing proxy's ports
+      - name: Validate POS-only Compose configuration
         run: |
           cp .env.production.example .env
           sed -i 's/^POS_MODE=staging$/POS_MODE=demo/' .env
           sed -i 's/^POS_HOST_PORT=$/POS_HOST_PORT=31817/' .env
-          docker compose -p mansu-pos-ci -f deploy/docker-compose.existing-proxy.yml config --quiet
+          if ! docker compose version; then echo '::error title=Compose plugin missing::Install Docker Compose v2 on the runner.'; exit 1; fi
+          if ! docker compose -p mansu-pos-ci -f deploy/docker-compose.existing-proxy.yml config --quiet; then
+            echo '::error title=Compose configuration invalid::POS-only Compose file failed validation.'; exit 1
+          fi
+      - name: Verify POS-only Compose binds only localhost
+        run: |
           docker compose -p mansu-pos-ci -f deploy/docker-compose.existing-proxy.yml config --format json | node -e '
             let input = "";
             process.stdin.on("data", chunk => { input += chunk; });
@@ -98,9 +103,14 @@ jobs:
               const ports = services.pos?.ports || [];
               if (Object.keys(services).length !== 1 || ports.length !== 1 ||
                   ports[0].host_ip !== "127.0.0.1" || String(ports[0].published) !== "31817" ||
-                  String(ports[0].target) !== "3000") process.exit(1);
+                  String(ports[0].target) !== "3000") {
+                console.error("::error title=Unexpected POS port mapping::" + JSON.stringify(ports));
+                process.exit(1);
+              }
             });
           '
+      - name: Smoke test POS-only Compose container
+        run: |
           trap 'docker compose -p mansu-pos-ci -f deploy/docker-compose.existing-proxy.yml down -v >/dev/null 2>&1 || true' EXIT
           docker compose -p mansu-pos-ci -f deploy/docker-compose.existing-proxy.yml up -d --build pos
           for i in $(seq 1 60); do
@@ -108,4 +118,5 @@ jobs:
             sleep 1
           done
           docker compose -p mansu-pos-ci -f deploy/docker-compose.existing-proxy.yml logs --tail=100 pos
+          echo '::error title=POS-only Compose unhealthy::Local health check failed.'
           exit 1
