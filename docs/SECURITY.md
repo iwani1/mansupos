@@ -21,9 +21,9 @@
 
 ## Authorization
 
-- Owner: staff, connection, audit, all sales/reports/shifts; can create named wholesale buyers and approve negotiated prices.
-- Manager: all POS sales/reports/shifts and buyer/price approval; no staff/connection management.
-- Cashier: own sales and own shifts; no buyer directory, new negotiated-price approval, reports/staff/connection/audit.
+- Owner: staff, connection, audit, all sales/reports/shifts; can enter an optional wholesale buyer name and approve negotiated prices.
+- Manager: all POS sales/reports/shifts and optional name/price approval; no staff/connection management.
+- Cashier: own sales and own shifts; no wholesale preparation/approval, historical buyer directory, reports/staff/connection/audit.
 - Permissions are enforced by the API, not only hidden in the UI.
 
 ## Request protection
@@ -44,8 +44,8 @@ The POS records externally collected payments. It does not process MoMo or card 
 - SQLite data directory should be private (`0700`) and database files `0600`.
 - Backups must be encrypted/access-controlled and stored off-host.
 - Audit logs record security, staff, shift, and sale events.
-- Wholesale buyer names, negotiated unit prices and approving staff are restricted business records in the private POS ledger, Woo order metadata, receipts and reports; do not publish them in screenshots, issues or public test fixtures.
-- Reports/exports contain cashier names, wholesale buyer names and external references; treat them as restricted business records.
+- Optional wholesale buyer names (when provided), negotiated unit prices and approving staff are restricted business records in the private POS ledger, Woo order metadata, receipts and reports; do not publish them in screenshots, issues or public test fixtures. Unnamed orders never invent a buyer identity.
+- Reports/exports contain cashier names, optional wholesale buyer names and external references; treat them as restricted business records.
 
 ## Reporting issues
 

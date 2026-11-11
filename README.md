@@ -20,7 +20,7 @@ The codebase includes production-oriented controls (shifts, audit, lockout, idle
 - Simple products and size/variation selection.
 - Exact SKU/barcode lookup and keyboard-wedge scanner input (`F2`).
 - Cart quantities, internal notes, and browser-local held **retail** sales.
-- Dedicated **Wholesale** workspace (owner/manager only): select a persisted named buyer first, add goods, enter each negotiated final tax-inclusive unit price, review and explicitly approve the quote, then record full payment before goods leave. Catalogue prices remain unchanged; there are no quantity tiers or unpaid dispatch. The retail register has no negotiated-price controls.
+- Dedicated **Wholesale** workspace (owner/manager only): start with goods; a buyer name is optional and can be entered directly without selecting or creating a buyer. Enter each negotiated final tax-inclusive unit price, review and explicitly approve the quote, then record full payment before goods leave. Named and unnamed sales appear in history; catalogue prices remain unchanged, with no quantity tiers or unpaid dispatch. The retail register has no negotiated-price controls.
 - Cash received/change calculation.
 - Explicitly external MoMo/Card payment recording with merchant references.
 - WooCommerce order creation and payment-status confirmation in staging/live mode.
@@ -77,7 +77,7 @@ The short version:
 
 ## Verification
 
-- `npm test`: 58 backend/mocked WooCommerce/restore regression tests pass, including named wholesale buyers, exact tax-inclusive quotes, mixed tax classes, full payment, historical-order compatibility, loss/reconciliation recovery and retail stock checks.
+- `npm test`: 63 backend/mocked WooCommerce/restore regression tests pass, including optional-name and unnamed wholesale quotes, exact tax-inclusive amounts, mixed tax classes, full payment, historical-order compatibility, loss/reconciliation recovery and retail stock checks.
 - `npm run test:browser`: demo retail and wholesale quotes, lost-response recovery, receipt, proxy session, reduced motion, counter/mobile layout and accessibility checks pass. Run only against an isolated demo database.
 - `npm run test:a11y`: axe WCAG A/AA + best-practice scans and 320px overflow check pass.
 - `npm run lint`: ESLint passes.

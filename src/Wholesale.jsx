@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Check, Minus, Plus, RefreshCw, Search, ShieldCheck, ShoppingBag, Trash2, UserRound, WifiOff } from 'lucide-react';
+import { ArrowRight, Check, Minus, Plus, RefreshCw, Search, ShieldCheck, ShoppingBag, Trash2, WifiOff } from 'lucide-react';
 import { api, money, uuid } from './api.js';
 import { Empty, Modal, Notice, PageHeading, ProductImage } from './components.jsx';
 import { available, allowsBackorders, hasKnownStock, onBackorder } from './stock.js';
@@ -24,12 +24,7 @@ const stockCaption = line => {
 };
 
 export default function Wholesale({ catalog, config, user, checkoutScope, refresh, notify, onPrepared, onOpenSales, shift, onOpenShift }) {
-  const [buyers, setBuyers] = useState([]);
-  const [buyerId, setBuyerId] = useState('');
-  const [buyerError, setBuyerError] = useState('');
-  const [newBuyer, setNewBuyer] = useState('');
-  const [addingBuyer, setAddingBuyer] = useState(false);
-  const [buyerBusy, setBuyerBusy] = useState(false);
+  const [buyerName, setBuyerName] = useState('');
   const [query, setQuery] = useState('');
   const [lines, setLines] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -43,30 +38,24 @@ export default function Wholesale({ catalog, config, user, checkoutScope, refres
   const checkoutKey = useRef(uuid());
   const storageKey = `mansu-wholesale-checkout-${checkoutScope}`;
   const products = useMemo(() => catalog?.products || [], [catalog]);
-  const buyer = buyers.find(entry => entry.id === buyerId);
+  const namedBuyer = buyerName.trim().replace(/\s+/g, ' ');
+  const validBuyerName = !namedBuyer || (namedBuyer.length >= 2 && [...buyerName].every(character => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
   const requireSource = config.mode !== 'demo';
   const shiftRequired = config.requireShift && config.mode !== 'demo';
   const catalogueTotal = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);
   const total = lines.reduce((sum, line) => sum + (agreedCents(line.priceInput) || 0) * line.quantity, 0);
   const validPrices = lines.length > 0 && lines.every(line => agreedCents(line.priceInput) !== null);
-  const quoteReady = Boolean(buyer && validPrices && total > 0 && total <= 100000000);
+  const quoteReady = Boolean(validBuyerName && validPrices && total > 0 && total <= 100000000);
   const locked = !online || !config.wholesaleWritesEnabled || (shiftRequired && !shift);
   const filtered = products.filter(product => {
     const text = query.trim().toLowerCase();
     return !text || `${product.name} ${product.sku || ''} ${product.barcode || ''} ${(product.variations || []).map(option => `${option.label} ${option.sku} ${option.barcode}`).join(' ')}`.toLowerCase().includes(text);
   });
-  const fingerprint = useMemo(() => JSON.stringify({ saleType: 'wholesale', buyerId, note: note.trim(),
+  const fingerprint = useMemo(() => JSON.stringify({ saleType: 'wholesale', buyerName: namedBuyer, note: note.trim(),
     items: [...lines].sort((a, b) => a.productId - b.productId || a.variationId - b.variationId)
       .map(line => ({ productId: line.productId, variationId: line.variationId, quantity: line.quantity,
         agreedUnitPrice: agreedCents(line.priceInput) ?? line.priceInput })),
-  }), [buyerId, note, lines]);
-
-  useEffect(() => {
-    let cancelled = false;
-    api('/wholesale-buyers').then(result => { if (!cancelled) setBuyers(result.buyers); })
-      .catch(err => { if (!cancelled) setBuyerError(err.message); });
-    return () => { cancelled = true; };
-  }, []);
+  }), [namedBuyer, note, lines]);
   useEffect(() => {
     const on = () => setOnline(true), off = () => setOnline(false);
     window.addEventListener('online', on); window.addEventListener('offline', off);
@@ -77,31 +66,14 @@ export default function Wholesale({ catalog, config, user, checkoutScope, refres
       const previous = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
       checkoutKey.current = previous?.fingerprint === fingerprint && previous.key ? previous.key : uuid();
       setError(previous?.uncertain && previous.fingerprint === fingerprint
-        ? 'A previous order for this buyer and quote may exist. Retry with the same key or review Sales before changing the quote.' : '');
+        ? 'A previous order for this quote may exist. Retry with the same key or review Sales before changing it.' : '');
     } catch { checkoutKey.current = uuid(); setError(''); }
   }, [fingerprint, storageKey]);
 
-  function changeBuyer(id) {
-    if (id === buyerId) return;
-    if (lines.length && !window.confirm('Changing the buyer clears the goods and agreed prices in this draft. Continue?')) return;
-    setBuyerId(id); setLines([]); setNote(''); setStep('compose'); setApproved(false); setBuyerError('');
-  }
-  async function createBuyer(event) {
-    event.preventDefault();
-    if (buyerBusy || !config.wholesaleWritesEnabled) return;
-    setBuyerBusy(true); setBuyerError('');
-    try {
-      const { buyer: created } = await api('/wholesale-buyers', { method: 'POST', body: { name: newBuyer.trim() } });
-      setBuyers(previous => [...previous, created].sort((a, b) => a.name.localeCompare(b.name)));
-      changeBuyer(created.id); setNewBuyer(''); setAddingBuyer(false);
-      notify(`${created.name} added to wholesale buyers.`);
-    } catch (err) { setBuyerError(err.message); }
-    finally { setBuyerBusy(false); }
-  }
   function invalidate() { setApproved(false); setError(''); }
   function addLine(product, option = null) {
     const stock = option || product;
-    if (!buyer || !productCanSell(product, requireSource) || !available(stock, requireSource)) return;
+    if (!productCanSell(product, requireSource) || !available(stock, requireSource)) return;
     const key = `${product.id}:${option?.id || 0}`;
     const existing = lines.find(line => line.key === key);
     const next = (existing?.quantity || 0) + 1;
@@ -134,7 +106,7 @@ export default function Wholesale({ catalog, config, user, checkoutScope, refres
   }
   function resetDraft() {
     if (!window.confirm('Clear this unsubmitted wholesale quote? Review Sales first if an order may already have been created.')) return;
-    setBuyerId(''); setLines([]); setNote(''); setQuery(''); setStep('compose'); setApproved(false);
+    setBuyerName(''); setLines([]); setNote(''); setQuery(''); setStep('compose'); setApproved(false);
   }
   async function prepare() {
     if (!quoteReady || !approved || locked || busy) return;
@@ -142,7 +114,7 @@ export default function Wholesale({ catalog, config, user, checkoutScope, refres
     try { sessionStorage.setItem(storageKey, JSON.stringify({ key: checkoutKey.current, fingerprint, uncertain: false })); } catch {}
     try {
       const { sale } = await api('/sales/prepare', { method: 'POST', body: {
-        idempotencyKey: checkoutKey.current, saleType: 'wholesale', buyerId, wholesaleApproved: true,
+        idempotencyKey: checkoutKey.current, saleType: 'wholesale', ...(namedBuyer ? { buyerName: namedBuyer } : {}), wholesaleApproved: true,
         items: lines.map(line => ({ productId: line.productId, variationId: line.variationId, quantity: line.quantity,
           agreedUnitPrice: agreedCents(line.priceInput) })), note,
       } });
@@ -151,7 +123,7 @@ export default function Wholesale({ catalog, config, user, checkoutScope, refres
         notify('This order has already been paid. Check Sales before releasing goods or taking another payment.', 'error');
         onOpenSales(); return;
       }
-      setBuyerId(''); setLines([]); setNote(''); setStep('compose'); setApproved(false);
+      setBuyerName(''); setLines([]); setNote(''); setStep('compose'); setApproved(false);
       onPrepared(sale); refresh();
     } catch (err) {
       const uncertain = !err.status || err.status >= 500 || ['RECONCILIATION_REQUIRED', 'SALE_BUSY'].includes(err.code);
@@ -163,48 +135,42 @@ export default function Wholesale({ catalog, config, user, checkoutScope, refres
   }
 
   return <div className="wholesale-page">
-    <PageHeading eyebrow="Named buyer · negotiated order" title="Wholesale" description="Agree final prices for this buyer and order, approve the quote, then record full payment before release.">
+    <PageHeading eyebrow="Negotiated order · full payment" title="Wholesale" description="Add goods, agree final tax-inclusive prices, approve the quote, then record full payment before release. Buyer name is optional.">
       <button className="button secondary" onClick={onOpenSales}>View sales history <ArrowRight size={16} /></button>
     </PageHeading>
-    <ol className="wholesale-steps" aria-label="Wholesale order steps" tabIndex={0}><li className={buyer ? 'done' : 'current'}>1 <span>Buyer</span></li><li className={buyer ? step === 'review' ? 'done' : 'current' : ''}>2 <span>Goods & prices</span></li><li className={step === 'review' ? 'current' : ''}>3 <span>Review & approve</span></li><li>4 <span>Full payment</span></li></ol>
+    <ol className="wholesale-steps" aria-label="Wholesale order steps" tabIndex={0}><li className={step === 'review' ? 'done' : 'current'}>1 <span>Goods & prices</span></li><li className={step === 'review' ? 'current' : ''}>2 <span>Review & approve</span></li><li>3 <span>Full payment</span></li></ol>
     {!online && <Notice tone="warning" icon={WifiOff}>You’re offline. You may review a draft, but cannot prepare an order or record payment.</Notice>}
     {!config.wholesaleWritesEnabled && <Notice tone="warning">Wholesale writes are separately locked. An owner must authorize isolated staging tax/total tests and separately approve live use. Retail approval does not unlock this workflow.</Notice>}
     {shiftRequired && !shift && <Notice tone="warning">Open a shift before preparing an order. <button className="text-button" onClick={onOpenShift}>Open shift</button></Notice>}
     <div className="wholesale-layout"><div className="wholesale-flow">
-      <section className="surface wholesale-panel" aria-labelledby="wholesale-buyer-title">
-        <div className="wholesale-panel-heading"><span className="wholesale-step-number">01</span><div><span className="eyebrow">Start here</span><h2 id="wholesale-buyer-title">Choose the buyer</h2><p>Every wholesale quote belongs to a named person or business.</p></div><UserRound size={21} aria-hidden="true" /></div>
-        <label className="field-label" htmlFor="wholesale-buyer">Named wholesale buyer</label>
-        <div className="wholesale-buyer-row"><select className="input" id="wholesale-buyer" value={buyerId} onChange={event => changeBuyer(event.target.value)} disabled={busy}><option value="">Select a buyer to begin</option>{buyers.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select><button className="button secondary" type="button" onClick={() => setAddingBuyer(value => !value)} disabled={busy || !config.wholesaleWritesEnabled} aria-expanded={addingBuyer} aria-controls="wholesale-new-buyer"><Plus size={16} />New buyer</button></div>
-        {addingBuyer && <form className="wholesale-new-buyer" id="wholesale-new-buyer" onSubmit={createBuyer}><label htmlFor="wholesale-buyer-name">Person or business name</label><div><input id="wholesale-buyer-name" className="input" value={newBuyer} onChange={event => setNewBuyer(event.target.value)} minLength={2} maxLength={120} required autoComplete="off" placeholder="Buyer name" /><button className="button primary" disabled={buyerBusy || newBuyer.trim().length < 2}>{buyerBusy ? 'Saving…' : 'Add buyer'}</button></div></form>}
-        {buyerError && <Notice tone="error">{buyerError}</Notice>}
-      </section>
-      {!buyer ? <section className="surface wholesale-waiting"><UserRound size={30} aria-hidden="true" /><h2>Buyer first, then the goods</h2><p>Select a named buyer above to build this order. Wholesale prices are agreed per buyer and order, never by quantity tier.</p></section> : step === 'compose' ? <>
+      {step === 'compose' ? <>
         <section className="surface wholesale-panel" aria-labelledby="wholesale-goods-title">
-          <div className="wholesale-panel-heading"><span className="wholesale-step-number">02</span><div><span className="eyebrow">For {buyer.name}</span><h2 id="wholesale-goods-title">Add goods & agree prices</h2><p>Enter a final tax-inclusive unit price for each product or option.</p></div><ShoppingBag size={21} aria-hidden="true" /></div>
+          <div className="wholesale-panel-heading"><span className="wholesale-step-number">01</span><div><span className="eyebrow">Start with the goods</span><h2 id="wholesale-goods-title">Add goods & agree prices</h2><p>Enter a final tax-inclusive unit price for each product or option. No buyer selection is needed.</p></div><ShoppingBag size={21} aria-hidden="true" /></div>
           <div className="wholesale-product-search"><Search size={18} aria-hidden="true" /><input className="input" aria-label="Search wholesale products" placeholder="Search by product, SKU or barcode" value={query} onChange={event => setQuery(event.target.value)} /><button type="button" className="button secondary small" onClick={() => refresh(true)} aria-label="Refresh wholesale catalogue"><RefreshCw size={16} /></button></div>
           <div className="wholesale-products" role="region" aria-label="Available wholesale products" tabIndex={0}>{!filtered.length ? <Empty icon={Search} title="No matching goods">Try a different product name or SKU.</Empty> : filtered.map(product => {
             const canSell = productCanSell(product, requireSource);
             return <button type="button" key={product.id} className="wholesale-product" disabled={!canSell} onClick={() => product.type === 'variable' ? (setSelectedProduct(product), setSelectedOption(product.variations.find(option => available(option, requireSource)) || null)) : addLine(product)}><ProductImage src={product.image} name={product.name} /><span><strong>{product.name}</strong><small>{product.sku || 'No SKU'} · {canSell ? product.type === 'variable' ? 'Choose an option' : stockCaption(product) : 'Unavailable'}</small></span><span className="wholesale-reference">{product.type === 'variable' ? 'Options' : money(product.price)}<Plus size={16} aria-hidden="true" /></span></button>;
           })}</div>
         </section>
-        <section className="surface wholesale-panel" aria-labelledby="wholesale-lines-title"><div className="wholesale-panel-heading"><span className="wholesale-step-number">02</span><div><span className="eyebrow">Negotiated for this order</span><h2 id="wholesale-lines-title">The agreed lines</h2><p>Catalogue amounts below are references only. There are no quantity tiers.</p></div></div>
+        <section className="surface wholesale-panel" aria-labelledby="wholesale-lines-title"><div className="wholesale-panel-heading"><span className="wholesale-step-number">01</span><div><span className="eyebrow">Negotiated for this order</span><h2 id="wholesale-lines-title">The agreed lines</h2><p>Catalogue amounts below are references only. There are no quantity tiers.</p></div></div>
           {!lines.length ? <div className="wholesale-empty-lines"><ShoppingBag size={24} aria-hidden="true" /><p>Add one or more goods above, then enter the negotiated price for each.</p></div> : <div className="wholesale-lines">{lines.map(line => {
             const agreed = agreedCents(line.priceInput);
             return <div className="wholesale-line" key={line.key}><ProductImage src={line.image} name={line.name} /><div className="wholesale-line-detail"><div className="wholesale-line-heading"><div><h3>{line.name}</h3><small>{line.label || 'Standard'} · Catalogue {money(line.price)}</small></div><button type="button" aria-label={`Remove ${line.name}${line.label ? ` ${line.label}` : ''} from quote`} onClick={() => { setLines(previous => previous.filter(entry => entry.key !== line.key)); invalidate(); }}><Trash2 size={17} /></button></div><div className="wholesale-line-fields"><div><span className="field-label">Quantity</span><div className="quantity-control"><button type="button" aria-label={`Decrease ${line.name}`} onClick={() => changeQuantity(line, -1)}><Minus size={14} /></button><span>{line.quantity}</span><button type="button" aria-label={`Increase ${line.name}`} onClick={() => changeQuantity(line, 1)}><Plus size={14} /></button></div></div><div><label className="field-label" htmlFor={`wholesale-price-${line.productId}-${line.variationId}`}>Agreed unit · tax included (GH₵)</label><input className="input" id={`wholesale-price-${line.productId}-${line.variationId}`} type="text" inputMode="decimal" maxLength={10} placeholder="0.00" aria-label={`Agreed unit price for ${line.name}${line.label ? ` · ${line.label}` : ''} (GH₵, tax included)`} aria-invalid={Boolean(line.priceInput && agreed === null)} value={line.priceInput} onChange={event => { setLines(previous => previous.map(item => item.key === line.key ? { ...item, priceInput: event.target.value } : item)); invalidate(); }} />{line.priceInput && agreed === null && <small className="wholesale-price-error">Enter a positive amount with at most two decimals.</small>}</div><div className="wholesale-line-total"><span>Line total</span><strong>{agreed === null ? 'Enter price' : money(agreed * line.quantity)}</strong></div></div></div></div>;
           })}</div>}
+          <div className="wholesale-optional-buyer"><label className="field-label" htmlFor="wholesale-buyer-name">Buyer name (optional)</label><input className="input" id="wholesale-buyer-name" value={buyerName} maxLength={120} autoComplete="off" placeholder="Leave blank if not needed" aria-invalid={!validBuyerName} aria-describedby="wholesale-buyer-hint" onChange={event => { setBuyerName(event.target.value); invalidate(); }} /><small id="wholesale-buyer-hint" className={!validBuyerName ? 'wholesale-price-error' : ''}>{validBuyerName ? 'No selection required. If entered, the name appears on the order, receipt and reports.' : 'Use at least two characters and one line, or leave this blank.'}</small></div>
           <label className="wholesale-note" htmlFor="wholesale-note">Order note (sent to WooCommerce; optional)<textarea className="input" id="wholesale-note" value={note} maxLength={250} onChange={event => { setNote(event.target.value); invalidate(); }} placeholder="Avoid sensitive details or payment terms" /></label>
         </section>
-      </> : <section className="surface wholesale-panel wholesale-review" aria-labelledby="wholesale-review-title"><div className="wholesale-panel-heading"><span className="wholesale-step-number">03</span><div><span className="eyebrow">Before creating an order</span><h2 id="wholesale-review-title">Review & approve the quote</h2><p>Verify every line and the all-in amount with {buyer.name}.</p></div></div>
-        <div className="wholesale-review-buyer"><span>Named buyer</span><strong>{buyer.name}</strong><span>Approving manager / owner</span><strong>{user.name}</strong></div>
+      </> : <section className="surface wholesale-panel wholesale-review" aria-labelledby="wholesale-review-title"><div className="wholesale-panel-heading"><span className="wholesale-step-number">02</span><div><span className="eyebrow">Before creating an order</span><h2 id="wholesale-review-title">Review & approve the quote</h2><p>Verify every line and the all-in amount before preparing this order.</p></div></div>
+        <div className="wholesale-review-buyer"><span>Buyer name</span><strong>{namedBuyer || 'Not provided'}</strong><span>Approving manager / owner</span><strong>{user.name}</strong></div>
         <ol className="wholesale-review-lines">{lines.map(line => <li key={line.key}><div><strong>{line.name}{line.label ? ` · ${line.label}` : ''}</strong><small>{line.quantity} × {money(agreedCents(line.priceInput))} tax included · Catalogue {money(line.price)}</small></div><strong>{money(agreedCents(line.priceInput) * line.quantity)}</strong></li>)}</ol>
         {note && <p className="wholesale-review-note">WooCommerce order note: {note}</p>}
         <div className="wholesale-review-total"><span>Final agreed amount · no extra tax</span><strong>{money(total)}</strong></div>
         <Notice tone="warning">WooCommerce must reproduce the agreed tax-inclusive total for each line and the order. This quote does not authorize dispatch on credit. Verify and record <strong>full payment before goods leave</strong>.</Notice>
-        <label className="wholesale-approve"><input type="checkbox" checked={approved} onChange={event => setApproved(event.target.checked)} disabled={busy} /><span>I, {user.name}, approve these final tax-inclusive prices for {buyer.name} and this order only.</span></label>
+        <label className="wholesale-approve"><input type="checkbox" checked={approved} onChange={event => setApproved(event.target.checked)} disabled={busy} /><span>I, {user.name}, approve these final tax-inclusive prices for this order{namedBuyer ? ` (${namedBuyer})` : ''} only.</span></label>
         {error && <Notice tone="error">{error} <button className="text-button" type="button" onClick={onOpenSales}>Review Sales</button></Notice>}
         <div className="wholesale-review-actions"><button type="button" className="button secondary" onClick={() => { setStep('compose'); setApproved(false); }} disabled={busy}>Edit quote</button><button type="button" className="button primary" onClick={prepare} disabled={!quoteReady || !approved || locked || busy}><ShieldCheck size={17} />{busy ? 'Preparing order…' : 'Prepare wholesale order'}</button></div>
       </section>}
-    </div><aside className="surface wholesale-summary" aria-label="Wholesale quote summary"><span className="eyebrow">Order overview</span><h2>{buyer ? buyer.name : 'No buyer selected'}</h2><p>{buyer ? step === 'review' ? 'Ready for explicit approval' : 'Buyer selected · build the quote' : 'Select a buyer to start'}</p><div><span>Goods</span><strong>{lines.reduce((sum, line) => sum + line.quantity, 0)} items</strong></div><div><span>Catalogue reference</span><strong>{money(catalogueTotal)}</strong></div><div><span>Agreed amount · tax included</span><strong>{money(total)}</strong></div><small>{config.mode === 'demo' ? 'No demo tax is added. No live payments or orders.' : 'WooCommerce verifies included tax and the final amount before payment.'}</small>{step === 'compose' && buyer && <button className="button primary" type="button" disabled={!quoteReady} onClick={() => { setApproved(false); setStep('review'); }}>Review quote <ArrowRight size={16} /></button>}{step === 'compose' && buyer && lines.length > 0 && !validPrices && <span className="wholesale-summary-hint">Enter every agreed unit price to continue.</span>}{total > 100000000 && <span className="wholesale-summary-hint">The agreed total must not exceed GH₵1,000,000.00.</span>}{buyer && <button type="button" className="wholesale-clear" onClick={resetDraft} disabled={busy}>Clear this draft</button>}</aside></div>
+    </div><aside className="surface wholesale-summary" aria-label="Wholesale quote summary"><span className="eyebrow">Order overview</span><h2>{namedBuyer || 'Wholesale quote'}</h2><p>{step === 'review' ? 'Ready for explicit approval' : 'Add goods and agree prices; buyer name is optional'}</p><div><span>Goods</span><strong>{lines.reduce((sum, line) => sum + line.quantity, 0)} items</strong></div><div><span>Catalogue reference</span><strong>{money(catalogueTotal)}</strong></div><div><span>Agreed amount · tax included</span><strong>{money(total)}</strong></div><small>{config.mode === 'demo' ? 'No demo tax is added. No live payments or orders.' : 'WooCommerce verifies included tax and the final amount before payment.'}</small>{step === 'compose' && <button className="button primary" type="button" disabled={!quoteReady} onClick={() => { setApproved(false); setStep('review'); }}>Review quote <ArrowRight size={16} /></button>}{step === 'compose' && lines.length > 0 && !validPrices && <span className="wholesale-summary-hint">Enter every agreed unit price to continue.</span>}{step === 'compose' && !validBuyerName && <span className="wholesale-summary-hint">Enter a valid buyer name or leave it blank.</span>}{total > 100000000 && <span className="wholesale-summary-hint">The agreed total must not exceed GH₵1,000,000.00.</span>}{(lines.length > 0 || buyerName || note) && <button type="button" className="wholesale-clear" onClick={resetDraft} disabled={busy}>Clear this draft</button>}</aside></div>
     {selectedProduct && <Modal title={`Choose an option · ${selectedProduct.name}`} subtitle="Availability is checked again before the order is prepared." onClose={() => setSelectedProduct(null)}><div className="modal-body"><div className="wholesale-variant-list" role="group" aria-label="Product options">{selectedProduct.variations.map(option => <button key={option.id} type="button" aria-pressed={selectedOption?.id === option.id} disabled={!available(option, requireSource)} className={selectedOption?.id === option.id ? 'selected' : ''} onClick={() => setSelectedOption(option)}><span><strong>{option.label || option.sku || `Option #${option.id}`}</strong><small>{stockCaption(option)}</small></span><span>{money(option.price)}</span>{selectedOption?.id === option.id && <Check size={16} />}</button>)}</div></div><div className="modal-footer" role="group" aria-label="Dialog actions"><button type="button" className="button secondary" onClick={() => setSelectedProduct(null)}>Cancel</button><button type="button" className="button primary" disabled={!selectedOption} onClick={() => { addLine(selectedProduct, selectedOption); setSelectedProduct(null); }}>Add to quote</button></div></Modal>}
   </div>;
 }

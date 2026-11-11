@@ -31,7 +31,7 @@ try {
   await page.getByLabel('Remove Accessibility backorder item').click();
   await page.locator('[data-nav="wholesale"]').click();
   await page.getByRole('heading', { name: 'Wholesale', exact: true }).waitFor();
-  await scan('wholesale-buyer-first');
+  await scan('wholesale-goods-first');
   await page.locator('[data-nav="inventory"]').click();
   await page.getByRole('heading', { name: 'Inventory', exact: true }).waitFor();
   await scan('inventory');

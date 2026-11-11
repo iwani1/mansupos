@@ -74,7 +74,7 @@ sudo systemctl status mansu-pos
 3. Run `docs/ACCEPTANCE.md` against test products and simulated external payments.
 4. Verify scanner, printer, paper width, shift open/close, cash movements, reports, audit log, backup, and restore.
 5. Establish a WooCommerce-side stock safeguard shared by online/POS sales, or an owner-approved operational control; verify it prevents concurrent last-item overselling on staging. Fresh POS stock reads followed by Woo order updates are not atomic. Also verify interrupted-order reconciliation.
-6. Exercise the separate wholesale acceptance checklist: named buyers and owner/manager approval; one or multiple individually priced goods; tax-inclusive final unit amounts under the actual Woo tax settings; no extra tax or fee; full externally verified payment and no credit dispatch. A Woo tax/total mismatch must leave the order unpaid and under review.
+6. Exercise the separate wholesale acceptance checklist: no required buyer selection, optional typed name and unnamed sales, plus owner/manager approval; one or multiple individually priced goods; tax-inclusive final unit amounts under the actual Woo tax settings; no extra tax or fee; full externally verified payment and no credit dispatch. A Woo tax/total mismatch must leave the order unpaid and under review.
 7. Record evidence without customer secrets.
 
 ## 6. Live approval gate

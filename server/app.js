@@ -175,7 +175,7 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
     // eslint-disable-next-line no-control-regex -- Buyer names appear in orders, receipts and exports.
     const { name: entered } = z.object({ name: z.string().trim().min(2).max(120).refine(name => !/[\u0000-\u001f\u007f]/.test(name), 'Use a single-line buyer name.') }).strict().parse(req.body);
     const name = entered.replace(/\s+/g, ' ');
-    if (db.prepare('SELECT id FROM trade_buyers WHERE name=? COLLATE NOCASE').get(name)) throw new AppError('That buyer already exists. Select the existing buyer.', 409);
+    if (db.prepare('SELECT id FROM trade_buyers WHERE name=? COLLATE NOCASE').get(name)) throw new AppError('That buyer already exists in the historical directory.', 409);
     const buyer = { id: randomUUID(), name };
     db.prepare('INSERT INTO trade_buyers(id,name,created_at,created_by) VALUES (?,?,?,?)').run(buyer.id, buyer.name, now(), req.user.id);
     audit(db, req.user.id, 'wholesale.buyer_created', buyer.id);

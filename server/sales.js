@@ -8,7 +8,10 @@ import { ShiftService } from './shifts.js';
 export const prepareSchema = z.object({
   idempotencyKey: z.string().uuid(),
   saleType: z.enum(['retail', 'wholesale']).optional().default('retail'),
+  // A buyer name is optional on new wholesale orders. buyerId remains accepted
+  // for outstanding orders made by the previous named-buyer checkout.
   buyerId: z.string().uuid().optional(),
+  buyerName: z.string().trim().max(120).optional(),
   wholesaleApproved: z.boolean().optional().default(false),
   items: z.array(z.object({
     productId: z.number().int().positive(), variationId: z.number().int().min(0).optional().default(0),
@@ -17,11 +20,13 @@ export const prepareSchema = z.object({
   note: z.string().trim().max(250).optional().default(''),
 }).strict().superRefine((value, ctx) => {
   if (value.saleType === 'wholesale') {
-    if (!value.buyerId) ctx.addIssue({ code: 'custom', path: ['buyerId'], message: 'Select a named wholesale buyer.' });
+    // eslint-disable-next-line no-control-regex -- Buyer names appear on orders, receipts and exports.
+    if (value.buyerName && (value.buyerName.length < 2 || /[\u0000-\u001f\u007f]/.test(value.buyerName))) ctx.addIssue({ code: 'custom', path: ['buyerName'], message: 'Use a single-line buyer name of at least two characters, or leave it blank.' });
+    if (value.buyerId && value.buyerName) ctx.addIssue({ code: 'custom', path: ['buyerName'], message: 'Provide either a buyer name or an existing buyer ID, not both.' });
     value.items.forEach((item, i) => { if (item.agreedUnitPrice === undefined) ctx.addIssue({ code: 'custom', path: ['items', i, 'agreedUnitPrice'], message: 'Enter an agreed tax-inclusive unit price for every wholesale line.' }); });
     if (!value.wholesaleApproved) ctx.addIssue({ code: 'custom', path: ['wholesaleApproved'], message: 'An owner or manager must approve the wholesale quote before preparing an order.' });
   } else {
-    if (value.buyerId || value.wholesaleApproved) ctx.addIssue({ code: 'custom', path: ['buyerId'], message: 'Buyer and approval require a wholesale sale.' });
+    if (value.buyerId || value.buyerName !== undefined || value.wholesaleApproved) ctx.addIssue({ code: 'custom', path: ['buyerName'], message: 'Buyer and approval require a wholesale sale.' });
     value.items.forEach((item, i) => { if (item.agreedUnitPrice !== undefined) ctx.addIssue({ code: 'custom', path: ['items', i, 'agreedUnitPrice'], message: 'Retail prices come from WooCommerce; do not send prices from the browser.' }); });
   }
 });
@@ -53,8 +58,11 @@ export function normalizeItems(items) {
   return [...merged.values()].sort((a, b) => a.productId - b.productId || a.variationId - b.variationId);
 }
 const sha256 = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const fingerprint = (items, note = '', saleType = 'retail', buyerId = '') => sha256(saleType === 'wholesale'
-  ? { saleType, buyerId, items: normalizeItems(items), note: String(note || '').trim() }
+const fingerprint = (items, note = '', saleType = 'retail', buyerId = '', buyerName = '') => sha256(saleType === 'wholesale'
+  // Preserve the old ID-based fingerprint so interrupted named-buyer orders
+  // retain their idempotency keys. New name-only and unnamed orders include
+  // the exact normalized optional name in their own fingerprint.
+  ? { saleType, buyerId, ...(!buyerId ? { buyerName } : {}), items: normalizeItems(items), note: String(note || '').trim() }
   : { items: normalizeItems(items), note: String(note || '').trim() });
 const quoteHash = (row, items) => sha256({ buyerId: row.buyer_id, buyerName: row.buyer_name, approvedBy: row.trade_approved_by_id, items });
 const lineKey = item => `${item.productId ?? item.product_id}:${item.variationId ?? item.variation_id ?? 0}`;
@@ -72,16 +80,18 @@ function wholesaleLayout(row, order) {
   const meta = key => order.meta_data?.find(entry => entry.key === key)?.value;
   const kind = meta('_mansu_pos_sale_type');
   const prefix = kind === 'trade' ? '_mansu_pos_trade_' : '_mansu_pos_wholesale_';
-  if (!['wholesale', 'trade'].includes(kind) || meta(`${prefix}buyer_id`) !== row.buyer_id ||
-    meta(`${prefix}buyer`) !== row.buyer_name || meta(`${prefix}approver`) !== row.trade_approved_by_id ||
+  if (!['wholesale', 'trade'].includes(kind) ||
+    (row.buyer_id ? meta(`${prefix}buyer_id`) !== row.buyer_id : Boolean(meta(`${prefix}buyer_id`))) ||
+    (row.buyer_name ? meta(`${prefix}buyer`) !== row.buyer_name : Boolean(meta(`${prefix}buyer`))) ||
+    meta(`${prefix}approver`) !== row.trade_approved_by_id ||
     meta(`${prefix}approver_name`) !== row.trade_approved_by_name ||
     meta(`${prefix}approved_at`) !== row.trade_approved_at || meta('_mansu_pos_quote_hash') !== quoteHash(row, quote)) {
-    return { problem: 'WooCommerce does not match the approved wholesale buyer and quote. Review the order.' };
+    return { problem: 'WooCommerce does not match the approved wholesale quote details. Review the order.' };
   }
-  if (order.billing?.first_name !== row.buyer_name || !Array.isArray(order.line_items) || order.line_items.length !== quote.length ||
+  if ((order.billing?.first_name ?? '') !== row.buyer_name || !Array.isArray(order.line_items) || order.line_items.length !== quote.length ||
     ['fee_lines', 'coupon_lines', 'shipping_lines'].some(key => !Array.isArray(order[key]) || order[key].length) ||
     cents(order.shipping_total) !== 0 || cents(order.discount_total) !== 0) {
-    return { problem: 'WooCommerce changed the wholesale buyer, lines, fees, discounts, or shipping. Review the order.' };
+    return { problem: 'WooCommerce changed the wholesale name, lines, fees, discounts, or shipping. Review the order.' };
   }
   const lines = new Map();
   for (const item of order.line_items) {
@@ -279,11 +289,14 @@ export class SalesService {
     if (saleType === 'wholesale' && !['owner', 'manager'].includes(user.role)) throw new AppError('Only an owner or manager can agree a wholesale price.', 403, 'WHOLESALE_ROLE_REQUIRED');
     if (saleType === 'wholesale' && !this.config.wholesaleWritesEnabled) throw new AppError('Wholesale checkout is locked. Authorize isolated staging wholesale tests first; live wholesale requires separate acceptance and written approval.', 403, 'WHOLESALE_CHECKOUT_LOCKED');
     const items = normalizeItems(input.items);
-    const buyer = saleType === 'wholesale' ? this.db.prepare('SELECT id,name FROM trade_buyers WHERE id=?').get(input.buyerId) : null;
-    if (saleType === 'wholesale' && !buyer) throw new AppError('Select an existing named wholesale buyer before agreeing a price.', 400);
+    const buyer = saleType === 'wholesale' && input.buyerId ? this.db.prepare('SELECT id,name FROM trade_buyers WHERE id=?').get(input.buyerId) : null;
+    if (input.buyerId && !buyer) throw new AppError('That saved wholesale buyer no longer exists. Review Sales before retrying.', 400);
+    const buyerName = buyer?.name || (saleType === 'wholesale' ? (input.buyerName || '').replace(/\s+/g, ' ') : '');
     const agreedTotal = saleType === 'wholesale' ? items.reduce((sum, item) => sum + item.agreedUnitPrice * item.quantity, 0) : 0;
     if (saleType === 'wholesale' && (!Number.isSafeInteger(agreedTotal) || agreedTotal < 1 || agreedTotal > 100000000)) throw new AppError('The agreed wholesale total must be between GH₵0.01 and GH₵1,000,000.00.', 400);
-    const hash = fingerprint(items, input.note, saleType, buyer?.id);
+    const hash = fingerprint(items, input.note, saleType, buyer?.id, buyerName);
+    const cartSignature = saleType === 'wholesale'
+      ? JSON.stringify(items.map(({ productId, variationId, quantity }) => ({ productId, variationId, quantity }))) : '';
     const prepareOrder = () => this.exclusive(`prepare:${input.idempotencyKey}`, async () => {
       const existing = this.db.prepare('SELECT * FROM sales WHERE idempotency_key=?').get(input.idempotencyKey);
       if (existing) {
@@ -296,13 +309,12 @@ export class SalesService {
         .get(user.id, hash, new Date(Date.now() - RECOVERY_WINDOW_MS).toISOString());
       if (recentDuplicate) throw new AppError('An unpaid checkout for this cart already exists. Review Sales before creating another order.', 409, 'RECONCILIATION_REQUIRED');
       if (saleType === 'wholesale') {
-        // Changing a price or note after a lost response must not create a second
-        // pending order for the same buyer and products.
-        const pending = this.db.prepare(`SELECT trade_quote_json FROM sales WHERE buyer_id=? AND sale_type='trade' AND status IN ('creating','needs_reconciliation','awaiting_payment') AND created_at>=?`)
-          .all(buyer.id, new Date(Date.now() - RECOVERY_WINDOW_MS).toISOString());
-        const signature = JSON.stringify(items.map(({ productId, variationId, quantity }) => ({ productId, variationId, quantity })));
-        if (pending.some(row => JSON.stringify(JSON.parse(row.trade_quote_json || '[]').map(({ productId, variationId, quantity }) => ({ productId, variationId, quantity }))) === signature)) {
-          throw new AppError('An unpaid wholesale order for this buyer and cart already exists. Review Sales before changing prices or creating another order.', 409, 'RECONCILIATION_REQUIRED');
+        // After an uncertain response the name, approver, price and note can
+        // all change. Do not create another Woo order with the same goods while
+        // ANY matching wholesale quote remains pending, even after 15 minutes.
+        const pending = this.db.prepare(`SELECT trade_quote_json FROM sales WHERE sale_type='trade' AND status IN ('creating','needs_reconciliation','awaiting_payment')`).all();
+        if (pending.some(row => JSON.stringify(JSON.parse(row.trade_quote_json || '[]').map(({ productId, variationId, quantity }) => ({ productId, variationId, quantity }))) === cartSignature)) {
+          throw new AppError('An unpaid wholesale order for these goods may already exist. Review or resolve it in Sales before creating another order, even for a different buyer.', 409, 'RECONCILIATION_REQUIRED');
         }
       }
       const shift = this.config.requireShift && this.config.mode !== 'demo' ? this.shifts.requireOpen(user.id) : this.shifts.current(user.id);
@@ -313,7 +325,7 @@ export class SalesService {
         .run(id, input.idempotencyKey, hash, number, 'creating', this.config.currency, user.id, user.name, input.note, time, time, shift?.id || null,
           // v4 has a `trade` CHECK constraint. Map the replacement workflow to
           // that durable legacy discriminator so existing ledgers never lose data.
-          saleType === 'wholesale' ? 'trade' : 'retail', buyer?.id || null, buyer?.name || '', saleType === 'wholesale' ? JSON.stringify(items) : null,
+          saleType === 'wholesale' ? 'trade' : 'retail', buyer?.id || null, buyerName, saleType === 'wholesale' ? JSON.stringify(items) : null,
           saleType === 'wholesale' ? user.id : null, saleType === 'wholesale' ? user.name : null, saleType === 'wholesale' ? time : null);
       try {
         const lines = await this.catalog.fresh(items);
@@ -337,8 +349,8 @@ export class SalesService {
           const meta = [{ key: '_mansu_pos_key', value: input.idempotencyKey }, { key: '_mansu_pos_channel', value: 'mansu-pos' }, { key: '_mansu_pos_cashier', value: user.id }];
           if (quote) meta.push(
             { key: '_mansu_pos_sale_type', value: 'wholesale' },
-            { key: '_mansu_pos_wholesale_buyer_id', value: buyer.id },
-            { key: '_mansu_pos_wholesale_buyer', value: buyer.name },
+            ...(buyer?.id ? [{ key: '_mansu_pos_wholesale_buyer_id', value: buyer.id }] : []),
+            ...(buyerName ? [{ key: '_mansu_pos_wholesale_buyer', value: buyerName }] : []),
             { key: '_mansu_pos_wholesale_approver', value: user.id },
             { key: '_mansu_pos_wholesale_approver_name', value: user.name },
             { key: '_mansu_pos_wholesale_approved_at', value: time },
@@ -346,7 +358,7 @@ export class SalesService {
           );
           const created = await this.api.createOrder({
             status: 'pending', payment_method: '', payment_method_title: 'In-store payment pending',
-            ...(quote ? { billing: { first_name: buyer.name } } : {}),
+            ...(buyerName ? { billing: { first_name: buyerName } } : {}),
             line_items: items.map((i, index) => ({ product_id: i.productId, ...(i.variationId ? { variation_id: i.variationId } : {}), quantity: i.quantity,
               ...(quote ? { meta_data: [
                 { key: 'Mansu agreed unit gross (GHS)', value: asDecimal(quote[index].agreedUnitPrice) },
@@ -369,9 +381,9 @@ export class SalesService {
         throw new AppError('Checkout was interrupted. Do not create another order; reconcile this sale from Sales first.', 502, 'RECONCILIATION_REQUIRED');
       }
     });
-    // Different checkout keys for one buyer must not race past the pending-order
-    // check and create two Woo orders for the same quote.
-    return saleType === 'wholesale' ? this.exclusive(`wholesale-buyer:${buyer.id}`, prepareOrder) : prepareOrder();
+    // Serialize matching goods across names and approvers as well as keys,
+    // so simultaneous submissions cannot race past the pending-order check.
+    return saleType === 'wholesale' ? this.exclusive(`wholesale-cart:${cartSignature}`, prepareOrder) : prepareOrder();
   }
   async complete(user, id, payment) {
     return this.exclusive(`sale:${id}`, async () => {

@@ -95,6 +95,8 @@ async function harness(t, mode = 'demo', options = {}) {
   return { ...instance, base, request, token, api, buyer, addBuyer };
 }
 const wholesale = (h, price = 9200, buyerId = h.buyer.id) => ({ idempotencyKey: randomUUID(), saleType: 'wholesale', buyerId, wholesaleApproved: true, items: [{ productId: 10, variationId: 11, quantity: 1, agreedUnitPrice: price }] });
+const wholesaleWithoutBuyer = (price = 9200) => ({ idempotencyKey: randomUUID(), saleType: 'wholesale', wholesaleApproved: true, items: [{ productId: 10, variationId: 11, quantity: 1, agreedUnitPrice: price }] });
+const wholesaleWithName = (buyerName, price = 9200) => ({ ...wholesaleWithoutBuyer(price), buyerName });
 const prepare = (h, body, token = h.token) => h.request('/sales/prepare', { method: 'POST', token, body });
 
 test('wholesale approval and separate staging/live write gates fail closed; retail cannot submit prices', async t => {
@@ -104,12 +106,17 @@ test('wholesale approval and separate staging/live write gates fail closed; reta
     { ...quote, saleType: 'retail' },
     { ...quote, saleType: 'trade', wholesaleApproved: undefined, tradeApproved: true },
     { ...quote, wholesaleApproved: false },
-    { ...quote, buyerId: undefined },
+    { ...quote, buyerName: 'Another buyer' },
+    wholesaleWithName('X'),
+    wholesaleWithName('Bad\nBuyer'),
+    wholesaleWithName('B'.repeat(121)),
+    { ...wholesaleWithoutBuyer(), buyerName: 'Buyer Studio', wholesaleApproved: false },
     { ...quote, items: [{ ...quote.items[0], agreedUnitPrice: 0 }] },
     { ...quote, items: [{ ...quote.items[0], agreedUnitPrice: 1.5 }] },
     { ...quote, items: [{ ...quote.items[0], agreedUnitPrice: undefined }] },
     { ...quote, items: [{ ...quote.items[0], quantity: 999, agreedUnitPrice: 100000000 }] },
   ]) assert.equal((await prepare(demo, { ...invalid, idempotencyKey: randomUUID() })).status, 400);
+  assert.equal((await prepare(demo, { idempotencyKey: randomUUID(), buyerName: 'Buyer Studio', items: [{ productId: 10, variationId: 11, quantity: 1 }] })).status, 400, 'Retail must not record a negotiated buyer name.');
   const staging = await harness(t, 'staging');
   assert.equal(staging.config.writesEnabled, true);
   assert.equal(staging.config.wholesaleWritesEnabled, false);
@@ -162,10 +169,35 @@ test('demo wholesale quote uses all-in agreed unit prices, full payment, a durab
   assert.equal(h.api.state.creates, 0);
 });
 
-test('Woo reprices each wholesale line using Woo tax, verifies the exact all-in quote, and preserves it on retry', async t => {
+test('wholesale can start without any buyer, recover the same quote, and record full payment', async t => {
+  const h = await harness(t);
+  const input = { ...wholesaleWithoutBuyer(7800), items: [{ productId: 7331, variationId: 0, quantity: 2, agreedUnitPrice: 7800 }] };
+  const prepared = await prepare(h, input);
+  assert.equal(prepared.status, 201, JSON.stringify(prepared.data));
+  const sale = prepared.data.sale;
+  assert.equal(sale.saleType, 'wholesale');
+  assert.equal(sale.buyerId, null);
+  assert.equal(sale.buyerName, '');
+  assert.equal(sale.agreedTotal, 15600);
+  const saved = h.db.prepare('SELECT buyer_id,buyer_name FROM sales WHERE id=?').get(sale.id);
+  assert.equal(saved.buyer_id, null);
+  assert.equal(saved.buyer_name, '');
+  assert.equal((await prepare(h, input)).data.sale.id, sale.id);
+  assert.equal((await prepare(h, { ...input, buyerName: 'Optional name' })).status, 409, 'Changing the name cannot reuse the checkout key.');
+  assert.equal((await prepare(h, { ...input, idempotencyKey: randomUUID(), buyerName: 'Optional name', items: [{ ...input.items[0], agreedUnitPrice: 8000 }] })).status, 409, 'Changing the name and price after an uncertain response cannot create a second order.');
+  assert.equal((await prepare(h, { ...input, idempotencyKey: randomUUID(), items: [{ ...input.items[0], agreedUnitPrice: 8000 }] })).status, 409, 'An unpaid unnamed quote cannot be duplicated by changing its price.');
+  const paid = await h.request(`/sales/${sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 15600, confirmed: true } });
+  assert.equal(paid.status, 200, JSON.stringify(paid.data));
+  assert.equal(paid.data.sale.status, 'paid');
+  const report = await h.request('/reports?days=1', { token: h.token });
+  assert.equal(report.data.sales.find(entry => entry.id === sale.id).buyerName, '');
+  const csv = await fetch(`${h.base}/api/reports/export?days=1`, { headers: { Authorization: `Bearer ${h.token}` } });
+  assert.match(await csv.text(), /,"wholesale","","Demo Owner","156\.00"/);
+});
+
+test('Woo reprices a freely entered buyer name without requiring a directory selection', async t => {
   const h = await harness(t, 'staging', { env: { POS_STAGING_WHOLESALE_APPROVED: 'true' } });
-  const buyer = await h.addBuyer('Buyer Studio');
-  const input = wholesale(h, 9200, buyer.id);
+  const input = wholesaleWithName('  Buyer  Studio  ');
   const prepared = await prepare(h, input);
   assert.equal(prepared.status, 201, JSON.stringify(prepared.data));
   assert.equal(h.api.state.creates, 1);
@@ -173,14 +205,55 @@ test('Woo reprices each wholesale line using Woo tax, verifies the exact all-in 
   assert.equal(prepared.data.sale.total, 9200);
   assert.equal(prepared.data.sale.tax, 1200);
   assert.equal(prepared.data.sale.items[0].agreedUnitPrice, 9200);
+  assert.equal(prepared.data.sale.buyerId, null);
+  assert.equal(prepared.data.sale.buyerName, 'Buyer Studio');
   assert.equal(h.api.state.orders[0].lines[0].net, 8000);
+  assert.equal(h.api.state.orders[0].billing.first_name, 'Buyer Studio');
   assert.equal(h.api.state.orders[0].meta_data.find(meta => meta.key === '_mansu_pos_wholesale_buyer').value, 'Buyer Studio');
+  assert.equal(h.api.state.orders[0].meta_data.some(meta => meta.key === '_mansu_pos_wholesale_buyer_id'), false);
   assert.equal((await prepare(h, input)).data.sale.id, prepared.data.sale.id);
+  assert.equal((await prepare(h, { ...input, buyerName: 'Other Studio' })).status, 409);
+  assert.equal((await prepare(h, wholesaleWithoutBuyer(9300))).status, 409, 'Clearing a name and changing price cannot duplicate the pending order.');
   const paid = await h.request(`/sales/${prepared.data.sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 9200, confirmed: true } });
   assert.equal(paid.status, 200, JSON.stringify(paid.data));
   assert.equal(paid.data.sale.status, 'paid');
   assert.equal(paid.data.sale.total, 9200);
   assert.equal(h.api.state.payments, 1);
+});
+
+test('unnamed Woo wholesale order verifies its quote and pays without inventing buyer metadata', async t => {
+  const h = await harness(t, 'staging', { env: { POS_STAGING_WHOLESALE_APPROVED: 'true' } });
+  const input = wholesaleWithoutBuyer();
+  const prepared = await prepare(h, input);
+  assert.equal(prepared.status, 201, JSON.stringify(prepared.data));
+  const sale = prepared.data.sale;
+  assert.equal(sale.buyerId, null);
+  assert.equal(sale.buyerName, '');
+  assert.equal(sale.total, 9200);
+  assert.equal(sale.tax, 1200);
+  const remote = h.api.state.orders[0];
+  assert.equal(remote.billing, undefined);
+  assert.equal(remote.meta_data.some(meta => ['_mansu_pos_wholesale_buyer', '_mansu_pos_wholesale_buyer_id'].includes(meta.key)), false);
+  assert.ok(remote.meta_data.find(meta => meta.key === '_mansu_pos_quote_hash')?.value);
+  assert.equal((await prepare(h, input)).data.sale.id, sale.id);
+  const paid = await h.request(`/sales/${sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 9200, confirmed: true } });
+  assert.equal(paid.status, 200, JSON.stringify(paid.data));
+  assert.equal(paid.data.sale.status, 'paid');
+  assert.equal(h.api.state.payments, 1);
+});
+
+test('an unnamed wholesale quote refuses a remotely added buyer or altered billing name', async t => {
+  for (const kind of ['billing', 'metadata']) {
+    const h = await harness(t, 'staging', { env: { POS_STAGING_WHOLESALE_APPROVED: 'true' } });
+    const { sale } = (await prepare(h, wholesaleWithoutBuyer())).data;
+    const order = h.api.state.orders[0];
+    if (kind === 'billing') order.billing = { first_name: 'Injected buyer' };
+    else order.meta_data.push({ key: '_mansu_pos_wholesale_buyer', value: 'Injected buyer' });
+    const payment = await h.request(`/sales/${sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 9200, confirmed: true } });
+    assert.equal(payment.status, 409, `${kind}: ${JSON.stringify(payment.data)}`);
+    assert.equal(payment.data.code, 'WHOLESALE_QUOTE_CHANGED');
+    assert.equal(h.api.state.payments, 0);
+  }
 });
 
 test('wholesale price drift, metadata drift and unrepresentable tax-included amounts never become payable', async t => {
@@ -211,11 +284,10 @@ test('wholesale price drift, metadata drift and unrepresentable tax-included amo
   assert.equal(unrepresentable.db.prepare("SELECT status FROM sales WHERE sale_type='trade' ORDER BY created_at DESC LIMIT 1").get().status, 'needs_reconciliation');
 });
 
-test('lost repricing response reconciles the same Woo order instead of creating a second one', async t => {
+test('lost unnamed repricing response reconciles the same Woo order instead of creating a second one', async t => {
   const h = await harness(t, 'staging', { env: { POS_STAGING_WHOLESALE_APPROVED: 'true' } });
   h.api.state.loseReprice = true;
-  const buyer = await h.addBuyer('Reconciled Buyer');
-  const input = wholesale(h, 9200, buyer.id);
+  const input = wholesaleWithoutBuyer();
   const interrupted = await prepare(h, input);
   assert.equal(interrupted.status, 502);
   assert.equal(interrupted.data.code, 'RECONCILIATION_REQUIRED');
@@ -377,6 +449,32 @@ test('concurrent wholesale submissions for one named buyer cannot create two pen
   assert.deepEqual([a.status, b.status].sort(), [201, 409]);
   assert.equal(h.api.state.creates, 1);
   assert.equal(h.db.prepare("SELECT COUNT(*) AS count FROM sales WHERE sale_type='trade'").get().count, 1);
+});
+
+test('concurrent unnamed and free-text name orders cannot bypass pending-quote recovery', async t => {
+  for (const makeQuote of [() => wholesaleWithoutBuyer(), () => wholesaleWithName('Buyer Studio')]) {
+    const h = await harness(t, 'staging', { env: { POS_STAGING_WHOLESALE_APPROVED: 'true' } });
+    const [a, b] = await Promise.all([prepare(h, makeQuote()), prepare(h, makeQuote())]);
+    assert.deepEqual([a.status, b.status].sort(), [201, 409]);
+    assert.equal(h.api.state.creates, 1);
+  }
+});
+
+test('an older pending wholesale cart cannot be duplicated by a different approver and name', async t => {
+  const h = await harness(t, 'staging', { env: { POS_STAGING_WHOLESALE_APPROVED: 'true' } });
+  const original = await prepare(h, wholesaleWithoutBuyer());
+  assert.equal(original.status, 201);
+  h.db.prepare('UPDATE sales SET created_at=? WHERE id=?').run(new Date(Date.now() - 60 * 60000).toISOString(), original.data.sale.id);
+  assert.equal((await h.request('/staff', { method: 'POST', token: h.token, body: { name: 'Second Approver', username: 'secondapprover', role: 'manager', password: 'manager-secret-passphrase-123' } })).status, 201);
+  const token = (await h.request('/auth/login', { method: 'POST', body: { username: 'secondapprover', password: 'manager-secret-passphrase-123' } })).data.token;
+  assert.equal((await h.request('/auth/password', { method: 'POST', token, body: { currentPassword: 'manager-secret-passphrase-123', newPassword: 'manager-rotated-secret-123' } })).status, 200);
+  const duplicate = await prepare(h, wholesaleWithName('Different buyer', 9300), token);
+  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.data.code, 'RECONCILIATION_REQUIRED');
+  assert.equal(h.api.state.creates, 1);
+  const unrelated = await prepare(h, { ...wholesaleWithName('Different buyer', 7500), items: [{ productId: 20, variationId: 0, quantity: 1, agreedUnitPrice: 7500 }] }, token);
+  assert.equal(unrelated.status, 201, JSON.stringify(unrelated.data));
+  assert.equal(h.api.state.creates, 2, 'A different cart remains available.');
 });
 
 test('closing the separate wholesale gate blocks payment of an already prepared wholesale order', async t => {

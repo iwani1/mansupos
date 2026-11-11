@@ -24,8 +24,8 @@ async function addGoods(simple, variable) {
   assert.equal(await page.locator('.wholesale-line').count(), 2);
 }
 async function priceAndReview(simple, variable) {
-  await page.getByLabel('Named wholesale buyer').selectOption({ label: buyerName });
   await addGoods(simple, variable);
+  await page.getByLabel('Buyer name (optional)').fill(buyerName);
   await page.getByLabel(new RegExp(`Agreed unit price for ${simple.name}`)).fill('92.00');
   await page.getByLabel(new RegExp(`Agreed unit price for ${variable.name}`)).fill('67.35');
   assert.equal((await page.locator('.wholesale-summary>div:nth-of-type(3) strong').innerText()).trim(), 'GH₵251.35');
@@ -40,22 +40,53 @@ try {
   assert.equal(await page.locator('.trade-price, .trade-approval').count(), 0, 'Negotiated pricing must not appear in retail.');
   await page.locator('[data-nav="wholesale"]').click();
   await page.getByRole('heading', { name: 'Wholesale', exact: true }).waitFor();
-  assert.equal(await page.locator('.wholesale-product').count(), 0, 'No goods before a named buyer.');
-  assert.equal(await page.getByRole('button', { name: 'Review quote' }).count(), 0);
+  assert.ok(await page.locator('.wholesale-product:not([disabled])').count() > 0, 'Goods must be ready without selecting a buyer.');
+  assert.equal(await page.locator('select#wholesale-buyer').count(), 0, 'Buyer selection must not be required.');
+  assert.equal(await page.getByLabel('Buyer name (optional)').inputValue(), '');
+  assert.equal(await page.getByRole('button', { name: 'Review quote' }).isDisabled(), true);
   const { simple, variable } = await page.evaluate(async () => {
     const catalog = await (await fetch('/api/catalog', { credentials: 'same-origin' })).json();
-    const simple = catalog.products.find(p => p.type === 'simple' && p.stock >= 2 && p.purchasable);
+    const simple = catalog.products.find(p => p.type === 'simple' && p.stock >= 3 && p.purchasable);
     const variable = catalog.products.find(p => p.type === 'variable' && p.variations.some(v => v.stock > 0 && v.purchasable));
-    if (!simple || !variable) throw new Error('Isolated demo needs one available simple and variable product.');
+    if (!simple || !variable) throw new Error('Isolated demo needs one simple product with 3 available and one variable product.');
     return { simple: { name: simple.name, price: simple.price }, variable: { name: variable.name } };
   });
+  // An unnamed sale should work from goods through payment, receipt and history.
+  await page.locator('.wholesale-product:not([disabled])').filter({ hasText: simple.name }).first().click();
+  await page.getByLabel(new RegExp(`Agreed unit price for ${simple.name}`)).fill('40.00');
+  await page.getByLabel('Buyer name (optional)').fill('X');
+  assert.equal(await page.getByRole('button', { name: 'Review quote' }).isDisabled(), true, 'A partial optional name must be fixed or cleared.');
+  await page.getByLabel('Buyer name (optional)').fill('');
+  await page.getByRole('button', { name: 'Review quote' }).click();
+  assert.match(await page.locator('.wholesale-review').innerText(), /Buyer name\s+Not provided/);
+  await page.getByRole('checkbox', { name: /I, Demo Owner, approve these final tax-inclusive prices/ }).check();
+  await scan('wholesale-unnamed-quote');
+  await page.getByRole('button', { name: 'Prepare wholesale order' }).click();
+  const unnamedDialog = page.getByRole('dialog', { name: 'Complete payment' });
+  await unnamedDialog.waitFor();
+  assert.match(await unnamedDialog.locator('.wholesale-payment-quote').innerText(), /buyer not recorded/);
+  const unnamedSale = await page.evaluate(async () => (await (await fetch('/api/sales', { credentials: 'same-origin' })).json()).sales.find(s => s.saleType === 'wholesale' && s.buyerName === '' && s.status === 'awaiting_payment'));
+  assert.ok(unnamedSale);
+  assert.equal(unnamedSale.buyerId, null);
+  await page.getByLabel('Cash received (GH₵)').fill('40.00');
+  await page.getByRole('checkbox', { name: /full wholesale payment is a demo record/ }).check();
+  await page.getByRole('button', { name: 'Complete demo wholesale sale' }).click();
+  await page.getByRole('heading', { name: 'Demo sale complete' }).waitFor();
+  assert.match(await page.locator('.receipt-dialog .receipt-paper').innerText(), /Sale type\s+Wholesale/);
+  assert.doesNotMatch(await page.locator('.receipt-dialog .receipt-paper').innerText(), /Wholesale buyer|Buyer\s*:/);
+  await scan('wholesale-unnamed-receipt');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.locator('[data-nav="sales"]').click();
+  const unnamedRow = page.locator('.records-sales tbody tr').filter({ hasText: unnamedSale.number });
+  await unnamedRow.waitFor();
+  assert.match(await unnamedRow.innerText(), /Wholesale · buyer not recorded/);
+  await unnamedRow.getByRole('button', { name: 'View quote' }).click();
+  assert.match(await page.getByRole('dialog', { name: 'Approved wholesale quote' }).innerText(), /buyer not recorded/);
+  await page.getByRole('button', { name: 'Close quote' }).click();
+  await page.locator('[data-nav="wholesale"]').click();
   buyerName = `Browser Wholesale Buyer ${crypto.randomUUID().slice(0, 8)}`;
-  await page.getByRole('button', { name: 'New buyer' }).click();
-  await page.getByLabel('Person or business name').fill(buyerName);
-  await page.getByRole('button', { name: 'Add buyer' }).click();
-  await page.waitForFunction(name => document.querySelector('#wholesale-buyer option:checked')?.textContent === name, buyerName);
-  assert.equal((await page.getByLabel('Named wholesale buyer').locator('option:checked').textContent()).trim(), buyerName);
   await addGoods(simple, variable);
+  await page.getByLabel('Buyer name (optional)').fill(buyerName);
   assert.equal(await page.getByRole('button', { name: 'Review quote' }).isDisabled(), true, 'Every line needs a final price.');
   await page.getByLabel(new RegExp(`Agreed unit price for ${simple.name}`)).fill('92.00');
   assert.equal(await page.getByRole('button', { name: 'Review quote' }).isDisabled(), true);
@@ -77,14 +108,25 @@ try {
   await page.getByLabel(new RegExp(`Agreed unit price for ${variable.name}`)).fill('67.35');
   await page.getByRole('button', { name: /Review quote/ }).click();
   await approval.check();
+  await page.getByRole('button', { name: 'Edit quote' }).click();
+  await page.getByLabel('Buyer name (optional)').fill(`${buyerName} Updated`);
+  assert.equal(await page.locator('.wholesale-line').count(), 2, 'An optional name edit must not clear priced goods.');
+  await page.getByRole('button', { name: /Review quote/ }).click();
+  assert.equal(await approval.isChecked(), false, 'Editing the optional name clears approval.');
+  await page.getByRole('button', { name: 'Edit quote' }).click();
+  await page.getByLabel('Buyer name (optional)').fill(buyerName);
+  await page.getByRole('button', { name: /Review quote/ }).click();
+  await approval.check();
   await scan('wholesale-quote-review');
 
   // Lose the first HTTP response after server-side creation. Rebuilding the
-  // same buyer/lines/prices after reload must reuse the original checkout key.
+  // same optional name/lines/prices after reload must reuse the original checkout key.
   let dropped = false;
   await page.route('**/api/sales/prepare', async route => {
     const body = route.request().postDataJSON();
     assert.equal(body.saleType, 'wholesale');
+    assert.equal(body.buyerName, buyerName);
+    assert.equal(body.buyerId, undefined, 'New quotes do not require saved buyer IDs.');
     assert.equal(body.wholesaleApproved, true);
     assert.deepEqual(body.items.map(i => i.agreedUnitPrice).sort((a,b) => a-b), [6735, 9200]);
     if (dropped) return route.continue();
@@ -112,6 +154,7 @@ try {
   const matches = sales.filter(s => s.id === createdId);
   assert.equal(matches.length, 1, 'Retry after reload must not create a second sale.');
   assert.equal(matches[0].buyerName, buyerName);
+  assert.equal(matches[0].buyerId, null);
   assert.equal(matches[0].saleType, 'wholesale');
   assert.equal(matches[0].agreedTotal, 25135);
   assert.equal(matches[0].status, 'awaiting_payment');
@@ -161,7 +204,6 @@ try {
     if (simple) return { name: simple.name, variable: false };
     throw new Error('The isolated demo has no stock left for the mobile wholesale check.');
   });
-  await page.getByLabel('Named wholesale buyer').selectOption({ label: buyerName });
   await page.locator('.wholesale-product:not([disabled])').filter({ hasText: mobileGood.name }).first().click();
   if (mobileGood.variable) {
     const modal = page.getByRole('dialog', { name: new RegExp(`Choose an option · ${mobileGood.name}`) });
@@ -170,6 +212,7 @@ try {
   }
   await page.getByLabel(new RegExp(`Agreed unit price for ${mobileGood.name}`)).fill('75.50');
   await page.getByRole('button', { name: /Review quote/ }).click();
+  assert.match(await page.locator('.wholesale-review').innerText(), /Buyer name\s+Not provided/);
   await page.getByRole('checkbox', { name: /I, Demo Owner, approve these final tax-inclusive prices/ }).check();
   const button = page.getByRole('button', { name: 'Prepare wholesale order' });
   assert.equal(await button.isDisabled(), false);
@@ -179,7 +222,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Mobile wholesale page has horizontal overflow.');
   await scan('wholesale-phone');
   assert.deepEqual(pageErrors, [], 'Browser reported JavaScript errors.');
-  console.log('PASS: buyer-first Wholesale page, retail isolation, negotiated prices, explicit approval, lost-response recovery, full payment, receipt, reports, accessibility and 320px layout.');
+  console.log('PASS: goods-first Wholesale without required buyer selection, optional name, retail isolation, negotiated prices, explicit approval, lost-response recovery, full payment, receipt, reports, accessibility and 320px layout.');
 } catch (error) {
   await recordFailure(page, error, 'wholesale-browser-failure', pageErrors);
   process.exitCode = 1;

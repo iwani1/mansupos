@@ -18,9 +18,9 @@
 
 ## Wholesale workspace (owner or manager only)
 
-1. Open the **Wholesale** navigation page, not the retail register. Only proceed when the separate wholesale gate is authorized. **Select or create a named buyer first**; no customer payment terms or credit limit are created.
-2. Add one or several goods for that buyer. Enter the **negotiated final unit price, including applicable tax**, for *each* product/option. Quantity multiplies that unit amount; it never chooses a discount tier. The unchanged WooCommerce catalogue price is only a reference.
-3. Choose **Review quote**. Check the named buyer, each quantity and all-in line amount, then explicitly approve as the signed-in owner or manager. **Edit quote** returns to pricing and clears approval; changing a buyer clears the draft goods/prices. Wholesale drafts cannot be held in browser-local retail carts.
+1. Open the **Wholesale** navigation page, not the retail register. Only proceed when the separate wholesale gate is authorized. Start with goods; you do **not** need to select or create a buyer. If useful, type a **buyer name (optional)** in the quote; leave it blank for an unnamed sale. Neither choice creates payment terms or a credit limit.
+2. Add one or several goods. Enter the **negotiated final unit price, including applicable tax**, for *each* product/option. Quantity multiplies that unit amount; it never chooses a discount tier. The unchanged WooCommerce catalogue price is only a reference.
+3. Choose **Review quote**. Check the optional name (or “Not provided”), each quantity and all-in line amount, then explicitly approve as the signed-in owner or manager. **Edit quote** returns to pricing and clears approval; editing a name also clears approval without discarding the goods/prices. Wholesale drafts cannot be held in browser-local retail carts.
 4. Prepare the pending WooCommerce order. The POS uses Woo's own product tax class and order tax calculation to find pre-tax line inputs and checks that each returned line gross, tax and final order amount match the approval exactly. Any difference leaves the order under review, **not payable**. In Sales, choose **View quote** and reconcile the original order; do not create a replacement automatically.
 5. Count full cash or verify the full MoMo/card merchant settlement outside this app. Record the full amount with an external reference when relevant. Print the receipt only when the POS reports **Paid**. **Leave unpaid** saves an order; it does not allow goods to leave.
 
@@ -28,7 +28,7 @@ This iteration is for payment before goods are taken from the shop. Do not use i
 
 ## Interrupted sales
 
-- If checkout or payment confirmation is interrupted, do **not** create a replacement order.
+- If checkout or payment confirmation is interrupted, do **not** create a replacement order. Editing/clearing the optional name or price does not make an uncertain order safe to retry; the POS blocks a matching pending Wholesale cart even if the name or approver changes. Resolve the original order first.
 - Go to **Sales history → Reconcile**.
 - The server also runs a periodic read-only reconciliation sweep for pending/interrupted sales.
 - If reconciliation cannot find the order, an owner must verify WooCommerce before retrying.
