@@ -2,7 +2,7 @@
 
 Record **Pass / Fail / Not tested**, date, tester, environment, plugin/app version, and evidence reference. Do not include secrets or customer personal information.
 
-Automated baseline already passing locally: 63 backend/mocked WooCommerce/restore regression tests, including optional/unnamed Wholesale quote, tax, historical-order compatibility and payment-recovery cases; the isolated Chromium demo walkthrough, lost-prepare-response recovery after reload, session-expiry handling, embedded-preview session fallback when Authorization/cookies are stripped, reduced-motion preference checks, counter/mobile layout and mocked shared-stock/variation/backorder/report checks, axe accessibility scans, lint, receipt PDF content check, production build, dependency audit, preflight, SQLite backup/restore integrity check, and clean Docker image build/smoke in GitHub Actions. The items below must still be executed against the approved staging clone and real hardware.
+Automated baseline already passing locally: 66 backend/mocked WooCommerce/restore and deployment-safety regression tests, including optional/unnamed Wholesale quote, tax, historical-order compatibility and payment-recovery cases; the isolated Chromium demo walkthrough, lost-prepare-response recovery after reload, session-expiry handling, embedded-preview session fallback when Authorization/cookies are stripped, reduced-motion preference checks, counter/mobile layout and mocked shared-stock/variation/backorder/report checks, axe accessibility scans, lint, receipt PDF content check, production build, dependency audit, preflight, SQLite backup/restore integrity check, and clean Docker image build/smoke in GitHub Actions. The items below must still be executed against the approved staging clone and real hardware.
 
 ## Environment and safety
 
@@ -13,6 +13,8 @@ Automated baseline already passing locally: 63 backend/mocked WooCommerce/restor
 - [ ] WordPress/WooCommerce/PHP versions and relevant plugins recorded.
 - [ ] GHS currency and tax-inclusive/exclusive behavior verified.
 - [ ] Live write gate remains disabled during staging.
+- [ ] On a shared VPS, the POS has its own project, private volume, HTTPS hostname and localhost-only proxy port; the existing application still works and its 80/443 bindings are unchanged. A restart after a forced container exit succeeds, and a second POS using the same ledger is refused.
+- [ ] A first owner is configured and changes the temporary password; the bootstrap secret is then removed from the server environment without losing owner sign-in.
 
 ## Catalogue and inventory
 

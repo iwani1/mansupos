@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync, backup } from 'node:sqlite';
+import { acquireInstanceLease } from '../server/instance-lease.js';
 
 test('restore preserves committed WAL data in the safety backup and rejects mode/schema mismatch', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mansu-restore-test-'));
@@ -20,10 +21,17 @@ test('restore preserves committed WAL data in the safety backup and rejects mode
     INSERT INTO probe VALUES('baseline');`);
   await backup(db, snapshot);
   db.prepare('INSERT INTO probe VALUES(?)').run('committed-after-backup');
+  const env = { ...process.env, POS_MODE: 'staging', POS_DATA_DIR: dir, WOO_BASE_URL: 'https://staging.example.com' };
+  const lease = acquireInstanceLease({ mode: 'staging', dataDir: dir });
+  const blocked = spawnSync(process.execPath, ['server/restore.js', snapshot, '--confirm-restore'], {
+    cwd: path.resolve('.'), env, encoding: 'utf8',
+  });
+  assert.notEqual(blocked.status, 0, 'restore must refuse a running POS, even across container PID namespaces');
+  assert.match(blocked.stderr, /Another POS instance or restore/);
+  lease.release();
+  assert.deepEqual(db.prepare('SELECT value FROM probe').all().map(r => r.value), ['baseline', 'committed-after-backup']);
   const result = spawnSync(process.execPath, ['server/restore.js', snapshot, '--confirm-restore'], {
-    cwd: path.resolve('.'),
-    env: { ...process.env, POS_MODE: 'staging', POS_DATA_DIR: dir, WOO_BASE_URL: 'https://staging.example.com' },
-    encoding: 'utf8',
+    cwd: path.resolve('.'), env, encoding: 'utf8',
   });
   db.close();
   assert.equal(result.status, 0, result.stderr);

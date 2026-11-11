@@ -3,27 +3,27 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { createApp } from './app.js';
-import { APP_VERSION } from './config.js';
+import { APP_VERSION, readConfig } from './config.js';
+import { acquireInstanceLease } from './instance-lease.js';
 
-const { app, config, db, sales, logger } = createApp();
-const lockFile = path.join(config.dataDir, `pos-${config.mode}.lock`);
-if (fs.existsSync(lockFile)) {
-  let existingPid = Number.NaN;
-  try { existingPid = Number(JSON.parse(fs.readFileSync(lockFile, 'utf8')).pid); } catch {}
-  if (Number.isInteger(existingPid) && existingPid > 0) {
-    try { process.kill(existingPid, 0); throw new Error(`Another POS instance appears to be using this data directory (pid ${existingPid}).`); }
-    catch (error) { if (error.code !== 'ESRCH') throw error; }
-  }
+process.umask(0o077);
+const startupConfig = readConfig();
+const dist = path.resolve('dist');
+if (startupConfig.production && !fs.existsSync(path.join(dist, 'index.html'))) {
+  throw new Error('Production build missing. Run npm run build before npm start.');
 }
-fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }), { mode: 0o600 });
+// Acquire the lease before opening/migrating the ledger, not after createApp.
+const lease = acquireInstanceLease(startupConfig);
+let instance;
+try { instance = createApp(); }
+catch (error) { lease.release(); throw error; }
+const { app, config, db, sales, logger } = instance;
 const server = createServer(app);
 server.requestTimeout = 30000;
 server.headersTimeout = 35000;
 server.keepAliveTimeout = 5000;
 
 if (config.production) {
-  const dist = path.resolve('dist');
-  if (!fs.existsSync(path.join(dist, 'index.html'))) throw new Error('Production build missing. Run npm run build before npm start.');
   app.use(express.static(dist, {
     index: false,
     maxAge: 0,
@@ -57,6 +57,10 @@ const cleanupTimer = setInterval(() => {
 }, 15 * 60000);
 cleanupTimer.unref();
 
+server.on('error', error => {
+  logger.error({ msg: 'server.listen_failed', code: error.code || 'SERVER_ERROR' });
+  shutdown('server.error');
+});
 server.listen(config.port, '0.0.0.0', () => logger.info({
   msg: 'server.started', version: APP_VERSION, port: config.port, mode: config.mode,
   writesEnabled: config.writesEnabled, publicOrigin: config.publicOrigin || undefined,
@@ -71,12 +75,15 @@ function shutdown(signal) {
   clearInterval(reconcileTimer); clearInterval(cleanupTimer);
   const force = setTimeout(() => { logger.error({ msg: 'server.forced_exit' }); process.exit(1); }, 10000);
   force.unref();
-  server.close(() => {
+  const finish = error => {
+    if (error) logger.error({ msg: 'server.close_failed', code: error.code || 'SERVER_ERROR' });
     try { db.exec('PRAGMA wal_checkpoint(TRUNCATE);'); db.close(); } catch {}
-    try { fs.rmSync(lockFile, { force: true }); } catch {}
+    try { lease.release(); } catch (leaseError) { logger.error({ msg: 'lease.release_failed', code: leaseError.code || 'SERVER_ERROR' }); }
     logger.info({ msg: 'server.stopped' });
-    process.exit(0);
-  });
+    const normalStop = !error && ['SIGTERM', 'SIGINT'].includes(signal);
+    process.exit(normalStop ? 0 : 1);
+  };
+  try { server.close(finish); } catch (error) { finish(error); }
 }
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => shutdown(signal));
 process.on('unhandledRejection', reason => logger.error({ msg: 'unhandled_rejection', name: reason?.name || 'Error' }));

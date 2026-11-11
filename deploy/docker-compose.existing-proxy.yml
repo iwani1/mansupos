@@ -1,0 +1,37 @@
+# POS-only deployment for a VPS that already has an application/reverse proxy.
+# Use an explicit project name (-p mansu-pos-staging) to keep its volume and
+# container separate. Never run deploy/docker-compose.yml on a shared proxy
+# without first checking its 80/443 bindings.
+services:
+  pos:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      NODE_ENV: production
+      POS_DATA_DIR: /var/lib/mansu-pos
+      POS_TRUST_PROXY: "1"
+    volumes:
+      - pos-data:/var/lib/mansu-pos
+    # Accessible to a reverse proxy on THIS HOST only. Choose an unused port;
+    # 80/443 and the other application's ports remain untouched.
+    ports:
+      - "127.0.0.1:${POS_HOST_PORT:?Set POS_HOST_PORT to a free host port in the private .env}:3000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  pos-data:

@@ -62,7 +62,7 @@ The browser walkthrough creates demo sales and may close an open demo shift. Run
 
 ## Connect the store
 
-Read **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for the production deployment runbook, **[docs/SETUP.md](docs/SETUP.md)** for staging configuration, **[docs/OPERATIONS.md](docs/OPERATIONS.md)** for daily use, and **[docs/SECURITY.md](docs/SECURITY.md)** for the security model.
+Read **[docs/CONTABO.md](docs/CONTABO.md)** first when installing alongside another app on a Contabo VPS: its POS-only Compose file uses an isolated project/volume and a chosen **localhost-only** port instead of taking over 80/443. See **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for all deployment gates, **[docs/SETUP.md](docs/SETUP.md)** for staging, **[docs/OPERATIONS.md](docs/OPERATIONS.md)** for daily use, and **[docs/SECURITY.md](docs/SECURITY.md)** for the security model.
 
 The short version:
 
@@ -77,7 +77,7 @@ The short version:
 
 ## Verification
 
-- `npm test`: 63 backend/mocked WooCommerce/restore regression tests pass, including optional-name and unnamed wholesale quotes, exact tax-inclusive amounts, mixed tax classes, full payment, historical-order compatibility, loss/reconciliation recovery and retail stock checks.
+- `npm test`: 66 backend/mocked WooCommerce/restore and deployment-safety regression tests pass, including optional-name and unnamed wholesale quotes, exact tax-inclusive amounts, historical-order compatibility, loss/reconciliation recovery, retail stock checks, container-safe single-instance locking and first-owner preflight.
 - `npm run test:browser`: demo retail and wholesale quotes, lost-response recovery, receipt, proxy session, reduced motion, counter/mobile layout and accessibility checks pass. Run only against an isolated demo database.
 - `npm run test:a11y`: axe WCAG A/AA + best-practice scans and 320px overflow check pass.
 - `npm run lint`: ESLint passes.

@@ -41,8 +41,10 @@ The POS records externally collected payments. It does not process MoMo or card 
 
 ## Data protection
 
-- SQLite data directory should be private (`0700`) and database files `0600`.
-- Backups must be encrypted/access-controlled and stored off-host.
+- SQLite data directory should be private (`0700`) and database files `0600`. The Docker image creates its persistent data directory with `0700` permissions; the POS-only Compose variant binds only a chosen loopback port and cannot take over an existing 80/443 proxy. Keep the POS volume separate from other apps and from a future live POS.
+- A SQLite exclusive-transaction lease prevents a second POS process or a restore operation from using the same ledger concurrently, even if both containers report PID 1. Abrupt exit releases the lease; it is not multi-server replication.
+- Preflight requires a valid first-owner bootstrap credential or an active owner already in the ledger. Remove the bootstrap secret from the server environment after the first owner changes the password.
+- Backups must be encrypted/access-controlled and stored off-host. Use the app's integrity-checked online SQLite backup, not a copy of a live WAL database, and test restore on an isolated volume.
 - Audit logs record security, staff, shift, and sale events.
 - Optional wholesale buyer names (when provided), negotiated unit prices and approving staff are restricted business records in the private POS ledger, Woo order metadata, receipts and reports; do not publish them in screenshots, issues or public test fixtures. Unnamed orders never invent a buyer identity.
 - Reports/exports contain cashier names, optional wholesale buyer names and external references; treat them as restricted business records.

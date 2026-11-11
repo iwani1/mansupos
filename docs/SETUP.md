@@ -1,5 +1,7 @@
 # Setup and safe deployment
 
+On a Contabo VPS that already runs another application, follow [CONTABO.md](CONTABO.md) for the POS-only Compose deployment. The all-in-one Caddy example binds 80/443 and must not be started over the existing app.
+
 ## 1. Read-only audit first
 
 The repository does not contain the WordPress installation or owner credentials. The public Store API was reachable, but this is **not** a completed site audit.
@@ -60,7 +62,7 @@ npm start
 
 Put the Node service behind an HTTPS reverse proxy. Bind the service to `0.0.0.0` only when the host/network requires it; restrict direct access to port 3000 and expose only HTTPS. The proxy must preserve the public `Host` or set `X-Forwarded-Host` correctly. Do not enable permissive CORS.
 
-A production `Dockerfile` is included. Build it with `docker build -t mansu-pos .`, then run it with the private environment file and a persistent volume mounted at `/var/lib/mansu-pos`. Publish port 3000 only to the host’s reverse proxy (for example `127.0.0.1:3000:3000`), not directly to the public internet. The container runs as the non-root `node` user.
+A production `Dockerfile` is included. Build it with `docker build -t mansu-pos .`, then run it with the private environment file and a persistent volume mounted at `/var/lib/mansu-pos`. Publish the internal port 3000 only to the host’s reverse proxy on an **unused loopback host port** (for example `127.0.0.1:3187:3000` on a shared VPS), not directly to the public internet. The container runs as the non-root `node` user.
 
 Use a persistent, private volume for `POS_DATA_DIR`. The application uses separate `pos-demo.db`, `pos-staging.db`, and `pos-live.db` files. Do not share one writable database between multiple Node processes.
 

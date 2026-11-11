@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readConfig } from './config.js';
 
+process.umask(0o077);
 const config = readConfig();
 const source = path.join(config.dataDir, `pos-${config.mode}.db`);
 if (!fs.existsSync(source)) throw new Error(`No POS database found at ${source}`);

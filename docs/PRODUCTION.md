@@ -18,21 +18,22 @@ Copy `.env.production.example` to a private `.env` on the server. Set:
 
 ```dotenv
 NODE_ENV=production
-POS_PUBLIC_ORIGIN=https://pos.your-domain.example
+POS_PUBLIC_ORIGIN=https://pos-staging.your-domain.example
 POS_MODE=staging
 WOO_BASE_URL=https://staging.your-domain.example
 WOO_CONSUMER_KEY=<secret>
 WOO_CONSUMER_SECRET=<secret>
 POS_STAGING_APPROVED=false
+POS_STAGING_WHOLESALE_APPROVED=false
 POS_OWNER_USERNAME=owner
 POS_OWNER_PASSWORD=<temporary-unique-password>
 POS_DATA_DIR=/var/lib/mansu-pos
 POS_REQUIRE_SHIFT=true
 ```
 
-The first owner must change the temporary password at first sign-in. Changing the bootstrap password later does not reset an existing account.
+The first owner must change the temporary password at first sign-in. After that, remove `POS_OWNER_PASSWORD` from the private server environment and restart only the POS; changing or removing the bootstrap value does not reset an existing account. Preflight now refuses a first staging/live deployment with no valid owner bootstrap credentials, but accepts an existing active owner after the secret is removed.
 
-Run:
+On a host running Node.js directly, run:
 
 ```bash
 npm ci
@@ -40,18 +41,24 @@ npm run build
 npm run preflight
 ```
 
-Preflight checks configuration, build output, data directory, credential presence, and approval gates. It does not replace staging tests.
+Preflight checks configuration, sample `.example` hostnames, build output, data directory, credential presence, first-owner access, and approval gates. It does not replace staging tests.
 
-## 3. Deploy with Docker/Caddy
+## 3. VPS with another application: use the POS-only Compose file
+
+**On a Contabo VPS already running another app, follow [CONTABO.md](CONTABO.md).** Do **not** run the bundled `deploy/docker-compose.yml` there: its Caddy service claims ports 80 and 443. `deploy/docker-compose.existing-proxy.yml` starts **only** the POS under a separate Compose project, requires an explicitly chosen unused `POS_HOST_PORT`, and binds it to the VPS's `127.0.0.1`. The administrator adds a separate HTTPS hostname to the existing **host-level** proxy; no existing app/port is changed. If the existing proxy itself runs inside a container or the existing app binds 80/443 directly, stop and plan a private Docker network/shared proxy route instead of publicly exposing the POS.
+
+## 4. Dedicated VPS only: deploy with Docker/Caddy
+
+The original all-in-one stack is for a dedicated host **where nothing else owns ports 80/443**:
 
 ```bash
 cd deploy
 POS_DOMAIN=pos.your-domain.example docker compose up -d --build
 ```
 
-The compose file runs the POS as a non-root, read-only container with a persistent SQLite volume. Caddy terminates HTTPS and proxies to the app. Keep port 3000 internal. Back up the `pos-data` volume and Caddy data.
+It runs the POS as a non-root, read-only container with a persistent SQLite volume. Caddy terminates HTTPS and proxies to the app. Keep port 3000 internal. Back up the `pos-data` volume and Caddy data. Use an explicit Compose project name and separate persistent volumes when operating several environments; never share staging/live ledgers.
 
-## 4. Deploy with systemd/nginx
+## 5. Deploy with systemd/nginx
 
 - Create a `mansu` system user.
 - Install the app under `/opt/mansu-pos`, owned by root, readable by `mansu`.
@@ -67,7 +74,7 @@ sudo systemctl enable --now mansu-pos
 sudo systemctl status mansu-pos
 ```
 
-## 5. Staging acceptance
+## 6. Staging acceptance
 
 1. Set `POS_STAGING_APPROVED=true` only after owner approval for staging tests. Wholesale has a **separate** staging-test gate: `POS_STAGING_WHOLESALE_APPROVED=true` only after explicit approval to test negotiated tax-inclusive amounts on the isolated staging clone. Enabling this flag authorizes a test, not a live release or a claim that tax acceptance passed.
 2. Sign in as owner, change the temporary password, create named cashier/manager accounts.
@@ -77,7 +84,7 @@ sudo systemctl status mansu-pos
 6. Exercise the separate wholesale acceptance checklist: no required buyer selection, optional typed name and unnamed sales, plus owner/manager approval; one or multiple individually priced goods; tax-inclusive final unit amounts under the actual Woo tax settings; no extra tax or fee; full externally verified payment and no credit dispatch. A Woo tax/total mismatch must leave the order unpaid and under review.
 7. Record evidence without customer secrets.
 
-## 6. Live approval gate
+## 7. Live approval gate
 
 Live writes require all of:
 
@@ -92,7 +99,7 @@ POS_OWNER_APPROVAL_REFERENCE=<written-approval-reference>
 
 Take fresh WordPress and POS backups. Run a small owner-approved live smoke test only after staging passes. Never use a real customer payment as a test. Wholesale stays **off** unless documented staging tax acceptance also permits `POS_STAGING_WHOLESALE_APPROVED=true` in the live environment and a distinct written wholesale authorization permits `POS_LIVE_WHOLESALE_APPROVED=true`. Retail's live write gate and legacy trade flags alone are not Wholesale approval; keep the five dispatch-before-payment customers outside this workflow.
 
-## 7. Emergency stop
+## 8. Emergency stop
 
 To stop new sales quickly, set the relevant write gate to `false` and restart:
 
