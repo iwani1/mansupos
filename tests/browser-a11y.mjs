@@ -69,7 +69,7 @@ try {
       const shown = await page.locator('.inventory-table tbody tr').first().evaluate(row => ({ layout: getComputedStyle(row).display, labels: [...row.querySelectorAll('td')].map(cell => cell.dataset.label) }));
       if (shown.layout !== 'grid' || !shown.labels.includes('Available') || !shown.labels.includes('Stock status') || !shown.labels.includes('SKU / barcode')) throw new Error('Phone stock records hide essential fields.');
     }
-    if (id === 'staff' && !(await page.locator('.records-staff td[data-label="Access"]').first().isVisible())) throw new Error('Phone staff records hide access actions.');
+    if (id === 'staff') await page.locator('.records-staff td[data-label="Access"]').first().waitFor({ state: 'visible' });
     if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error(`${id} overflows a 375px phone.`);
     await scan(`${id}-phone`);
   }

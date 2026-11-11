@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 
-export const APP_VERSION = '1.1.1';
+export const APP_VERSION = '1.1.2';
 const PRODUCTION_HOSTS = ['mansutrendzgh.com', 'www.mansutrendzgh.com'];
 
 function httpsOrigin(value, label) {
@@ -41,6 +41,8 @@ export function readConfig(env = process.env) {
 
   const port = Number(env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.');
+  const bindHost = env.POS_BIND_HOST || '0.0.0.0';
+  if (!['0.0.0.0', '127.0.0.1'].includes(bindHost)) throw new Error('POS_BIND_HOST must be 0.0.0.0 (container) or 127.0.0.1 (host-only proxy).');
   const lowStockThreshold = Number(env.POS_LOW_STOCK_THRESHOLD || 5);
   if (!Number.isInteger(lowStockThreshold) || lowStockThreshold < 1 || lowStockThreshold > 10000) throw new Error('POS_LOW_STOCK_THRESHOLD must be an integer from 1 to 10000.');
   const sessionIdleMinutes = Number(env.POS_SESSION_IDLE_MINUTES || 60);
@@ -52,7 +54,7 @@ export function readConfig(env = process.env) {
     mode, storeUrl, configured, writesEnabled, wholesaleWritesEnabled, approvalReference,
     consumerKey: env.WOO_CONSUMER_KEY || '', consumerSecret: env.WOO_CONSUMER_SECRET || '',
     dataDir: env.POS_DATA_DIR || path.resolve('.data'),
-    port, production, publicOrigin,
+    port, bindHost, production, publicOrigin,
     trustProxy: env.POS_TRUST_PROXY || (production ? 'loopback' : '1'),
     ownerUsername: (env.POS_OWNER_USERNAME || '').toLowerCase().trim(), ownerPassword: env.POS_OWNER_PASSWORD || '',
     businessName: env.POS_BUSINESS_NAME || 'MansutRENDZGH',

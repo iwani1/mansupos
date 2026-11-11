@@ -41,7 +41,7 @@ The POS records externally collected payments. It does not process MoMo or card 
 
 ## Data protection
 
-- SQLite data directory should be private (`0700`) and database files `0600`. The Docker image creates its persistent data directory with `0700` permissions; the POS-only Compose variant binds only a chosen loopback port and cannot take over an existing 80/443 proxy. Keep the POS volume separate from other apps and from a future live POS.
+- SQLite data directory should be private (`0700`) and database files `0600`. The Docker image creates its persistent data directory with `0700` permissions; the POS-only Compose variant binds only a chosen loopback host port. On the reported host-Nginx VPS, the staging-only systemd unit instead enforces `127.0.0.1:3187` and a separate data directory. Neither route takes over an existing 80/443 proxy or port 3000. Keep staging/live ledgers separate from other apps and from each other.
 - A SQLite exclusive-transaction lease prevents a second POS process or a restore operation from using the same ledger concurrently, even if both containers report PID 1. Abrupt exit releases the lease; it is not multi-server replication.
 - Preflight requires a valid first-owner bootstrap credential or an active owner already in the ledger. Remove the bootstrap secret from the server environment after the first owner changes the password.
 - Backups must be encrypted/access-controlled and stored off-host. Use the app's integrity-checked online SQLite backup, not a copy of a live WAL database, and test restore on an isolated volume.

@@ -43,9 +43,11 @@ npm run preflight
 
 Preflight checks configuration, sample `.example` hostnames, build output, data directory, credential presence, first-owner access, and approval gates. It does not replace staging tests.
 
-## 3. VPS with another application: use the POS-only Compose file
+## 3. VPS with another application: choose an isolated deployment
 
-**On a Contabo VPS already running another app, follow [CONTABO.md](CONTABO.md).** Do **not** run the bundled `deploy/docker-compose.yml` there: its Caddy service claims ports 80 and 443. `deploy/docker-compose.existing-proxy.yml` starts **only** the POS under a separate Compose project, requires an explicitly chosen unused `POS_HOST_PORT`, and binds it to the VPS's `127.0.0.1`. The administrator adds a separate HTTPS hostname to the existing **host-level** proxy; no existing app/port is changed. If the existing proxy itself runs inside a container or the existing app binds 80/443 directly, stop and plan a private Docker network/shared proxy route instead of publicly exposing the POS.
+**For the reported Contabo VPS (host Nginx on 80/443, Next.js on 3000, no Docker), follow [CONTABO-NATIVE.md](CONTABO-NATIVE.md)** after checking that Node.js 22.13+ is available without changing the existing app's runtime. Its staging-only systemd unit enforces `127.0.0.1:3187` and a separate ledger; Nginx can add a separate HTTPS virtual host.
+
+If an administrator deliberately chooses to install Docker instead, follow [CONTABO.md](CONTABO.md). Do **not** run the bundled `deploy/docker-compose.yml` on this shared VPS: its Caddy service claims ports 80 and 443. `deploy/docker-compose.existing-proxy.yml` starts **only** the POS under a separate Compose project, requires an explicitly chosen unused `POS_HOST_PORT`, and binds it to the VPS's `127.0.0.1`. The administrator adds a separate HTTPS hostname to the existing **host-level** proxy; no existing app/port is changed. If the existing proxy itself runs inside a container or the existing app binds 80/443 directly, stop and plan a private Docker network/shared proxy route instead of publicly exposing the POS.
 
 ## 4. Dedicated VPS only: deploy with Docker/Caddy
 
@@ -59,6 +61,8 @@ POS_DOMAIN=pos.your-domain.example docker compose up -d --build
 It runs the POS as a non-root, read-only container with a persistent SQLite volume. Caddy terminates HTTPS and proxies to the app. Keep port 3000 internal. Back up the `pos-data` volume and Caddy data. Use an explicit Compose project name and separate persistent volumes when operating several environments; never share staging/live ledgers.
 
 ## 5. Deploy with systemd/nginx
+
+The generic `deploy/mansu-pos.service`/`deploy/nginx.conf` examples below assume a dedicated host and use port 3000. **Do not install them unchanged on the reported Contabo VPS: port 3000 already belongs to the existing Next.js app.** Use the staging-only [CONTABO-NATIVE.md](CONTABO-NATIVE.md) and `deploy/mansu-pos-staging.service` there instead.
 
 - Create a `mansu` system user.
 - Install the app under `/opt/mansu-pos`, owned by root, readable by `mansu`.

@@ -55,7 +55,7 @@ Initiate refunds in WooCommerce. Then reconcile the POS sale so net reports upda
 npm run backup -- /private/backup/directory
 ```
 
-This creates an integrity-checked SQLite backup of the POS ledger. WordPress files/database require separate host-level backups. Store backups off-host and restrict access.
+This creates an integrity-checked SQLite backup of the POS ledger **only when the command has the correct `POS_MODE`/`POS_DATA_DIR` environment**. On the host-Nginx Contabo staging installation, the private settings live in a systemd EnvironmentFile rather than the Git checkout: use the documented `mansu-pos-staging-backup.service` in [CONTABO-NATIVE.md](CONTABO-NATIVE.md), not a bare `npm run backup` with demo defaults. WordPress files/database require separate host-level backups. Store backups off-host and restrict access.
 
 ## Restore
 
@@ -65,7 +65,7 @@ Stop the POS service first. Then:
 npm run restore -- /private/backup/pos-live-DATE.db --confirm-restore
 ```
 
-The restore command verifies integrity, preserves the existing database, and restores the backup. After trading has begun, reconcile WooCommerce orders and stock before resuming sales. Do not blindly restore over new trading data.
+The restore command verifies integrity, preserves the existing database, and restores the backup. On Contabo, a bare command from the Git checkout does **not** inherit the private systemd staging environment; an administrator must stop the staging POS and run restore with the correct staging mode/data directory under that protected environment. Restore refuses a running POS on the same ledger. After trading has begun, reconcile WooCommerce orders and stock before resuming sales. Do not blindly restore over new trading data.
 
 ## Health checks
 

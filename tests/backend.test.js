@@ -57,6 +57,10 @@ test('configuration rejects production as staging and requires explicit live gat
   const live=readConfig({POS_MODE:'live',WOO_CONSUMER_KEY:'k',WOO_CONSUMER_SECRET:'s'});
   assert.equal(live.writesEnabled,false);
   assert.equal(readConfig({POS_MODE:'live',WOO_CONSUMER_KEY:'k',WOO_CONSUMER_SECRET:'s',POS_ALLOW_LIVE_WRITES:'true',POS_OWNER_APPROVAL_REFERENCE:'written-owner-approval'}).writesEnabled,true);
+  assert.equal(readConfig({POS_BIND_HOST:'127.0.0.1',PORT:'3187'}).bindHost,'127.0.0.1');
+  assert.equal(readConfig({}).bindHost,'0.0.0.0');
+  assert.throws(()=>readConfig({POS_BIND_HOST:'localhost'}),/POS_BIND_HOST/);
+  assert.throws(()=>readConfig({POS_BIND_HOST:'203.0.113.1'}),/POS_BIND_HOST/);
 });
 
 test('unauthenticated and cross-origin requests are rejected',async t=>{

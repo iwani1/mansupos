@@ -1,6 +1,6 @@
 # Setup and safe deployment
 
-On a Contabo VPS that already runs another application, follow [CONTABO.md](CONTABO.md) for the POS-only Compose deployment. The all-in-one Caddy example binds 80/443 and must not be started over the existing app.
+On the reported Contabo VPS with host Nginx/Next.js and no Docker, follow [CONTABO-NATIVE.md](CONTABO-NATIVE.md) for an isolated localhost-only systemd service. [CONTABO.md](CONTABO.md) is the optional POS-only Compose path if an administrator installs Docker. The all-in-one Caddy example binds 80/443 and must not be started over the existing app.
 
 ## 1. Read-only audit first
 

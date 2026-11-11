@@ -12,6 +12,7 @@ const nodeParts = process.versions.node.split('.').map(Number);
 add('Node.js 22.13+', nodeParts[0] > 22 || (nodeParts[0] === 22 && nodeParts[1] >= 13), process.versions.node);
 add('Application version', true, APP_VERSION);
 add('Mode', ['demo', 'staging', 'live'].includes(config.mode), config.mode);
+add('POS listener', true, `${config.bindHost}:${config.port}${config.bindHost === '127.0.0.1' ? ' (host-local only)' : ' (isolate within a container/network)'}`);
 add('HTTPS store URL', config.storeUrl.startsWith('https://'), config.storeUrl);
 add('Production public origin', !config.production || config.mode === 'demo' || Boolean(config.publicOrigin), config.publicOrigin || 'not set');
 const exampleHost = origin => origin && new URL(origin).hostname.endsWith('.example');

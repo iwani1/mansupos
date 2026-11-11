@@ -20,6 +20,8 @@ jobs:
       - run: npm run build
       - run: npm audit --audit-level=high
       - run: npm run preflight
+      - name: Validate staging-only systemd units
+        run: systemd-analyze verify deploy/mansu-pos-staging.service deploy/mansu-pos-staging-backup.service
 
   lint:
     runs-on: ubuntu-24.04

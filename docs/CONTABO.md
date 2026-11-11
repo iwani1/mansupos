@@ -1,5 +1,7 @@
 # Contabo VPS: install alongside an existing application
 
+**Your reported VPS runs host Nginx and a Next.js app, but no Docker. Prefer [CONTABO-NATIVE.md](CONTABO-NATIVE.md): it uses Node/systemd on a separate localhost port without installing Docker.** This page is the alternative only if an administrator deliberately installs Docker and verifies its effect on the existing server.
+
 **This is a staging-first deployment, not approval to trade live.** Code and mocked/demo checks cannot establish compatibility with the real WooCommerce tax settings, stock concurrency, payment workflow, printer/scanner, or backups. Complete [ACCEPTANCE.md](ACCEPTANCE.md) and obtain distinct written live and Wholesale approval before enabling live writes. Never put passwords, Woo API keys, or customer data in chat, Git, a command transcript, or a public issue.
 
 The POS is a separate Node service and private SQLite ledger; it is **not** a WordPress plugin. Your existing application can keep using ports 80/443. **Do not run `deploy/docker-compose.yml` on this shared VPS**: that example starts a second Caddy bound to 80/443. Use only `deploy/docker-compose.existing-proxy.yml` below until an administrator has reviewed the current proxy setup. The POS-only file publishes one chosen port to `127.0.0.1` on the VPS, never to the internet. All Docker commands below use a distinct Compose project name; never run `docker compose down -v` on the POS or the other application.

@@ -61,8 +61,8 @@ server.on('error', error => {
   logger.error({ msg: 'server.listen_failed', code: error.code || 'SERVER_ERROR' });
   shutdown('server.error');
 });
-server.listen(config.port, '0.0.0.0', () => logger.info({
-  msg: 'server.started', version: APP_VERSION, port: config.port, mode: config.mode,
+server.listen(config.port, config.bindHost, () => logger.info({
+  msg: 'server.started', version: APP_VERSION, port: config.port, bindHost: config.bindHost, mode: config.mode,
   writesEnabled: config.writesEnabled, publicOrigin: config.publicOrigin || undefined,
   note: config.mode === 'demo' ? 'isolated demo; no live writes' : undefined,
 }));

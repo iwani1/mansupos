@@ -8,6 +8,7 @@ services:
     environment:
       NODE_ENV: production
       POS_DATA_DIR: /var/lib/mansu-pos
+      POS_BIND_HOST: 0.0.0.0
       POS_TRUST_PROXY: "1"
     volumes:
       - pos-data:/var/lib/mansu-pos

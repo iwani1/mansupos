@@ -1,0 +1,28 @@
+[Unit]
+Description=Mansu POS staging (localhost only; existing Nginx handles HTTPS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mansu-pos
+Group=mansu-pos
+WorkingDirectory=/opt/mansu-pos-staging
+EnvironmentFile=/etc/mansu-pos-staging/pos.env
+# These values are imposed on the process even if the env file was copied
+# from a live/Docker template. This unit can never point at a live POS ledger
+# or bind a public port. Use a separate reviewed unit for any future live POS.
+ExecStartPre=/usr/bin/env NODE_ENV=production POS_MODE=staging POS_BIND_HOST=127.0.0.1 PORT=3187 POS_DATA_DIR=/var/lib/mansu-pos-staging POS_TRUST_PROXY=loopback /usr/bin/node server/preflight.js
+ExecStart=/usr/bin/env NODE_ENV=production POS_MODE=staging POS_BIND_HOST=127.0.0.1 PORT=3187 POS_DATA_DIR=/var/lib/mansu-pos-staging POS_TRUST_PROXY=loopback /usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mansu-pos-staging
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

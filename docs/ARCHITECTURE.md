@@ -62,7 +62,7 @@ This design reduces duplicate-order risk but cannot replace staging tests or own
 - Cashiers can view only their own sales and cannot create or approve new wholesale quotes. Staff/connection management is owner-only. Reports and wholesale buyer management are owner/manager-only.
 - API errors are sanitized before returning to the browser.
 - CSV cells are escaped to reduce spreadsheet-formula injection.
-- The production frontend uses a restrictive Content Security Policy and locally bundled fonts.
+- The production frontend uses a restrictive Content Security Policy and locally bundled fonts. `POS_BIND_HOST` selects a validated loopback-only or all-interface listen address: the shared-host systemd staging unit forces `127.0.0.1`, while Docker listens on `0.0.0.0` **inside its container** with only a loopback host publish. Neither path exposes a direct public POS port.
 
 ## Deliberate exclusions
 

@@ -1,0 +1,17 @@
+[Unit]
+Description=Verified online backup of the Mansu POS staging ledger
+
+[Service]
+Type=oneshot
+User=mansu-pos
+Group=mansu-pos
+WorkingDirectory=/opt/mansu-pos-staging
+EnvironmentFile=/etc/mansu-pos-staging/pos.env
+# Do not back up the wrong mode or data directory if a template was copied.
+ExecStart=/usr/bin/env NODE_ENV=production POS_MODE=staging POS_DATA_DIR=/var/lib/mansu-pos-staging /usr/bin/node server/backup.js /var/lib/mansu-pos-staging/backups
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mansu-pos-staging
+UMask=0077
