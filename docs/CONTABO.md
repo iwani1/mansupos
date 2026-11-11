@@ -47,18 +47,18 @@ sudoedit .env
 
 Set `POS_MODE=staging`, `POS_PUBLIC_ORIGIN=https://pos-staging.mansutrendzgh.com`, `WOO_BASE_URL=` to the **distinct Woo staging HTTPS origin with no path**, and `POS_HOST_PORT=3187` **only if** the read-only port check found 3187 unused. Use staging-only Woo REST credentials with the required order/catalogue access; keep them private in the server environment. Provide a unique first-owner username/password (at least 12 characters) and verified receipt details. Keep `POS_STAGING_APPROVED=false` and `POS_STAGING_WHOLESALE_APPROVED=false`. Do not set `POS_MODE=live`, `POS_ALLOW_LIVE_WRITES`, or `POS_LIVE_WHOLESALE_APPROVED`. `POS_DATA_DIR=/var/lib/mansu-pos` is a dedicated named Docker volume, **not** the existing app's volume or WordPress directory.
 
-After the owner first signs in and changes the bootstrap password, remove `POS_OWNER_PASSWORD` from `.env` and recreate **only the POS** container with `sudo docker compose -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml up -d --no-deps --force-recreate pos`. The existing owner is stored in the ledger; changing/removing the bootstrap environment value does not reset the account.
+After the owner first signs in and changes the bootstrap password, remove `POS_OWNER_PASSWORD` from `.env` and recreate **only the POS** container with `sudo docker compose --env-file .env -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml up -d --no-deps --force-recreate pos`. The existing owner is stored in the ledger; changing/removing the bootstrap environment value does not reset the account.
 
 ## 4. Build, check, and launch the POS alone
 
-Run from `/opt/mansu-pos-staging` after installing Docker/Compose and confirming the private `.env` is complete. The `-p` and `-f` arguments are important; they isolate this project from the existing app. `config --quiet` checks syntax without printing the resolved secrets (do not paste `docker compose config` or `docker inspect` output into chat).
+Run from `/opt/mansu-pos-staging` after installing Docker/Compose and confirming the private `.env` is complete. The `--env-file .env` flag supplies the chosen host port, while `-p` and `-f` isolate this project from the existing app. `config --quiet` checks syntax without printing the resolved secrets (do not paste `docker compose config` or `docker inspect` output into chat).
 
 ```bash
-sudo docker compose -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml config --quiet
-sudo docker compose -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml build pos
-sudo docker compose -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml run --rm --no-deps pos node server/preflight.js
-sudo docker compose -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml up -d --no-deps pos
-sudo docker compose -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml ps
+sudo docker compose --env-file .env -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml config --quiet
+sudo docker compose --env-file .env -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml build pos
+sudo docker compose --env-file .env -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml run --rm --no-deps pos node server/preflight.js
+sudo docker compose --env-file .env -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml up -d --no-deps pos
+sudo docker compose --env-file .env -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml ps
 curl --fail --silent http://127.0.0.1:3187/api/health
 ```
 
@@ -84,7 +84,7 @@ The SQLite ledger is in the Compose project's `pos-data` named volume. **Do not 
 
 ```bash
 cd /opt/mansu-pos-staging
-sudo docker compose -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml exec -T pos node server/backup.js /var/lib/mansu-pos/backups
+sudo docker compose --env-file .env -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml exec -T pos node server/backup.js /var/lib/mansu-pos/backups
 ```
 
 The command prints the verified backup's path. Have the administrator copy **that finished backup** out of the container (for example with `sudo docker cp <pos-container-id>:/var/lib/mansu-pos/backups/pos-staging-DATE.db /private/backup/`), store it encrypted off the VPS with retention, and perform a restore drill on an **isolated** volume. Also back up the WooCommerce staging and live WordPress files/databases independently. The `pos-data` volume is not backed up just because the source code is on GitHub or because Contabo offers VPS snapshots.
@@ -99,9 +99,9 @@ After taking a verified POS backup and checking for pending/unreconciled sales, 
 cd /opt/mansu-pos-staging
 git status --short --branch
 git pull --ff-only origin arena/f5331f1d-mansupos
-sudo docker compose -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml build pos
-sudo docker compose -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml run --rm --no-deps pos node server/preflight.js
-sudo docker compose -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml up -d --no-deps pos
+sudo docker compose --env-file .env -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml build pos
+sudo docker compose --env-file .env -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml run --rm --no-deps pos node server/preflight.js
+sudo docker compose --env-file .env -p mansu-pos-staging -f deploy/docker-compose.existing-proxy.yml up -d --no-deps pos
 ```
 
 Check the POS health/ready endpoints, Woo diagnostics and existing app afterward. Never run `down -v`, `docker volume prune`, or a host-wide Docker prune: those can delete the POS ledger or the other application's data. A future live POS needs its **own** project name, hostname, private environment, unused port and volume; it must not reuse the staging ledger or credentials, and must not start writing before the recorded staging, stock, backup, hardware and written-approval gates pass.
