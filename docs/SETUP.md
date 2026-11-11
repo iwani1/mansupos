@@ -68,6 +68,10 @@ Use a persistent, private volume for `POS_DATA_DIR`. The application uses separa
 
 After the owner approves staging testing, set `POS_STAGING_APPROVED=true` and restart. Until then, authenticated catalogue reads can work but checkout is blocked.
 
+**Paid trade is a separate gate.** Only on the isolated staging clone, after the owner explicitly authorizes testing negotiated tax-inclusive prices, set `POS_STAGING_TRADE_APPROVED=true` and restart. This flag allows tests; it does **not** mean the tests passed. In the register, an owner or manager creates/selects a named buyer, enters a final tax-inclusive unit amount for every line, reviews the quote and explicitly approves it. The catalogue price is a reference, not a discount rule. The POS creates a pending Woo order and derives pre-tax line amounts from Woo's tax calculation; it refuses payment if the returned lines, taxes, total, buyer, approver or payment verification cannot be confirmed. There is no quantity-break pricing and **no trade dispatch on credit**. Keep trade locked if any staging test fails.
+
+For the actual staging acceptance, verify the in-store collection tax location Woo applies with only a named buyer (no delivery address), and test taxable/exempt tax classes, multiple items/quantities, rounding to the cent, product/variation metadata, lost order/update responses, and an externally simulated full payment. Do not use this workflow for deliveries with an unverified taxable location. See [ACCEPTANCE.md](ACCEPTANCE.md). Do not use a real customer transaction as a test.
+
 Create individual cashier accounts in Staff & access. Share temporary credentials through the owner’s approved password manager, not the handover report. Staff should change their password after first sign-in.
 
 ## 4. Hardware
@@ -95,7 +99,7 @@ POS_ALLOW_LIVE_WRITES=true
 POS_OWNER_APPROVAL_REFERENCE=<written-approval-reference>
 ```
 
-The approval reference must be at least eight characters. This is a deployment guard, not a substitute for actual written approval.
+The approval reference must be at least eight characters. This is a deployment guard, not a substitute for actual written approval. **Retail approval never enables trade.** Paid trade also requires `POS_STAGING_TRADE_APPROVED=true` (only after recorded successful staging tax/total tests) and `POS_LIVE_TRADE_APPROVED=true` (a distinct written owner decision for live negotiated-price checkout). Leave the live trade flag `false` until both conditions are met; no live trade writes are authorized by this build alone. The five dispatch-before-payment buyers remain a future, separately approved workflow.
 
 Before the first live sale, take a fresh full WordPress backup and a POS-ledger backup. Run a small owner-approved live smoke test only after staging passes and the owner explicitly authorizes it. Never use a real customer payment as a test.
 

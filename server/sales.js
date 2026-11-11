@@ -7,9 +7,24 @@ import { ShiftService } from './shifts.js';
 
 export const prepareSchema = z.object({
   idempotencyKey: z.string().uuid(),
-  items: z.array(z.object({ productId: z.number().int().positive(), variationId: z.number().int().min(0).optional().default(0), quantity: z.number().int().min(1).max(999) }).strict()).min(1).max(100),
+  saleType: z.enum(['retail', 'trade']).optional().default('retail'),
+  buyerId: z.string().uuid().optional(),
+  tradeApproved: z.boolean().optional().default(false),
+  items: z.array(z.object({
+    productId: z.number().int().positive(), variationId: z.number().int().min(0).optional().default(0),
+    quantity: z.number().int().min(1).max(999), agreedUnitPrice: z.number().int().min(1).max(100000000).optional(),
+  }).strict()).min(1).max(100),
   note: z.string().trim().max(250).optional().default(''),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if (value.saleType === 'trade') {
+    if (!value.buyerId) ctx.addIssue({ code: 'custom', path: ['buyerId'], message: 'Select a named trade buyer.' });
+    value.items.forEach((item, i) => { if (item.agreedUnitPrice === undefined) ctx.addIssue({ code: 'custom', path: ['items', i, 'agreedUnitPrice'], message: 'Enter an agreed tax-inclusive unit price for every trade line.' }); });
+    if (!value.tradeApproved) ctx.addIssue({ code: 'custom', path: ['tradeApproved'], message: 'An owner or manager must approve the agreed trade prices before preparing an order.' });
+  } else {
+    if (value.buyerId || value.tradeApproved) ctx.addIssue({ code: 'custom', path: ['buyerId'], message: 'Trade buyer and approval require a trade sale.' });
+    value.items.forEach((item, i) => { if (item.agreedUnitPrice !== undefined) ctx.addIssue({ code: 'custom', path: ['items', i, 'agreedUnitPrice'], message: 'Retail prices come from WooCommerce; do not send prices from the browser.' }); });
+  }
+});
 export const paymentSchema = z.object({
   method: z.enum(['cash', 'momo', 'card']),
   reference: z.string().trim().max(80).optional().default(''),
@@ -29,14 +44,79 @@ export function normalizeItems(items) {
   const merged = new Map();
   for (const item of items) {
     const key = `${item.productId}:${item.variationId || 0}`;
-    const current = merged.get(key) || { productId: item.productId, variationId: item.variationId || 0, quantity: 0 };
+    const current = merged.get(key) || { productId: item.productId, variationId: item.variationId || 0, quantity: 0, ...(item.agreedUnitPrice !== undefined ? { agreedUnitPrice: item.agreedUnitPrice } : {}) };
+    if (current.agreedUnitPrice !== item.agreedUnitPrice) throw new AppError('Use one agreed unit price for each product option in a trade order.', 400);
     current.quantity += item.quantity;
     if (current.quantity > 999) throw new AppError('A single cart line cannot exceed 999 units.', 400);
     merged.set(key, current);
   }
   return [...merged.values()].sort((a, b) => a.productId - b.productId || a.variationId - b.variationId);
 }
-const fingerprint = (items, note = '') => createHash('sha256').update(JSON.stringify({ items: normalizeItems(items), note: String(note || '').trim() })).digest('hex');
+const sha256 = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const fingerprint = (items, note = '', saleType = 'retail', buyerId = '') => sha256(saleType === 'trade'
+  ? { saleType, buyerId, items: normalizeItems(items), note: String(note || '').trim() }
+  : { items: normalizeItems(items), note: String(note || '').trim() });
+const quoteHash = (row, items) => sha256({ buyerId: row.buyer_id, buyerName: row.buyer_name, approvedBy: row.trade_approved_by_id, items });
+const lineKey = item => `${item.productId ?? item.product_id}:${item.variationId ?? item.variation_id ?? 0}`;
+const cents = value => value == null || value === '' || !Number.isFinite(Number(value)) ? NaN : Math.round(Number(value) * 100);
+const asDecimal = value => (value / 100).toFixed(2);
+
+// A trade quote is an agreed final amount per line, including any tax. Woo's
+// REST API accepts order line `total`/`subtotal` *excluding* tax. Check the
+// returned Woo calculation before payment; never trust a browser-only override.
+function tradeLayout(row, order) {
+  let quote;
+  try { quote = JSON.parse(row.trade_quote_json || '[]'); } catch { quote = []; }
+  if (!Array.isArray(quote) || !quote.length) return { problem: 'The agreed trade quote is missing. Review the sale.' };
+  const meta = key => order.meta_data?.find(entry => entry.key === key)?.value;
+  if (meta('_mansu_pos_sale_type') !== 'trade' || meta('_mansu_pos_trade_buyer_id') !== row.buyer_id ||
+    meta('_mansu_pos_trade_buyer') !== row.buyer_name || meta('_mansu_pos_trade_approver') !== row.trade_approved_by_id ||
+    meta('_mansu_pos_trade_approver_name') !== row.trade_approved_by_name ||
+    meta('_mansu_pos_trade_approved_at') !== row.trade_approved_at || meta('_mansu_pos_quote_hash') !== quoteHash(row, quote)) {
+    return { problem: 'WooCommerce does not match the approved trade buyer and quote. Review the order.' };
+  }
+  if (order.billing?.first_name !== row.buyer_name || !Array.isArray(order.line_items) || order.line_items.length !== quote.length ||
+    ['fee_lines', 'coupon_lines', 'shipping_lines'].some(key => !Array.isArray(order[key]) || order[key].length) ||
+    cents(order.shipping_total) !== 0 || cents(order.discount_total) !== 0) {
+    return { problem: 'WooCommerce changed the trade buyer, lines, fees, discounts, or shipping. Review the order.' };
+  }
+  const lines = new Map();
+  for (const item of order.line_items) {
+    const key = lineKey(item);
+    if (lines.has(key) || !Number.isInteger(Number(item.id)) || Number(item.id) <= 0) return { problem: 'WooCommerce returned ambiguous trade order lines. Review the order.' };
+    lines.set(key, item);
+  }
+  const pairs = [];
+  for (const agreed of quote) {
+    const item = lines.get(lineKey(agreed));
+    if (!item || Number(item.quantity) !== agreed.quantity) return { problem: 'WooCommerce changed a trade product, option, or quantity. Review the order.' };
+    const itemMeta = key => item.meta_data?.find(entry => entry.key === key)?.value;
+    if (itemMeta('Mansu agreed unit gross (GHS)') !== asDecimal(agreed.agreedUnitPrice) ||
+      itemMeta('Mansu catalogue unit (GHS)') !== asDecimal(agreed.catalogueUnitPrice)) {
+      return { problem: 'WooCommerce line price notes do not match the approved trade quote. Review the order.' };
+    }
+    pairs.push({ agreed, item });
+  }
+  return { pairs };
+}
+function tradeOrderProblem(row, order) {
+  const layout = tradeLayout(row, order);
+  if (layout.problem) return layout.problem;
+  let gross = 0, tax = 0;
+  for (const { agreed, item } of layout.pairs) {
+    const net = cents(item.total), itemTax = cents(item.total_tax), subtotal = cents(item.subtotal);
+    if (![net, itemTax, subtotal].every(Number.isSafeInteger) || net < 0 || itemTax < 0 || net !== subtotal || net + itemTax !== agreed.agreedUnitPrice * agreed.quantity) {
+      return 'WooCommerce line prices or tax do not match the agreed tax-inclusive trade prices. Review the order.';
+    }
+    gross += net + itemTax; tax += itemTax;
+  }
+  if (gross !== cents(order.total) || tax !== cents(order.total_tax) || !Array.isArray(order.tax_lines) ||
+    order.tax_lines.some(line => !Number.isSafeInteger(cents(line.tax_total)) || cents(line.shipping_tax_total) !== 0) ||
+    order.tax_lines.reduce((sum, line) => sum + cents(line.tax_total), 0) !== tax) {
+    return 'WooCommerce total or tax does not match the agreed trade quote. Review the order.';
+  }
+  return '';
+}
 function remotePaidAt(order) {
   const raw = order.date_paid_gmt || order.date_paid;
   if (!raw) return null;
@@ -49,6 +129,19 @@ function remoteRefunded(order) {
 }
 function remotePaid(order) {
   return Boolean(remotePaidAt(order)) && ['processing', 'completed', 'refunded'].includes(order.status);
+}
+const tradeVerifiedSnapshot = order => JSON.stringify(order.line_items.map(item => ({
+  key: lineKey(item), net: cents(item.total), tax: cents(item.total_tax),
+})).sort((a, b) => a.key.localeCompare(b.key)));
+function tradePaymentProblem(row, order) {
+  if (!remotePaid(order)) return row.payment_method ? 'A trade payment recording was interrupted. Verify the external payment and Woo order before retrying.' : '';
+  const posRecord = order.meta_data?.find(meta => meta.key === '_mansu_pos_payment_recorded')?.value;
+  if (posRecord !== 'externally-collected' || !methodCodes[row.payment_method] || order.payment_method !== methodCodes[row.payment_method] ||
+    !Number.isSafeInteger(row.tendered) || row.tendered < cents(order.total) ||
+    (row.payment_method !== 'cash' && (!row.payment_reference || order.transaction_id !== row.payment_reference))) {
+    return 'The paid trade order has no matching, fully verified POS payment record. Do not release goods; review it first.';
+  }
+  return '';
 }
 function assertOrderIdentity(row, order) {
   if (!order || !Number.isInteger(Number(order.id))) throw new AppError('WooCommerce returned an invalid order identity.', 502, 'RECONCILIATION_REQUIRED');
@@ -97,6 +190,33 @@ export class SalesService {
   markReconcileAttempt(id) {
     this.db.prepare('UPDATE sales SET last_reconciled_at=?, reconcile_attempts=COALESCE(reconcile_attempts,0)+1 WHERE id=?').run(now(), id);
   }
+  async repriceTradeOrder(row, created) {
+    let order = created;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      assertOrderIdentity(row, order);
+      if (order.currency !== this.config.currency || order.status !== 'pending' || remotePaid(order)) throw new AppError('The store did not return an unpaid GHS trade order. Review it before collecting payment.', 409, 'RECONCILIATION_REQUIRED');
+      const layout = tradeLayout(row, order);
+      if (layout.problem) throw new AppError(layout.problem, 409, 'RECONCILIATION_REQUIRED');
+      const problem = tradeOrderProblem(row, order);
+      if (!problem) return order;
+      const updates = [];
+      for (const { agreed, item } of layout.pairs) {
+        const net = cents(item.total), tax = cents(item.total_tax), target = agreed.agreedUnitPrice * agreed.quantity;
+        if (![net, tax].every(Number.isSafeInteger) || net < 0 || tax < 0) throw new AppError(problem, 409, 'RECONCILIATION_REQUIRED');
+        const gross = net + tax;
+        if (gross === target) continue;
+        // The Woo calculation supplies the effective rate and tax class for this
+        // exact product/location. Recalculate there; never guess the tax in JS.
+        let nextNet = gross > 0 && net > 0 ? Math.round(net * target / gross) : target;
+        if (nextNet === net) nextNet += Math.sign(target - gross);
+        if (!Number.isSafeInteger(nextNet) || nextNet < 1 || nextNet > 100000000) throw new AppError(problem, 409, 'RECONCILIATION_REQUIRED');
+        updates.push({ id: item.id, subtotal: asDecimal(nextNet), total: asDecimal(nextNet) });
+      }
+      if (!updates.length) throw new AppError(problem, 409, 'RECONCILIATION_REQUIRED');
+      order = await this.api.updateOrder(row.woo_order_id, { line_items: updates });
+    }
+    throw new AppError('WooCommerce could not reproduce the agreed tax-inclusive trade price exactly. Leave the order unpaid and review tax settings.', 409, 'RECONCILIATION_REQUIRED');
+  }
   saveRemote(row, order) {
     assertOrderIdentity(row, order);
     const total = money(order.total);
@@ -115,13 +235,27 @@ export class SalesService {
     } else {
       status = 'awaiting_payment';
     }
+    let verified = row.trade_verified_json;
+    if (row.sale_type === 'trade') {
+      const problem = tradeOrderProblem(row, order);
+      const snapshot = !problem ? tradeVerifiedSnapshot(order) : null;
+      const mismatch = verified && snapshot && verified !== snapshot;
+      const paymentProblem = tradePaymentProblem(row, order);
+      if (problem || mismatch || paymentProblem || (paid && !verified)) {
+        status = 'needs_reconciliation';
+        error = problem || (mismatch ? 'WooCommerce line tax or net amount changed after the approved trade quote was verified. Review the order.' : paymentProblem || 'The trade quote was not verified before payment. Review the order.');
+      } else if (status === 'awaiting_payment' && !verified) {
+        verified = snapshot;
+      }
+    }
     const items = (order.line_items || []).map(item => {
       const original = JSON.parse(row.items_json || '[]').find(i => i.productId === item.product_id && i.variationId === (item.variation_id || 0));
       return { productId: item.product_id, variationId: item.variation_id || 0, name: item.name, label: item.meta_data?.find(m => ['Size', 'size'].includes(m.key))?.value || original?.label || '', sku: item.sku || '', image: original?.image || '', price: money(item.price), quantity: item.quantity, total: money(item.total), tax: money(item.total_tax) };
     });
-    this.db.prepare('UPDATE sales SET woo_order_id=?,number=?,status=?,total=?,tax=?,subtotal=?,refunded=?,currency=?,items_json=?,updated_at=?,paid_at=?,error=? WHERE id=?')
-      .run(order.id, `${this.config.mode === 'live' ? 'WC' : 'STG'}-${order.number || order.id}`, status, total, money(order.total_tax), (order.line_items || []).reduce((sum, i) => sum + money(i.subtotal), 0), refunded, currency, JSON.stringify(items), now(), paid ? remotePaidAt(order) : null, error, row.id);
-    if (isSettled(status)) this.catalog.invalidate();
+    this.db.prepare('UPDATE sales SET woo_order_id=?,number=?,status=?,total=?,tax=?,subtotal=?,refunded=?,currency=?,items_json=?,trade_verified_json=?,prepared_total=?,updated_at=?,paid_at=?,error=? WHERE id=?')
+      .run(order.id, `${this.config.mode === 'live' ? 'WC' : 'STG'}-${order.number || order.id}`, status, total, money(order.total_tax), (order.line_items || []).reduce((sum, i) => sum + money(i.subtotal), 0), refunded, currency, JSON.stringify(items), verified,
+        row.sale_type === 'trade' && verified && !row.prepared_total ? total : row.prepared_total, now(), paid ? remotePaidAt(order) : null, error, row.id);
+    if (paid || isSettled(status)) this.catalog.invalidate();
     return this.get(row.id, { role: 'owner' });
   }
   async recoverExisting(user, existing) {
@@ -138,9 +272,16 @@ export class SalesService {
   }
   async prepare(user, input) {
     if (this.config.mode !== 'demo' && !this.config.writesEnabled) throw new AppError('Checkout is locked. Complete staging tests and enable the approved server-side write gate first.', 403, 'CHECKOUT_LOCKED');
+    const saleType = input.saleType || 'retail';
+    if (saleType === 'trade' && !['owner', 'manager'].includes(user.role)) throw new AppError('Only an owner or manager can agree a trade price.', 403, 'TRADE_ROLE_REQUIRED');
+    if (saleType === 'trade' && !this.config.tradeWritesEnabled) throw new AppError('Trade checkout is locked. Authorize isolated staging trade tests first; live trade requires separate acceptance and written approval.', 403, 'TRADE_CHECKOUT_LOCKED');
     const items = normalizeItems(input.items);
-    const hash = fingerprint(items, input.note);
-    return this.exclusive(`prepare:${input.idempotencyKey}`, async () => {
+    const buyer = saleType === 'trade' ? this.db.prepare('SELECT id,name FROM trade_buyers WHERE id=?').get(input.buyerId) : null;
+    if (saleType === 'trade' && !buyer) throw new AppError('Select an existing named trade buyer before agreeing a price.', 400);
+    const agreedTotal = saleType === 'trade' ? items.reduce((sum, item) => sum + item.agreedUnitPrice * item.quantity, 0) : 0;
+    if (saleType === 'trade' && (!Number.isSafeInteger(agreedTotal) || agreedTotal < 1 || agreedTotal > 100000000)) throw new AppError('The agreed trade total must be between GH₵0.01 and GH₵1,000,000.00.', 400);
+    const hash = fingerprint(items, input.note, saleType, buyer?.id);
+    const prepareOrder = () => this.exclusive(`prepare:${input.idempotencyKey}`, async () => {
       const existing = this.db.prepare('SELECT * FROM sales WHERE idempotency_key=?').get(input.idempotencyKey);
       if (existing) {
         if (existing.fingerprint !== hash || existing.cashier_id !== user.id) throw new AppError('This checkout key belongs to a different cart.', 409);
@@ -151,31 +292,70 @@ export class SalesService {
       const recentDuplicate = this.db.prepare(`SELECT id FROM sales WHERE cashier_id=? AND fingerprint=? AND status IN ('creating','needs_reconciliation','awaiting_payment') AND created_at>=? ORDER BY created_at DESC LIMIT 1`)
         .get(user.id, hash, new Date(Date.now() - RECOVERY_WINDOW_MS).toISOString());
       if (recentDuplicate) throw new AppError('An unpaid checkout for this cart already exists. Review Sales before creating another order.', 409, 'RECONCILIATION_REQUIRED');
+      if (saleType === 'trade') {
+        // Changing a price or note after a lost response must not create a second
+        // pending order for the same buyer and products.
+        const pending = this.db.prepare(`SELECT trade_quote_json FROM sales WHERE buyer_id=? AND sale_type='trade' AND status IN ('creating','needs_reconciliation','awaiting_payment') AND created_at>=?`)
+          .all(buyer.id, new Date(Date.now() - RECOVERY_WINDOW_MS).toISOString());
+        const signature = JSON.stringify(items.map(({ productId, variationId, quantity }) => ({ productId, variationId, quantity })));
+        if (pending.some(row => JSON.stringify(JSON.parse(row.trade_quote_json || '[]').map(({ productId, variationId, quantity }) => ({ productId, variationId, quantity }))) === signature)) {
+          throw new AppError('An unpaid trade order for this buyer and cart already exists. Review Sales before changing prices or creating another order.', 409, 'RECONCILIATION_REQUIRED');
+        }
+      }
       const shift = this.config.requireShift && this.config.mode !== 'demo' ? this.shifts.requireOpen(user.id) : this.shifts.current(user.id);
       const id = randomUUID();
       const time = now();
       const number = `DEMO-${id.slice(0, 8).toUpperCase()}`;
-      this.db.prepare('INSERT INTO sales(id,idempotency_key,fingerprint,number,status,currency,cashier_id,cashier_name,note,created_at,updated_at,shift_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, input.idempotencyKey, hash, number, 'creating', this.config.currency, user.id, user.name, input.note, time, time, shift?.id || null);
+      this.db.prepare('INSERT INTO sales(id,idempotency_key,fingerprint,number,status,currency,cashier_id,cashier_name,note,created_at,updated_at,shift_id,sale_type,buyer_id,buyer_name,trade_quote_json,trade_approved_by_id,trade_approved_by_name,trade_approved_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, input.idempotencyKey, hash, number, 'creating', this.config.currency, user.id, user.name, input.note, time, time, shift?.id || null,
+          saleType, buyer?.id || null, buyer?.name || '', saleType === 'trade' ? JSON.stringify(items) : null,
+          saleType === 'trade' ? user.id : null, saleType === 'trade' ? user.name : null, saleType === 'trade' ? time : null);
       try {
         const lines = await this.catalog.fresh(items);
         validateAvailability(lines);
-        if (this.config.mode === 'demo') {
-          const total = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);
-          this.db.prepare('UPDATE sales SET status=?,total=?,prepared_total=?,subtotal=?,items_json=? WHERE id=?').run('awaiting_payment', total, total, total, JSON.stringify(lines.map(l => ({ ...l, total: l.price * l.quantity, tax: 0 }))), id);
-        } else {
-          const order = await this.api.createOrder({
-            status: 'pending', payment_method: '', payment_method_title: 'In-store payment pending',
-            line_items: items.map(i => ({ product_id: i.productId, ...(i.variationId ? { variation_id: i.variationId } : {}), quantity: i.quantity })),
-            shipping: [], customer_note: input.note,
-            meta_data: [{ key: '_mansu_pos_key', value: input.idempotencyKey }, { key: '_mansu_pos_channel', value: 'mansu-pos' }, { key: '_mansu_pos_cashier', value: user.id }],
-          });
-          this.db.prepare('UPDATE sales SET woo_order_id=? WHERE id=?').run(order.id, id);
-          const saved = this.saveRemote(this.get(id, user), order);
-          this.db.prepare('UPDATE sales SET prepared_total=? WHERE id=?').run(saved.total, id);
-          if (saved.status !== 'awaiting_payment') throw new AppError(saved.error || 'WooCommerce did not return a payable pending order. Review Sales before retrying.', 409, 'RECONCILIATION_REQUIRED');
+        const quote = saleType === 'trade' ? items.map((item, index) => ({ ...item, catalogueUnitPrice: lines[index].price })) : null;
+        if (quote?.some(item => !Number.isSafeInteger(item.catalogueUnitPrice) || item.catalogueUnitPrice < 0)) {
+          throw new AppError('The current catalogue price could not be verified. Refresh the product before preparing a trade order.', 409);
         }
-        audit(this.db, user.id, 'sale.prepared', id);
+        const draft = lines.map(line => ({ productId: line.productId, variationId: line.variationId, quantity: line.quantity,
+          name: line.name, label: line.label, sku: line.sku, image: line.image, price: line.price, cataloguePrice: line.price }));
+        // Save the catalogue snapshot and agreement before any remote write, so
+        // an interrupted Woo response still has the exact approved terms.
+        this.db.prepare('UPDATE sales SET items_json=?,trade_quote_json=? WHERE id=?').run(JSON.stringify(draft), quote ? JSON.stringify(quote) : null, id);
+        if (this.config.mode === 'demo') {
+          const agreed = new Map(quote?.map(item => [lineKey(item), item.agreedUnitPrice]));
+          const savedLines = draft.map(line => ({ ...line, total: (saleType === 'trade' ? agreed.get(lineKey(line)) : line.price) * line.quantity, tax: 0 }));
+          const total = savedLines.reduce((sum, line) => sum + line.total, 0);
+          this.db.prepare('UPDATE sales SET status=?,total=?,prepared_total=?,subtotal=?,items_json=? WHERE id=?').run('awaiting_payment', total, total, total, JSON.stringify(savedLines), id);
+        } else {
+          const row = this.get(id, user);
+          const meta = [{ key: '_mansu_pos_key', value: input.idempotencyKey }, { key: '_mansu_pos_channel', value: 'mansu-pos' }, { key: '_mansu_pos_cashier', value: user.id }];
+          if (quote) meta.push(
+            { key: '_mansu_pos_sale_type', value: 'trade' },
+            { key: '_mansu_pos_trade_buyer_id', value: buyer.id },
+            { key: '_mansu_pos_trade_buyer', value: buyer.name },
+            { key: '_mansu_pos_trade_approver', value: user.id },
+            { key: '_mansu_pos_trade_approver_name', value: user.name },
+            { key: '_mansu_pos_trade_approved_at', value: time },
+            { key: '_mansu_pos_quote_hash', value: quoteHash(row, quote) },
+          );
+          const created = await this.api.createOrder({
+            status: 'pending', payment_method: '', payment_method_title: 'In-store payment pending',
+            ...(quote ? { billing: { first_name: buyer.name } } : {}),
+            line_items: items.map((i, index) => ({ product_id: i.productId, ...(i.variationId ? { variation_id: i.variationId } : {}), quantity: i.quantity,
+              ...(quote ? { meta_data: [
+                { key: 'Mansu agreed unit gross (GHS)', value: asDecimal(quote[index].agreedUnitPrice) },
+                { key: 'Mansu catalogue unit (GHS)', value: asDecimal(quote[index].catalogueUnitPrice) },
+              ] } : {}) })),
+            shipping: [], customer_note: input.note, meta_data: meta,
+          });
+          this.db.prepare('UPDATE sales SET woo_order_id=? WHERE id=?').run(created.id, id);
+          const order = saleType === 'trade' ? await this.repriceTradeOrder(this.get(id, user), created) : created;
+          const saved = this.saveRemote(this.get(id, user), order);
+          if (saved.status !== 'awaiting_payment') throw new AppError(saved.error || 'WooCommerce did not return a payable pending order. Review Sales before retrying.', 409, 'RECONCILIATION_REQUIRED');
+          if (saleType !== 'trade') this.db.prepare('UPDATE sales SET prepared_total=? WHERE id=?').run(saved.total, id);
+        }
+        audit(this.db, user.id, saleType === 'trade' ? 'sale.trade_prepared' : 'sale.prepared', id);
         return saleView(this.get(id, user));
       } catch (error) {
         const mayExistRemotely = Boolean(this.get(id, user).woo_order_id);
@@ -184,11 +364,15 @@ export class SalesService {
         throw new AppError('Checkout was interrupted. Do not create another order; reconcile this sale from Sales first.', 502, 'RECONCILIATION_REQUIRED');
       }
     });
+    // Different checkout keys for one buyer must not race past the pending-order
+    // check and create two Woo orders for the same quote.
+    return saleType === 'trade' ? this.exclusive(`trade-buyer:${buyer.id}`, prepareOrder) : prepareOrder();
   }
   async complete(user, id, payment) {
     return this.exclusive(`sale:${id}`, async () => {
       const row = this.get(id, user);
       if (isSettled(row.status)) return saleView(row);
+      if (row.sale_type === 'trade' && !this.config.tradeWritesEnabled) throw new AppError('Trade checkout is locked. Do not collect payment or release goods.', 403, 'TRADE_CHECKOUT_LOCKED');
       if (row.status !== 'awaiting_payment') throw new AppError('This sale is not ready to record payment. Reconcile or review it first.', 409);
       if (this.config.requireShift && this.config.mode !== 'demo') {
         const shift = row.shift_id ? this.db.prepare('SELECT status FROM shifts WHERE id=?').get(row.shift_id) : null;
@@ -236,6 +420,11 @@ export class SalesService {
           this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run('needs_reconciliation', `WooCommerce total changed from ${(total / 100).toFixed(2)} to ${(currentTotal / 100).toFixed(2)}. Review the order before recording payment.`, now(), id);
           throw new AppError('The WooCommerce total changed after preparation. Reconcile this sale before recording payment.', 409, 'TOTAL_CHANGED');
         }
+        if (row.sale_type === 'trade' && (current.status !== 'pending' || !row.trade_verified_json ||
+          tradeOrderProblem(row, current) || tradeVerifiedSnapshot(current) !== row.trade_verified_json || cents(current.total_tax) !== row.tax)) {
+          this.saveRemote(row, current);
+          throw new AppError('The trade order changed after price approval. Do not collect payment; reconcile it first.', 409, 'TRADE_QUOTE_CHANGED');
+        }
         validateAvailability(await this.catalog.fresh(JSON.parse(row.items_json).map(i => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }))));
         if (payment.method === 'cash' && payment.tendered < currentTotal) throw new AppError('Cash received must cover the WooCommerce order total.', 400);
         // Persist the intended payment record before the remote write so a lost response can be reconciled.
@@ -264,7 +453,7 @@ export class SalesService {
       } catch (error) {
         const status = error.code === 'ORDER_CANCELLED' ? 'cancelled' : 'needs_reconciliation';
         this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run(status, error.message || 'Payment confirmation was interrupted. Check the WooCommerce order before taking another payment.', now(), id);
-        if (error instanceof AppError && ['TOTAL_CHANGED', 'ORDER_CANCELLED'].includes(error.code)) throw error;
+        if (error instanceof AppError && ['TOTAL_CHANGED', 'ORDER_CANCELLED', 'TRADE_QUOTE_CHANGED'].includes(error.code)) throw error;
         if (error instanceof AppError && !error.uncertain && error.code !== 'WOOCOMMERCE_ERROR' && error.code !== 'RECONCILIATION_REQUIRED') throw error;
         throw new AppError('Payment confirmation needs reconciliation. Do not collect a second payment or create a new order.', 502, 'RECONCILIATION_REQUIRED');
       }

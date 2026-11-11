@@ -16,6 +16,16 @@
 - Record Cash, MoMo, or Card only after payment is collected/verified externally.
 - Print the receipt on the verified printer.
 
+## Paid trade orders (owner or manager only)
+
+1. Only when the separate trade gate is authorized, choose **Paid trade**. Create or select a **named buyer**; no customer payment terms or credit limit are created.
+2. Add one or several goods. Enter the **negotiated final unit price, including applicable tax**, for *each* product/option. Quantity multiplies that unit amount; it never chooses a discount tier. The unchanged WooCommerce catalogue price is shown only for reference.
+3. Review the buyer, lines and final agreed total, then approve as the signed-in owner or manager. Changing a price, quantity or buyer clears the approval. Trade quotes cannot be held in browser-local saved carts.
+4. Prepare the pending WooCommerce order. The POS uses Woo's own product tax class and order tax calculation to find pre-tax line inputs and checks that each returned line gross, tax and final order amount match the approval exactly. Any difference leaves the order under review, **not payable**. In Sales, choose **View quote** and reconcile the original order; do not create a replacement automatically.
+5. Count full cash or verify the full MoMo/card merchant settlement outside this app. Record the full amount with an external reference when relevant. Print the receipt only when the POS reports **Paid**. **Leave unpaid** saves an order; it does not allow goods to leave.
+
+This iteration is for payment before goods are taken from the shop. Do not use it for delivery with a different applicable tax location until the actual WooCommerce tax rules and address workflow have been separately accepted on staging. The five special dispatch-now/pay-in-one-to-two-weeks buyers are **not** supported by this workflow; no pay-later dispatch is authorized.
+
 ## Interrupted sales
 
 - If checkout or payment confirmation is interrupted, do **not** create a replacement order.
@@ -33,7 +43,7 @@ Record cash in/out against the open shift with a reason. Cash out cannot exceed 
 2. Count the physical drawer.
 3. Enter closing cash and a note.
 4. Review the variance. The shift records expected cash, counted cash, and variance.
-5. Export or review the day’s reports.
+5. Export or review the day’s reports. Paid trade is identified separately from retail; unpaid and under-review quotes remain in Sales history, not paid totals.
 
 ## Refunds
 

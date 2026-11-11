@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { demoProducts } from './demo-catalog.js';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
@@ -70,6 +70,21 @@ function migrate(db) {
       CREATE INDEX IF NOT EXISTS idx_sales_reconcile ON sales(status, last_reconciled_at);
       UPDATE sales SET prepared_total=total WHERE prepared_total=0;
     `),
+    () => db.exec(`
+      CREATE TABLE trade_buyers (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        created_at TEXT NOT NULL, created_by TEXT NOT NULL REFERENCES users(id)
+      );
+      ALTER TABLE sales ADD COLUMN sale_type TEXT NOT NULL DEFAULT 'retail' CHECK(sale_type IN ('retail','trade'));
+      ALTER TABLE sales ADD COLUMN buyer_id TEXT REFERENCES trade_buyers(id);
+      ALTER TABLE sales ADD COLUMN buyer_name TEXT NOT NULL DEFAULT '';
+      ALTER TABLE sales ADD COLUMN trade_quote_json TEXT;
+      ALTER TABLE sales ADD COLUMN trade_verified_json TEXT;
+      ALTER TABLE sales ADD COLUMN trade_approved_by_id TEXT;
+      ALTER TABLE sales ADD COLUMN trade_approved_by_name TEXT;
+      ALTER TABLE sales ADD COLUMN trade_approved_at TEXT;
+      CREATE INDEX idx_sales_trade_buyer ON sales(buyer_id, created_at);
+    `),
   ];
   for (let version = current + 1; version <= migrations.length; version++) {
     db.exec('BEGIN IMMEDIATE');
@@ -134,12 +149,25 @@ export function userView(row) {
 }
 export function saleView(row) {
   if (!row) return null;
+  const quote = row.sale_type === 'trade' && row.trade_quote_json ? JSON.parse(row.trade_quote_json) : null;
+  const savedItems = JSON.parse(row.items_json);
+  // A lost create response may leave only the approved quote in the ledger.
+  // Keep the agreement visible in Sales even while the Woo order is under review.
+  const items = (savedItems.length ? savedItems : quote || []).map(item => {
+    const agreed = quote?.find(line => line.productId === item.productId && line.variationId === item.variationId);
+    return agreed ? { ...item, name: item.name || `Product #${item.productId}`,
+      cataloguePrice: agreed.catalogueUnitPrice ?? item.cataloguePrice ?? item.price ?? null,
+      agreedUnitPrice: agreed.agreedUnitPrice, agreedLineTotal: agreed.agreedUnitPrice * agreed.quantity } : item;
+  });
   return {
     id: row.id, number: row.number, wooOrderId: row.woo_order_id, status: row.status,
+    saleType: row.sale_type || 'retail', buyerId: row.buyer_id || null, buyerName: row.buyer_name || '',
+    tradeApprovedById: row.trade_approved_by_id || null, tradeApprovedByName: row.trade_approved_by_name || '', tradeApprovedAt: row.trade_approved_at || null,
+    agreedTotal: quote?.reduce((sum, item) => sum + item.agreedUnitPrice * item.quantity, 0) ?? null,
     paymentMethod: row.payment_method, paymentReference: row.payment_reference,
     total: row.total, tax: row.tax, subtotal: row.subtotal, refunded: row.refunded, tendered: row.tendered, changeDue: row.change_due,
     currency: row.currency, cashierId: row.cashier_id, cashierName: row.cashier_name, shiftId: row.shift_id,
-    note: row.note, items: JSON.parse(row.items_json), createdAt: row.created_at,
+    note: row.note, items, createdAt: row.created_at,
     updatedAt: row.updated_at, paidAt: row.paid_at, error: row.error,
   };
 }

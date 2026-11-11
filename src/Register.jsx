@@ -16,13 +16,26 @@ const optionStockText = (line, requireSource = false) => {
   if (!line.manageStock) return 'Stock not tracked';
   return `${line.stock} available${line.stockSource === 'parent' ? ' · shared across options' : ''}`;
 };
-
-export default function Register({ active = true, catalog, config, checkoutScope, refresh, notify, onPrepared, onOpenSales, savedCarts, setSavedCarts, setHelp, shift, onOpenShift }) {
+const agreedPrice = value => {
+  const text = String(value ?? '').trim();
+  if (!/^\d{1,7}(?:\.\d{1,2})?$/.test(text)) return null;
+  const cents = Math.round(Number(text) * 100);
+  return Number.isSafeInteger(cents) && cents >= 1 && cents <= 100000000 ? cents : null;
+};
+export default function Register({ active = true, catalog, config, user, checkoutScope, refresh, notify, onPrepared, onOpenSales, savedCarts, setSavedCarts, setHelp, shift, onOpenShift }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All products');
   const [stockOnly, setStockOnly] = useState(false);
   const [view, setView] = useState('grid');
   const [cart, setCart] = useState([]);
+  const [saleType, setSaleType] = useState('retail');
+  const [buyers, setBuyers] = useState([]);
+  const [buyerId, setBuyerId] = useState('');
+  const [addingBuyer, setAddingBuyer] = useState(false);
+  const [newBuyer, setNewBuyer] = useState('');
+  const [buyerBusy, setBuyerBusy] = useState(false);
+  const [buyerError, setBuyerError] = useState('');
+  const [tradeApproved, setTradeApproved] = useState(false);
   const [variantProduct, setVariantProduct] = useState(null);
   const [selectedVariant, setSelectedVariant] = useState(null);
   const [variantQty, setVariantQty] = useState(1);
@@ -51,9 +64,21 @@ export default function Register({ active = true, catalog, config, checkoutScope
     return (category === 'All products' || p.category === category || p.categories?.includes(category)) && (!stockOnly || productInStock(p, requireStockSource)) && (!q || `${p.name} ${p.sku} ${p.barcode} ${p.variations.map(v => `${v.sku} ${v.barcode} ${v.label}`).join(' ')}`.toLowerCase().includes(q));
   }), [products, query, category, stockOnly, requireStockSource]);
   const scanExample = config.mode === 'demo' ? products.flatMap(p => (p.type === 'variable' ? p.variations : [p]).map(line => ({ product: p, line }))).find(({ product, line }) => productAvailable(product) && available(line) && line.barcode?.startsWith('DEMO-')) : null;
-  const total = cart.reduce((sum,item) => sum + item.price * item.quantity, 0);
+  const canApproveTrade = ['owner', 'manager'].includes(user?.role);
+  const trade = saleType === 'trade';
+  const tradeBuyer = buyers.find(b => b.id === buyerId);
+  const catalogueTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const total = trade ? cart.reduce((sum, item) => sum + (agreedPrice(item.agreedPriceInput) || 0) * item.quantity, 0) : catalogueTotal;
+  const priced = cart.every(item => agreedPrice(item.agreedPriceInput) !== null);
   const count = cart.reduce((sum,item) => sum + item.quantity, 0);
 
+  useEffect(() => {
+    if (!canApproveTrade) return;
+    let cancelled = false;
+    api('/trade-buyers').then(result => { if (!cancelled) setBuyers(result.buyers); })
+      .catch(error => { if (!cancelled) setBuyerError(error.message); });
+    return () => { cancelled = true; };
+  }, [canApproveTrade]);
   useEffect(() => { const on = () => setOnline(true), off = () => setOnline(false); window.addEventListener('online', on); window.addEventListener('offline', off); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); }; }, []);
   useEffect(() => { if (error && cartDetailsRef.current) cartDetailsRef.current.scrollTop = cartDetailsRef.current.scrollHeight; }, [error]);
   useEffect(() => {
@@ -65,7 +90,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
       if (document.querySelector('.modal-backdrop')) return;
       if (e.key === 'Escape') { e.preventDefault(); setMobileCart(false); }
       if (e.key !== 'Tab') return;
-      const controls = [...(cartPanelRef.current?.querySelectorAll('button:not(:disabled), textarea:not(:disabled)') || [])].filter(el => el.getClientRects().length);
+      const controls = [...(cartPanelRef.current?.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)') || [])].filter(el => el.getClientRects().length);
       if (!controls.length) return;
       if (e.shiftKey && document.activeElement === controls[0]) { e.preventDefault(); controls.at(-1).focus(); }
       else if (!e.shiftKey && document.activeElement === controls.at(-1)) { e.preventDefault(); controls[0].focus(); }
@@ -74,7 +99,11 @@ export default function Register({ active = true, catalog, config, checkoutScope
     cartPanelRef.current?.querySelector('[aria-label="Close cart"]')?.focus();
     return () => { document.body.style.overflow = overflow; document.removeEventListener('keydown', onKey); previous?.focus?.(); };
   }, [mobileCart]);
-  const cartFingerprint = useMemo(() => JSON.stringify({ note: note.trim(), items: [...cart].sort((a,b) => a.productId - b.productId || a.variationId - b.variationId).map(({productId,variationId,quantity}) => ({productId,variationId,quantity})) }), [cart, note]);
+  const cartFingerprint = useMemo(() => JSON.stringify({ note: note.trim(),
+    ...(saleType === 'trade' ? { saleType, buyerId } : {}),
+    items: [...cart].sort((a,b) => a.productId - b.productId || a.variationId - b.variationId).map(({productId,variationId,quantity,agreedPriceInput}) =>
+      ({ productId, variationId, quantity, ...(saleType === 'trade' ? { agreedUnitPrice: agreedPrice(agreedPriceInput) } : {}) })),
+  }), [cart, note, saleType, buyerId]);
   useEffect(() => {
     try {
       const stored = JSON.parse(sessionStorage.getItem(checkoutStorageKey) || 'null');
@@ -107,6 +136,22 @@ export default function Register({ active = true, catalog, config, checkoutScope
     };
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   });
+  function switchSaleType(next) {
+    if (next === saleType) return;
+    setSaleType(next); setBuyerId(''); setAddingBuyer(false); setNewBuyer(''); setBuyerError(''); setTradeApproved(false);
+    setCart(previous => previous.map(item => ({ ...item, agreedPriceInput: '' })));
+  }
+  async function createBuyer(event) {
+    event.preventDefault();
+    if (buyerBusy || newBuyer.trim().length < 2) return;
+    setBuyerBusy(true); setBuyerError('');
+    try {
+      const { buyer } = await api('/trade-buyers', { method: 'POST', body: { name: newBuyer.trim() } });
+      setBuyers(previous => [...previous, buyer].sort((a,b) => a.name.localeCompare(b.name)));
+      setBuyerId(buyer.id); setAddingBuyer(false); setNewBuyer(''); setTradeApproved(false);
+    } catch (e) { setBuyerError(e.message); }
+    finally { setBuyerBusy(false); }
+  }
   function addLine(product, variant = null, quantity = 1) {
     const source = variant || product;
     if (!productAvailable(product, requireStockSource) || !available(source, requireStockSource)) { notify('This item is unavailable or out of stock.', 'error'); return false; }
@@ -124,7 +169,8 @@ export default function Register({ active = true, catalog, config, checkoutScope
     }
     const optionLabel = variant ? (sizesOnly(product) ? `Size ${variant.label}` : variant.attributes?.map(a => [a.name?.replace(/^pa_/i, ''), a.option].filter(Boolean).join(': ')).filter(Boolean).join(' · ') || variant.label) : '';
     const line = { key, productId: product.id, variationId: variant?.id || 0, name: product.name, label: variant?.label || '', optionLabel, sku: source.sku, barcode: source.barcode, image: source.image, price: source.price, stock: source.stock, stockSource: source.stockSource, stockStatus: source.stockStatus, manageStock: source.manageStock, backorders: source.backorders, backordersAllowed: source.backordersAllowed, quantity: nextQty };
-    setCart(previous => existing ? previous.map(i => i.key === key ? line : i) : [...previous, line]);
+    setCart(previous => existing ? previous.map(i => i.key === key ? { ...line, agreedPriceInput: i.agreedPriceInput } : i) : [...previous, line]);
+    setTradeApproved(false);
     notify(`${product.name}${variant ? ` · ${variant.label}` : ''} added`);
     return true;
   }
@@ -155,22 +201,27 @@ export default function Register({ active = true, catalog, config, checkoutScope
       const p = products.find(p => p.id === item.productId); const v = p?.variations.find(v => v.id === item.variationId);
       if (!p || (item.variationId && !v)) { notify('This option is no longer in the catalogue. Remove it or refresh before checkout.', 'error'); return; }
       if (!addLine(p,v,1)) return;
-    } else setCart(previous => previous.map(i => i.key === key ? { ...i, quantity: i.quantity - 1 } : i).filter(i => i.quantity > 0));
+    } else { setCart(previous => previous.map(i => i.key === key ? { ...i, quantity: i.quantity - 1 } : i).filter(i => i.quantity > 0)); setTradeApproved(false); }
   }
   function hold() {
-    if (!cart.length) return;
+    if (!cart.length || trade) return;
     setSavedCarts(previous => [...previous, { id: uuid(), cart, note, created: new Date().toISOString() }]);
     setCart([]); setNote(''); notify('Sale held on this device. No order or payment has been created.');
   }
   async function checkout() {
-    if (!cart.length || busy) return;
+    if (!cart.length || busy || (trade && (!canApproveTrade || !tradeBuyer || !priced || !tradeApproved || !config.tradeWritesEnabled))) return;
     setBusy(true); setError('');
     const attempt = { key: checkoutKey.current, fingerprint: cartFingerprint, uncertain: false };
     try { sessionStorage.setItem(checkoutStorageKey, JSON.stringify(attempt)); } catch {}
     try {
-      const { sale } = await api('/sales/prepare', { method: 'POST', body: { idempotencyKey: checkoutKey.current, items: cart.map(({productId,variationId,quantity}) => ({productId,variationId,quantity})), note } });
+      const { sale } = await api('/sales/prepare', { method: 'POST', body: {
+        idempotencyKey: checkoutKey.current,
+        ...(trade ? { saleType: 'trade', buyerId, tradeApproved: true } : {}),
+        items: cart.map(({productId,variationId,quantity,agreedPriceInput}) => ({productId,variationId,quantity,
+          ...(trade ? { agreedUnitPrice: agreedPrice(agreedPriceInput) } : {}) })), note,
+      } });
       try { sessionStorage.removeItem(checkoutStorageKey); } catch {}
-      onPrepared(sale); setCart([]); setNote(''); setMobileCart(false); refresh();
+      onPrepared(sale); setCart([]); setNote(''); setBuyerId(''); setSaleType('retail'); setTradeApproved(false); setMobileCart(false); refresh();
     } catch (e) {
       const uncertain = !e.status || e.status >= 500 || e.code === 'RECONCILIATION_REQUIRED' || e.code === 'SALE_BUSY';
       if (uncertain) {
@@ -193,7 +244,8 @@ export default function Register({ active = true, catalog, config, checkoutScope
     return mayBeBackordered ? (source.backorders === 'notify' ? 'Backorder · notify customer' : 'Backorder') : '';
   }
   const shiftRequired = config.requireShift && config.mode !== 'demo';
-  const checkoutDisabled = !cart.length || busy || !online || (config.mode !== 'demo' && !config.writesEnabled) || (shiftRequired && !shift);
+  const checkoutDisabled = !cart.length || busy || !online || (config.mode !== 'demo' && !config.writesEnabled) || (shiftRequired && !shift) ||
+    (trade && (!canApproveTrade || !config.tradeWritesEnabled || !tradeBuyer || !priced || !tradeApproved || total > 100000000));
   return <div className="register-page">
     <div className="register-layout">
       <section className="catalog-panel" inert={mobileCart}>
@@ -220,22 +272,52 @@ export default function Register({ active = true, catalog, config, checkoutScope
         <div className="catalog-footer"><ShieldCheck size={15} /><span>{config.mode === 'demo' ? 'Store product details. Illustrative demo images and sample stock. No live changes.' : 'Inventory is owned by WooCommerce. No separate product database.'}</span><button onClick={setHelp}>Quick guide <ArrowRight size={13} /></button></div>
       </section>
       <div ref={cartPanelRef} className={`cart-panel ${mobileCart ? 'mobile-open' : ''}`} role={mobileCart ? 'dialog' : 'complementary'} aria-modal={mobileCart || undefined} aria-label="Current sale">
-        <div className="cart-header"><div><h2>Current sale <span className="count-pill">{count}</span></h2><span className="cart-order-label">New sale · Walk-in</span></div><IconButton icon={X} label="Close cart" className="mobile-only" onClick={() => setMobileCart(false)} /><Badge tone="green" dot>{config.mode === 'demo' ? 'Demo' : config.mode === 'live' ? 'Live' : 'Staging'}</Badge></div>
-        <div className="customer-strip"><span className="customer-avatar"><UserRound size={18} /></span><div><strong>Walk-in customer</strong><span>No customer account required</span></div><ShoppingBag size={17} /></div>
-        <div className="cart-items" role="region" aria-label="Items in current sale" tabIndex={0}>{!cart.length ? <Empty icon={ShoppingBag} title="A fresh start">Add products to begin a new sale.<br />Search, tap, or scan to get started.</Empty> : cart.map(item => <div className="cart-item" key={item.key}><ProductImage src={item.image} name={item.name} /><div className="cart-item-content"><div className="cart-item-title"><h3>{item.name}</h3><button aria-label={`Remove ${item.name}`} onClick={() => setCart(previous => previous.filter(i => i.key !== item.key))}><Trash2 size={14} /></button></div><p>{item.optionLabel || item.label || 'Standard'} <span>· {money(item.price)}</span></p>{cartBackorder(item) && <p className="cart-backorder">{cartBackorder(item)}</p>}<div className="cart-item-bottom"><div className="quantity-control"><button aria-label={`Decrease ${item.name}`} onClick={() => changeQty(item.key,-1)}><Minus size={13} /></button><span>{item.quantity}</span><button aria-label={`Increase ${item.name}`} onClick={() => changeQty(item.key,1)}><Plus size={13} /></button></div><strong>{money(item.price * item.quantity)}</strong></div></div></div>)}</div>
-        <div className="cart-bottom"><div className="cart-details" ref={cartDetailsRef} role="region" aria-label="Sale summary" tabIndex={0}><div className="cart-tools"><button onClick={() => setShowNote(!showNote)}><StickyNote size={15} />{note ? 'Edit note' : 'Add note'}</button><button disabled={!cart.length} onClick={hold}><Pause size={15} />Hold sale</button><button disabled={!cart.length} onClick={() => { if (window.confirm('Clear this unsubmitted sale? No order has been created.')) { setCart([]); setNote(''); } }}><Trash2 size={15} />Clear</button></div>
-          {showNote && <textarea className="sale-note" aria-label="Sale note" placeholder="Internal note for this order…" value={note} maxLength={250} onChange={e => setNote(e.target.value)} />}
-          <div className="cart-totals"><div><span>Subtotal <small>({count} {count === 1 ? 'item' : 'items'})</small></span><strong>{money(total)}</strong></div><div><span>Tax</span><span className="muted">{config.mode === 'demo' ? 'Not applied in demo' : 'Calculated by WooCommerce'}</span></div><div className="grand-total"><span>Total</span><strong key={total}>{money(total)}</strong></div></div>
-          {config.mode !== 'demo' && <p className="total-disclaimer">Estimated total. WooCommerce confirms the final amount before payment.</p>}
+        <div className="cart-header"><div><h2>Current sale <span className="count-pill">{count}</span></h2><span className="cart-order-label">New sale · {trade ? 'Paid trade' : 'Walk-in'}</span></div><IconButton icon={X} label="Close cart" className="mobile-only" onClick={() => setMobileCart(false)} /><Badge tone="green" dot>{config.mode === 'demo' ? 'Demo' : config.mode === 'live' ? 'Live' : 'Staging'}</Badge></div>
+        {canApproveTrade && <div className="sale-type-switch" role="group" aria-label="Sale type">
+          <button type="button" aria-pressed={!trade} onClick={() => switchSaleType('retail')}>Retail</button>
+          <button type="button" aria-pressed={trade} onClick={() => switchSaleType('trade')}>Paid trade</button>
+        </div>}
+        {trade ? <div className="trade-buyer-select">
+          <label htmlFor="trade-buyer">Named trade buyer</label>
+          <select id="trade-buyer" className="input" value={addingBuyer ? 'new' : buyerId} onChange={e => {
+            if (e.target.value === 'new') { setAddingBuyer(true); setBuyerId(''); }
+            else { setAddingBuyer(false); setBuyerId(e.target.value); }
+            setTradeApproved(false); setBuyerError('');
+          }}><option value="">Select a buyer</option>{buyers.map(buyer => <option key={buyer.id} value={buyer.id}>{buyer.name}</option>)}<option value="new">+ Add a named buyer</option></select>
+          {addingBuyer && <form className="trade-buyer-form" onSubmit={createBuyer}><input className="input" aria-label="New trade buyer name" value={newBuyer} onChange={e => setNewBuyer(e.target.value)} minLength={2} maxLength={120} required autoComplete="off" placeholder="Person or business name" /><button type="submit" className="button secondary small" disabled={buyerBusy || newBuyer.trim().length < 2}>{buyerBusy ? 'Saving…' : 'Add buyer'}</button></form>}
+          {buyerError && <small className="trade-buyer-error" role="alert">{buyerError}</small>}
+        </div> : <div className="customer-strip"><span className="customer-avatar"><UserRound size={18} /></span><div><strong>Walk-in customer</strong><span>No customer account required</span></div><ShoppingBag size={17} /></div>}
+        <div className="cart-items" role="region" aria-label="Items in current sale" tabIndex={0}>{!cart.length ? <Empty icon={ShoppingBag} title="A fresh start">Add products to begin a new sale.<br />Search, tap, or scan to get started.</Empty> : cart.map(item => {
+          const unit = agreedPrice(item.agreedPriceInput);
+          return <div className="cart-item" key={item.key}><ProductImage src={item.image} name={item.name} /><div className="cart-item-content">
+            <div className="cart-item-title"><h3>{item.name}</h3><button aria-label={`Remove ${item.name}`} onClick={() => { setCart(previous => previous.filter(i => i.key !== item.key)); setTradeApproved(false); }}><Trash2 size={14} /></button></div>
+            <p>{item.optionLabel || item.label || 'Standard'} <span>· {trade ? `Catalogue ${money(item.price)}` : money(item.price)}</span></p>
+            {trade && <label className="trade-price">Agreed unit · tax included (GH₵)<input className="input" type="text" inputMode="decimal" aria-label={`Agreed unit price for ${item.name}${item.optionLabel ? ` · ${item.optionLabel}` : ''} (GH₵, tax included)`} aria-invalid={Boolean(item.agreedPriceInput && unit === null)} placeholder="0.00" maxLength={10} value={item.agreedPriceInput ?? ''} onChange={e => { setCart(previous => previous.map(line => line.key === item.key ? { ...line, agreedPriceInput: e.target.value } : line)); setTradeApproved(false); }} /></label>}
+            {cartBackorder(item) && <p className="cart-backorder">{cartBackorder(item)}</p>}
+            <div className="cart-item-bottom"><div className="quantity-control"><button aria-label={`Decrease ${item.name}`} onClick={() => changeQty(item.key,-1)}><Minus size={13} /></button><span>{item.quantity}</span><button aria-label={`Increase ${item.name}`} onClick={() => changeQty(item.key,1)}><Plus size={13} /></button></div><strong>{trade ? unit === null ? 'Enter price' : money(unit * item.quantity) : money(item.price * item.quantity)}</strong></div>
+          </div></div>;
+        })}</div>
+        <div className="cart-bottom"><div className="cart-details" ref={cartDetailsRef} role="region" aria-label="Sale summary" tabIndex={0}>
+          <div className="cart-tools"><button onClick={() => setShowNote(!showNote)}><StickyNote size={15} />{note ? 'Edit note' : 'Add note'}</button><button disabled={!cart.length || trade} title={trade ? 'Trade quotes cannot be held on a shared browser.' : undefined} onClick={hold}><Pause size={15} />Hold sale</button><button disabled={!cart.length} onClick={() => { if (window.confirm('Clear this unsubmitted sale? No order has been created.')) { setCart([]); setNote(''); setTradeApproved(false); setBuyerId(''); setSaleType('retail'); } }}><Trash2 size={15} />Clear</button></div>
+          {showNote && <textarea className="sale-note" aria-label="Sale note" placeholder="Internal note for this order…" value={note} maxLength={250} onChange={e => { setNote(e.target.value); setTradeApproved(false); }} />}
+          {trade && <div className="trade-approval"><label><input type="checkbox" checked={tradeApproved} disabled={!tradeBuyer || !cart.length || !priced || total > 100000000} onChange={e => setTradeApproved(e.target.checked)} /><span>I approve these tax-inclusive unit prices for {tradeBuyer?.name || 'the selected buyer'} as {user?.name}.</span></label><small>Approval applies to this buyer and this order only. Full payment is required before goods leave the shop.</small></div>}
+          <div className="cart-totals">
+            {trade && <div><span>Catalogue reference</span><span>{money(catalogueTotal)}</span></div>}
+            <div><span>{trade ? 'Agreed items · tax included' : <>Subtotal <small>({count} {count === 1 ? 'item' : 'items'})</small></>}</span><strong>{money(total)}</strong></div>
+            <div><span>Tax</span><span className="muted">{trade ? config.mode === 'demo' ? 'No demo tax · no extra charge' : 'Included · WooCommerce verifies' : config.mode === 'demo' ? 'Not applied in demo' : 'Calculated by WooCommerce'}</span></div>
+            <div className="grand-total"><span>{trade ? 'Final agreed total' : 'Total'}</span><strong key={total}>{money(total)}</strong></div>
+          </div>
+          {trade ? <p className="total-disclaimer">No tax is added to the agreed amount. WooCommerce must match every line and the final payable total before payment.</p> : config.mode !== 'demo' && <p className="total-disclaimer">Estimated total. WooCommerce confirms the final amount before payment.</p>}
           {error && <Notice tone="error">{error}</Notice>}
           {config.mode !== 'demo' && !config.writesEnabled && <Notice tone="warning">Checkout is locked until the owner approves this environment.</Notice>}
-          </div><div className="cart-checkout"><button className="charge-button" onClick={checkout} disabled={checkoutDisabled}><span>{busy ? 'Preparing order…' : 'Prepare order'}<ArrowRight size={19} /></span><strong>{money(total)}</strong></button><div className="cart-secure"><ShieldCheck size={13} />{config.mode === 'demo' ? 'Demo checkout · No real payments' : 'Payments collected outside this app'}</div></div>
+          {trade && !config.tradeWritesEnabled && <Notice tone="warning">Trade checkout is separately locked. Authorize isolated staging trade tests first; live trade needs separate tax acceptance and written approval.</Notice>}
+          </div><div className="cart-checkout"><button className="charge-button" onClick={checkout} disabled={checkoutDisabled}><span>{busy ? 'Preparing order…' : trade ? 'Prepare trade order' : 'Prepare order'}<ArrowRight size={19} /></span><strong>{money(total)}</strong></button><div className="cart-secure"><ShieldCheck size={13} />{trade ? 'Paid trade only · No dispatch on credit' : config.mode === 'demo' ? 'Demo checkout · No real payments' : 'Payments collected outside this app'}</div></div>
         </div>
       </div>
     </div>
     <button className="mobile-cart-bar" inert={mobileCart} onClick={() => setMobileCart(true)}><ShoppingBag size={19} /><span>View sale · {count} items</span><strong>{money(total)}</strong></button>
-    {variantProduct && <Modal title={sizesOnly(variantProduct) ? 'Choose a size' : 'Choose an option'} subtitle="Availability is shown for each option." onClose={() => setVariantProduct(null)} className="variant-modal"><div className="variant-product"><ProductImage src={variantProduct.image} name={variantProduct.name} /><div><span className="eyebrow">{variantProduct.category}</span><h3>{variantProduct.name}</h3><strong>{money(selectedVariant?.price ?? variantProduct.price)}</strong></div></div><div className="modal-body"><div className="field-label" id="variant-option-label">{sizesOnly(variantProduct) ? 'Size' : 'Option'}</div><div className="size-options" role="group" aria-labelledby="variant-option-label">{variantProduct.variations.map(v => <button key={v.id} type="button" aria-pressed={selectedVariant?.id === v.id} disabled={!available(v, requireStockSource)} className={selectedVariant?.id === v.id ? 'selected' : ''} onClick={() => { setSelectedVariant(v); setVariantQty(1); }}><strong>{v.label}</strong><span>{optionStockText(v, requireStockSource)}</span>{selectedVariant?.id === v.id && <Check size={15} />}</button>)}</div><div className="variant-quantity"><span>Quantity</span><div className="quantity-control"><button aria-label="Decrease quantity" disabled={variantQty <= 1} onClick={() => setVariantQty(q => q - 1)}><Minus size={15} /></button><span>{variantQty}</span><button aria-label="Increase quantity" disabled={selectedVariant?.manageStock && hasKnownStock(selectedVariant) && !allowsBackorders(selectedVariant) && variantQty >= selectedVariant.stock} onClick={() => setVariantQty(q => q + 1)}><Plus size={15} /></button></div></div>{config.mode === 'demo' && <p className="field-hint">Availability shown here is demo data, not live store stock.</p>}</div><footer className="modal-footer"><button className="button secondary" onClick={() => setVariantProduct(null)}>Cancel</button><button className="button primary" disabled={!selectedVariant} onClick={() => { if (addLine(variantProduct,selectedVariant,variantQty)) setVariantProduct(null); }}><Plus size={17} />Add to sale · {money((selectedVariant?.price ?? variantProduct.price) * variantQty)}</button></footer></Modal>}
-    {scanner && <Modal title="Scan a product" subtitle="Use a USB/Bluetooth keyboard scanner or type a SKU." onClose={() => { setScanner(false); setScanValue(''); }}><form onSubmit={e => { e.preventDefault(); scan(scanValue); }}><div className="modal-body"><div className="scanner-illustration"><ScanLine size={46} strokeWidth={1.2} /><span>Ready for your scanner</span></div><label className="field-label" htmlFor="scan-input">Barcode or SKU</label><input id="scan-input" className="input" autoFocus value={scanValue} onChange={e => setScanValue(e.target.value)} placeholder="Scan or enter an exact code" autoComplete="off" /><p className="field-hint">A matching option is added directly. A parent product opens the option picker.</p>{scanExample && <Notice>Try <button type="button" className="text-button" onClick={() => setScanValue(scanExample.line.barcode)}>{scanExample.line.barcode}</button> — a demo-only alias for {scanExample.product.name}{scanExample.line.label ? ` · ${scanExample.line.label}` : ''}. It is not a real product barcode.</Notice>}</div><footer className="modal-footer"><button type="button" className="button secondary" onClick={() => setScanner(false)}>Cancel</button><button className="button primary" disabled={!scanValue.trim()}><Search size={17} />Find product</button></footer></form></Modal>}
+    {variantProduct && <Modal title={sizesOnly(variantProduct) ? 'Choose a size' : 'Choose an option'} subtitle="Availability is shown for each option." onClose={() => setVariantProduct(null)} className="variant-modal"><div className="variant-product"><ProductImage src={variantProduct.image} name={variantProduct.name} /><div><span className="eyebrow">{variantProduct.category}</span><h3>{variantProduct.name}</h3><strong>{money(selectedVariant?.price ?? variantProduct.price)}</strong></div></div><div className="modal-body"><div className="field-label" id="variant-option-label">{sizesOnly(variantProduct) ? 'Size' : 'Option'}</div><div className="size-options" role="group" aria-labelledby="variant-option-label">{variantProduct.variations.map(v => <button key={v.id} type="button" aria-pressed={selectedVariant?.id === v.id} disabled={!available(v, requireStockSource)} className={selectedVariant?.id === v.id ? 'selected' : ''} onClick={() => { setSelectedVariant(v); setVariantQty(1); }}><strong>{v.label}</strong><span>{optionStockText(v, requireStockSource)}</span>{selectedVariant?.id === v.id && <Check size={15} />}</button>)}</div><div className="variant-quantity"><span>Quantity</span><div className="quantity-control"><button aria-label="Decrease quantity" disabled={variantQty <= 1} onClick={() => setVariantQty(q => q - 1)}><Minus size={15} /></button><span>{variantQty}</span><button aria-label="Increase quantity" disabled={selectedVariant?.manageStock && hasKnownStock(selectedVariant) && !allowsBackorders(selectedVariant) && variantQty >= selectedVariant.stock} onClick={() => setVariantQty(q => q + 1)}><Plus size={15} /></button></div></div>{config.mode === 'demo' && <p className="field-hint">Availability shown here is demo data, not live store stock.</p>}</div><div className="modal-footer" role="group" aria-label="Dialog actions"><button className="button secondary" onClick={() => setVariantProduct(null)}>Cancel</button><button className="button primary" disabled={!selectedVariant} onClick={() => { if (addLine(variantProduct,selectedVariant,variantQty)) setVariantProduct(null); }}><Plus size={17} />Add to sale · {money((selectedVariant?.price ?? variantProduct.price) * variantQty)}</button></div></Modal>}
+    {scanner && <Modal title="Scan a product" subtitle="Use a USB/Bluetooth keyboard scanner or type a SKU." onClose={() => { setScanner(false); setScanValue(''); }}><form onSubmit={e => { e.preventDefault(); scan(scanValue); }}><div className="modal-body"><div className="scanner-illustration"><ScanLine size={46} strokeWidth={1.2} /><span>Ready for your scanner</span></div><label className="field-label" htmlFor="scan-input">Barcode or SKU</label><input id="scan-input" className="input" autoFocus value={scanValue} onChange={e => setScanValue(e.target.value)} placeholder="Scan or enter an exact code" autoComplete="off" /><p className="field-hint">A matching option is added directly. A parent product opens the option picker.</p>{scanExample && <Notice>Try <button type="button" className="text-button" onClick={() => setScanValue(scanExample.line.barcode)}>{scanExample.line.barcode}</button> — a demo-only alias for {scanExample.product.name}{scanExample.line.label ? ` · ${scanExample.line.label}` : ''}. It is not a real product barcode.</Notice>}</div><div className="modal-footer" role="group" aria-label="Dialog actions"><button type="button" className="button secondary" onClick={() => setScanner(false)}>Cancel</button><button className="button primary" disabled={!scanValue.trim()}><Search size={17} />Find product</button></div></form></Modal>}
     {heldOpen && <Modal title="Held sales" subtitle="Saved on this browser only. No order or stock change yet." onClose={() => setHeldOpen(false)}><div className="modal-body">{!savedCarts.length ? <Empty icon={Pause} title="No held sales">Use “Hold sale” to pause a cart and serve the next customer.</Empty> : savedCarts.map((held,i) => <div className="held-sale" key={held.id}><div><strong>Sale {i + 1}</strong><p>{held.cart.reduce((n,c) => n + c.quantity,0)} items · {money(held.cart.reduce((n,c) => n + c.price*c.quantity,0))}</p><small>{new Date(held.created).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</small></div><button className="button primary small" onClick={() => { if (cart.length && !window.confirm('Replace the current cart? The current cart is not held.')) return; const next = cart.length ? [...savedCarts.filter(h => h.id !== held.id), {id:uuid(),cart,note,created:new Date().toISOString()}] : savedCarts.filter(h => h.id !== held.id); setSavedCarts(next); setCart(held.cart); setNote(held.note); setHeldOpen(false); refresh(); }}><Play size={14} />Resume</button><IconButton icon={Trash2} label="Discard held sale" onClick={() => { if (window.confirm('Discard this held cart?')) setSavedCarts(previous => previous.filter(h => h.id !== held.id)); }} /></div>)}</div></Modal>}
   </div>;
 }
