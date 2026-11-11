@@ -69,12 +69,12 @@ sudo systemctl status mansu-pos
 
 ## 5. Staging acceptance
 
-1. Set `POS_STAGING_APPROVED=true` only after owner approval for staging tests. Paid trade has a **separate** staging-test gate: `POS_STAGING_TRADE_APPROVED=true` only after explicit approval to test negotiated tax-inclusive amounts on the isolated staging clone. Enabling this flag authorizes a test, not a live release or a claim that tax acceptance passed.
+1. Set `POS_STAGING_APPROVED=true` only after owner approval for staging tests. Wholesale has a **separate** staging-test gate: `POS_STAGING_WHOLESALE_APPROVED=true` only after explicit approval to test negotiated tax-inclusive amounts on the isolated staging clone. Enabling this flag authorizes a test, not a live release or a claim that tax acceptance passed.
 2. Sign in as owner, change the temporary password, create named cashier/manager accounts.
 3. Run `docs/ACCEPTANCE.md` against test products and simulated external payments.
 4. Verify scanner, printer, paper width, shift open/close, cash movements, reports, audit log, backup, and restore.
 5. Establish a WooCommerce-side stock safeguard shared by online/POS sales, or an owner-approved operational control; verify it prevents concurrent last-item overselling on staging. Fresh POS stock reads followed by Woo order updates are not atomic. Also verify interrupted-order reconciliation.
-6. Exercise the separate paid-trade acceptance checklist: named buyers and owner/manager approval; one or multiple individually priced goods; tax-inclusive final unit amounts under the actual Woo tax settings; no extra tax or fee; full externally verified payment and no credit dispatch. A Woo tax/total mismatch must leave the order unpaid and under review.
+6. Exercise the separate wholesale acceptance checklist: named buyers and owner/manager approval; one or multiple individually priced goods; tax-inclusive final unit amounts under the actual Woo tax settings; no extra tax or fee; full externally verified payment and no credit dispatch. A Woo tax/total mismatch must leave the order unpaid and under review.
 7. Record evidence without customer secrets.
 
 ## 6. Live approval gate
@@ -90,13 +90,13 @@ POS_ALLOW_LIVE_WRITES=true
 POS_OWNER_APPROVAL_REFERENCE=<written-approval-reference>
 ```
 
-Take fresh WordPress and POS backups. Run a small owner-approved live smoke test only after staging passes. Never use a real customer payment as a test. Paid trade stays **off** unless documented staging tax acceptance also permits `POS_STAGING_TRADE_APPROVED=true` in the live environment and a distinct written trade authorization permits `POS_LIVE_TRADE_APPROVED=true`. Retail's live write gate alone is not a trade approval; keep the five dispatch-before-payment customers outside this workflow.
+Take fresh WordPress and POS backups. Run a small owner-approved live smoke test only after staging passes. Never use a real customer payment as a test. Wholesale stays **off** unless documented staging tax acceptance also permits `POS_STAGING_WHOLESALE_APPROVED=true` in the live environment and a distinct written wholesale authorization permits `POS_LIVE_WHOLESALE_APPROVED=true`. Retail's live write gate and legacy trade flags alone are not Wholesale approval; keep the five dispatch-before-payment customers outside this workflow.
 
 ## 7. Emergency stop
 
 To stop new sales quickly, set the relevant write gate to `false` and restart:
 
-- Staging: `POS_STAGING_APPROVED=false` (all writes) or `POS_STAGING_TRADE_APPROVED=false` (trade only)
-- Live: `POS_ALLOW_LIVE_WRITES=false` (all writes) or `POS_LIVE_TRADE_APPROVED=false` (trade only)
+- Staging: `POS_STAGING_APPROVED=false` (all writes) or `POS_STAGING_WHOLESALE_APPROVED=false` (wholesale only)
+- Live: `POS_ALLOW_LIVE_WRITES=false` (all writes) or `POS_LIVE_WHOLESALE_APPROVED=false` (wholesale only)
 
-Keep the POS ledger and WooCommerce orders for reconciliation. Do not delete orders or restore an old database over new trading data.
+Keep the POS ledger and WooCommerce orders for reconciliation. With either write gate revoked, POS payment **and remote cancellation** are blocked; the owner must review an unpaid order directly in WooCommerce rather than bypassing the gate. Do not delete orders or restore an old database over new trading data.

@@ -21,7 +21,7 @@
 
 ## Authorization
 
-- Owner: staff, connection, audit, all sales/reports/shifts; can create named trade buyers and approve negotiated prices.
+- Owner: staff, connection, audit, all sales/reports/shifts; can create named wholesale buyers and approve negotiated prices.
 - Manager: all POS sales/reports/shifts and buyer/price approval; no staff/connection management.
 - Cashier: own sales and own shifts; no buyer directory, new negotiated-price approval, reports/staff/connection/audit.
 - Permissions are enforced by the API, not only hidden in the UI.
@@ -37,15 +37,15 @@
 
 ## Payment boundary
 
-The POS records externally collected payments. It does not process MoMo or card payments, store PAN/PIN/CVV, or connect to a payment gateway. MoMo/Card references must be merchant/terminal references, not customer card data. Paid trade orders also require a separately authorized write gate, an approved tax-inclusive quote, an exact WooCommerce tax/total match and a matching full POS payment record before they can be marked paid. Neither **Leave unpaid** nor the unimplemented five-account dispatch-on-credit exception permits unpaid trade goods to be released.
+The POS records externally collected payments. It does not process MoMo or card payments, store PAN/PIN/CVV, or connect to a payment gateway. MoMo/Card references must be merchant/terminal references, not customer card data. Wholesale orders also require a separately authorized write gate, an approved tax-inclusive quote, an exact WooCommerce tax/total match and a matching full POS payment record before they can be marked paid. Neither **Leave unpaid** nor the unimplemented five-account dispatch-on-credit exception permits unpaid wholesale goods to be released.
 
 ## Data protection
 
 - SQLite data directory should be private (`0700`) and database files `0600`.
 - Backups must be encrypted/access-controlled and stored off-host.
 - Audit logs record security, staff, shift, and sale events.
-- Trade buyer names, negotiated unit prices and approving staff are restricted business records in the private POS ledger, Woo order metadata, receipts and reports; do not publish them in screenshots, issues or public test fixtures.
-- Reports/exports contain cashier names, trade buyer names and external references; treat them as restricted business records.
+- Wholesale buyer names, negotiated unit prices and approving staff are restricted business records in the private POS ledger, Woo order metadata, receipts and reports; do not publish them in screenshots, issues or public test fixtures.
+- Reports/exports contain cashier names, wholesale buyer names and external references; treat them as restricted business records.
 
 ## Reporting issues
 

@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ShoppingBag, ReceiptText, Package, ChartNoAxesCombined, Users, PlugZap, CircleHelp, ArrowUpRight, ArrowRight, Store, ShieldCheck, Menu, LogOut, CalendarDays, LockKeyhole, LoaderCircle, Banknote, ScrollText, ChevronDown } from 'lucide-react';
 import { api, setSessionToken } from './api.js';
 import Register from './Register.jsx';
+import Wholesale from './Wholesale.jsx';
 import { Sales, Inventory, Reports, Staff, Connection, Help, Shifts, Audit } from './Pages.jsx';
 import { Checkout, Receipt } from './Checkout.jsx';
 import { Badge, IconButton, Spinner, Toast, Notice, Modal } from './components.jsx';
 
 const navigation = [
   { id:'register', label:'Point of sale', short:'Sell', icon:ShoppingBag },
+  { id:'wholesale', label:'Wholesale', short:'Wholesale', icon:Store, roles:['owner','manager'] },
   { id:'sales', label:'Sales history', short:'Sales', icon:ReceiptText },
   { id:'inventory', label:'Inventory', short:'Stock', icon:Package },
   { id:'shifts', label:'Shifts & drawer', short:'Drawer', icon:Banknote },
@@ -93,7 +95,8 @@ export default function App() {
       <main id="main-content" tabIndex={-1} className={`main-content ${page==='register'?'register-main':''}`}>
         {catalogError&&<Notice tone="error">{catalogError}<button className="text-button" onClick={()=>refresh(true)}>Try again</button></Notice>}
         {!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>
-          <div style={{display:page==='register'?'block':'none'}}><Register key={`${config.mode}-${user.id}`} active={page==='register'} catalog={catalog} config={config} user={user} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} savedCarts={savedCarts} setSavedCarts={setSavedCarts} setHelp={()=>setHelp(true)} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>
+          <div style={{display:page==='register'?'block':'none'}}><Register key={`${config.mode}-${user.id}`} active={page==='register'} catalog={catalog} config={config} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} savedCarts={savedCarts} setSavedCarts={setSavedCarts} setHelp={()=>setHelp(true)} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>
+          {user.role!=='cashier'&&<div style={{display:page==='wholesale'?'block':'none'}}><Wholesale key={`${config.mode}-${user.id}`} catalog={catalog} config={config} user={user} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>}
           {page==='sales'&&<Sales sales={sales} config={config} refresh={refresh} onReceipt={setReceipt} onPay={setPending} notify={notify} hasMore={salesHasMore} loadingMore={salesLoadingMore} onLoadMore={loadMoreSales}/>}
           {page==='inventory'&&<Inventory catalog={catalog} config={config} refresh={refresh} notify={notify}/>}
           {page==='shifts'&&<Shifts config={config} user={user} shift={shift} refresh={refresh} notify={notify}/>}

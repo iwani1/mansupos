@@ -29,6 +29,9 @@ try {
   await page.getByText('Backorder · notify customer').waitFor();
   await scan('backorder-cart');
   await page.getByLabel('Remove Accessibility backorder item').click();
+  await page.locator('[data-nav="wholesale"]').click();
+  await page.getByRole('heading', { name: 'Wholesale', exact: true }).waitFor();
+  await scan('wholesale-buyer-first');
   await page.locator('[data-nav="inventory"]').click();
   await page.getByRole('heading', { name: 'Inventory', exact: true }).waitFor();
   await scan('inventory');
@@ -58,7 +61,7 @@ try {
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   }
   await page.setViewportSize({ width: 375, height: 812 });
-  for (const id of ['sales','inventory','reports','shifts','staff','audit','connection','register']) {
+  for (const id of ['sales','wholesale','inventory','reports','shifts','staff','audit','connection','register']) {
     await page.getByLabel('Open navigation').click();
     await page.locator(`[data-nav="${id}"]`).click();
     await page.locator('main h1:visible').waitFor();

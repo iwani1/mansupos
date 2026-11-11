@@ -4,7 +4,7 @@ A working, mobile-friendly point-of-sale application for **MansutRENDZGH**, desi
 
 ## Current status
 
-The live preview runs in **isolated demo mode**. It does not create orders, change stock, send receipts, or collect money on mansutrendzgh.com. The paid-trade workflow can be tried safely in that demo; separate staging tax acceptance and written live approval are still required before any real trade checkout is enabled.
+The live preview runs in **isolated demo mode**. It does not create orders, change stock, send receipts, or collect money on mansutrendzgh.com. The wholesale workflow can be tried safely in that demo; separate staging tax acceptance and written live approval are still required before any real wholesale checkout is enabled.
 
 The codebase includes production-oriented controls (shifts, audit, lockout, idle sessions, reconciliation sweep, diagnostics, migrations, backup/restore, preflight, Docker/Caddy/systemd/nginx examples, and CI). **A full application audit on 4 November 2026 found release blockers; the code remediation and regression tests are documented in [docs/AUDIT-2026-11-04.md](docs/AUDIT-2026-11-04.md).** Do not enable live writes until staging acceptance, hardware verification, backups, and owner approval are complete. Production deployment still requires an approved staging clone, server-side credentials, hardware verification, and the live write gate.
 
@@ -20,7 +20,7 @@ The codebase includes production-oriented controls (shifts, audit, lockout, idle
 - Simple products and size/variation selection.
 - Exact SKU/barcode lookup and keyboard-wedge scanner input (`F2`).
 - Cart quantities, internal notes, and browser-local held **retail** sales.
-- Paid trade checkout: owner/manager-approved, tax-inclusive final unit prices for one or multiple goods and a persisted named buyer; catalogue prices remain unchanged. No quantity-break pricing or unpaid dispatch.
+- Dedicated **Wholesale** workspace (owner/manager only): select a persisted named buyer first, add goods, enter each negotiated final tax-inclusive unit price, review and explicitly approve the quote, then record full payment before goods leave. Catalogue prices remain unchanged; there are no quantity tiers or unpaid dispatch. The retail register has no negotiated-price controls.
 - Cash received/change calculation.
 - Explicitly external MoMo/Card payment recording with merchant references.
 - WooCommerce order creation and payment-status confirmation in staging/live mode.
@@ -51,7 +51,7 @@ Open `http://localhost:3000`. The default configuration is demo mode; no credent
 ```bash
 npm test                 # backend and mocked WooCommerce integration tests
 npm run build            # production frontend build
-npm run test:browser     # demo workflow, trade quotes, recovery, proxy, motion and design checks; expects port 3000
+npm run test:browser     # demo workflow, wholesale quotes, recovery, proxy, motion and design checks; expects port 3000
 npm run test:design      # counter/mobile layout and mocked visual-state checks
 npm run test:a11y        # axe WCAG A/AA + best-practice scans; expects port 3000
 npm run lint             # ESLint
@@ -77,8 +77,8 @@ The short version:
 
 ## Verification
 
-- `npm test`: 56 backend/mocked WooCommerce/restore regression tests pass, including named trade buyers, exact tax-inclusive quotes, mixed tax classes, full payment and loss/reconciliation recovery as well as retail stock checks.
-- `npm run test:browser`: demo retail and paid-trade quotes, lost-response recovery, receipt, proxy session, reduced motion, counter/mobile layout and accessibility checks pass. Run only against an isolated demo database.
+- `npm test`: 58 backend/mocked WooCommerce/restore regression tests pass, including named wholesale buyers, exact tax-inclusive quotes, mixed tax classes, full payment, historical-order compatibility, loss/reconciliation recovery and retail stock checks.
+- `npm run test:browser`: demo retail and wholesale quotes, lost-response recovery, receipt, proxy session, reduced motion, counter/mobile layout and accessibility checks pass. Run only against an isolated demo database.
 - `npm run test:a11y`: axe WCAG A/AA + best-practice scans and 320px overflow check pass.
 - `npm run lint`: ESLint passes.
 - Receipt PDF was checked for one-page layout and extractable receipt text.
@@ -92,8 +92,8 @@ These checks use demo data and mocked WooCommerce responses. They do not prove c
 
 ## Important limitations
 
-- This application **records** payments; it does not process MoMo or card payments. An unpaid or under-review trade order **never** authorizes release of goods. The five dispatch-first/pay-later accounts remain unimplemented.
-- Paid trade is restricted to in-store collection at the verified store tax location. Different delivery-tax jurisdictions require a separately accepted address/tax workflow; do not assume a buyer name alone supplies a taxable destination.
+- This application **records** payments; it does not process MoMo or card payments. An unpaid or under-review wholesale order **never** authorizes release of goods. The five dispatch-first/pay-later accounts remain unimplemented.
+- Wholesale is restricted to in-store collection at the store tax location **to be verified on staging**. Different delivery-tax jurisdictions require a separately accepted address/tax workflow; do not assume a buyer name alone supplies a taxable destination.
 - Internet access is required for checkout. There is no offline payment queue.
 - Fresh stock checks and order updates are separate requests, not an atomic reservation. Concurrent online/POS sales can still race; a WooCommerce-side safeguard shared by both channels or an approved operational control must be established and verified before live trading.
 - Printer/scanner/cash-drawer compatibility must be verified on the actual hardware. Cash-drawer triggering is not implemented.

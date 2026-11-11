@@ -165,18 +165,20 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   });
 
   app.get('/api/catalog', auth, async (req, res) => res.json(await catalog.get(req.query.refresh === '1')));
-  app.get('/api/trade-buyers', auth, role('owner', 'manager'), (req, res) => {
+  // Retain the v4 table name to preserve existing named buyers and sale FKs.
+  app.get('/api/wholesale-buyers', auth, role('owner', 'manager'), (req, res) => {
     res.json({ buyers: db.prepare('SELECT id,name,created_at FROM trade_buyers ORDER BY name COLLATE NOCASE, id').all()
       .map(row => ({ id: row.id, name: row.name, createdAt: row.created_at })) });
   });
-  app.post('/api/trade-buyers', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => {
+  app.post('/api/wholesale-buyers', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => {
+    if (!config.wholesaleWritesEnabled) throw new AppError('Wholesale writes are locked until separately authorized.', 403, 'WHOLESALE_CHECKOUT_LOCKED');
     // eslint-disable-next-line no-control-regex -- Buyer names appear in orders, receipts and exports.
     const { name: entered } = z.object({ name: z.string().trim().min(2).max(120).refine(name => !/[\u0000-\u001f\u007f]/.test(name), 'Use a single-line buyer name.') }).strict().parse(req.body);
     const name = entered.replace(/\s+/g, ' ');
     if (db.prepare('SELECT id FROM trade_buyers WHERE name=? COLLATE NOCASE').get(name)) throw new AppError('That buyer already exists. Select the existing buyer.', 409);
     const buyer = { id: randomUUID(), name };
     db.prepare('INSERT INTO trade_buyers(id,name,created_at,created_by) VALUES (?,?,?,?)').run(buyer.id, buyer.name, now(), req.user.id);
-    audit(db, req.user.id, 'trade.buyer_created', buyer.id);
+    audit(db, req.user.id, 'wholesale.buyer_created', buyer.id);
     res.status(201).json({ buyer });
   });
   app.get('/api/sales', auth, (req, res) => {
@@ -218,7 +220,7 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
     const refunded = rows.reduce((sum, sale) => sum + (sale.refunded || 0), 0);
     const active = rows.filter(sale => sale.status !== 'refunded');
     const methods = ['cash','momo','card'].map(method => { const matches = rows.filter(s => s.paymentMethod === method); return { method, count: matches.length, total: matches.reduce((sum,s) => sum + net(s), 0) }; });
-    const saleTypes = ['retail','trade'].map(type => { const matches = rows.filter(s => s.saleType === type); return { type, count: matches.length, total: matches.reduce((sum,s) => sum + net(s), 0) }; });
+    const saleTypes = ['retail','wholesale'].map(type => { const matches = rows.filter(s => s.saleType === type); return { type, count: matches.length, total: matches.reduce((sum,s) => sum + net(s), 0) }; });
     const daily = Array.from({ length: days }, (_, i) => { const date = new Date(since); date.setUTCDate(date.getUTCDate() + i); const key = date.toISOString().slice(0,10); const matches = rows.filter(s => s.paidAt?.startsWith(key)); return { date: key, total: matches.reduce((sum,s) => sum + net(s), 0), count: matches.length }; });
     const products = new Map();
     for (const sale of active) for (const item of sale.items) { const key = `${item.productId}:${item.variationId}`; const p = products.get(key) || { name: item.name, label: item.label, quantity: 0, total: 0 }; p.quantity += item.quantity; p.total += item.total; products.set(key,p); }
@@ -230,8 +232,8 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
     const rows = reportRows(req.user, since);
     // eslint-disable-next-line no-control-regex -- CSV formula hardening intentionally strips control characters.
     const cell = value => { let text = String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); if (/^[\s]*[=+@\-\t\r]/.test(text)) text = `'${text}`; return `"${text.replaceAll('"','""')}"`; };
-    const csv = [['Receipt','WooCommerce order','Paid at (UTC)','Cashier','Shift','Payment method','External reference','Status','Gross GHS','Refunded GHS','Net GHS','Mode','Sale type','Trade buyer','Trade approved by','Agreed trade total GHS'],
-      ...rows.map(s => [s.number,s.wooOrderId || '',s.paidAt,s.cashierName,s.shiftId || '',s.paymentMethod,s.paymentReference,s.status,(s.total/100).toFixed(2),((s.refunded||0)/100).toFixed(2),((s.total-(s.refunded||0))/100).toFixed(2),config.mode,s.saleType,s.buyerName,s.tradeApprovedByName,s.agreedTotal != null ? (s.agreedTotal/100).toFixed(2) : ''])]
+    const csv = [['Receipt','WooCommerce order','Paid at (UTC)','Cashier','Shift','Payment method','External reference','Status','Gross GHS','Refunded GHS','Net GHS','Mode','Sale type','Wholesale buyer','Wholesale approved by','Agreed wholesale total GHS'],
+      ...rows.map(s => [s.number,s.wooOrderId || '',s.paidAt,s.cashierName,s.shiftId || '',s.paymentMethod,s.paymentReference,s.status,(s.total/100).toFixed(2),((s.refunded||0)/100).toFixed(2),((s.total-(s.refunded||0))/100).toFixed(2),config.mode,s.saleType,s.buyerName,s.wholesaleApprovedByName,s.agreedTotal != null ? (s.agreedTotal/100).toFixed(2) : ''])]
       .map(row => row.map(cell).join(',')).join('\r\n');
     audit(db, req.user.id, 'reports.export', `${rows.length} rows`);
     res.type('text/csv').attachment(`mansu-pos-${config.mode}-${now().slice(0,10)}.csv`).send(csv);

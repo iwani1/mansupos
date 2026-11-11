@@ -32,11 +32,10 @@ export function readConfig(env = process.env) {
   const writesEnabled = mode === 'staging'
     ? configured && env.POS_STAGING_APPROVED === 'true'
     : mode === 'live' && configured && env.POS_ALLOW_LIVE_WRITES === 'true' && approvalReference.length >= 8;
-  // Staging needs a separate owner-approved trade test gate. Live also requires
-  // that staging-test gate AND its own written trade approval; retail approval
-  // must never silently enable negotiated-price writes.
-  const tradeWritesEnabled = mode === 'demo' || (writesEnabled && env.POS_STAGING_TRADE_APPROVED === 'true' &&
-    (mode === 'staging' || env.POS_LIVE_TRADE_APPROVED === 'true'));
+  // Wholesale is a separate, explicitly approved write path. Legacy trade
+  // flags never enable it; replacing the workflow must not inherit approval.
+  const wholesaleWritesEnabled = mode === 'demo' || (writesEnabled && env.POS_STAGING_WHOLESALE_APPROVED === 'true' &&
+    (mode === 'staging' || env.POS_LIVE_WHOLESALE_APPROVED === 'true'));
   if (env.POS_STAGING_APPROVED === 'true' && mode === 'staging' && !configured) throw new Error('Staging approval requires WooCommerce credentials.');
   if (env.POS_ALLOW_LIVE_WRITES === 'true' && mode === 'live' && !configured) throw new Error('Live writes require WooCommerce credentials.');
 
@@ -50,7 +49,7 @@ export function readConfig(env = process.env) {
   if (!Number.isInteger(reconcileIntervalSeconds) || reconcileIntervalSeconds < 15 || reconcileIntervalSeconds > 3600) throw new Error('POS_RECONCILE_INTERVAL_SECONDS must be an integer from 15 to 3600.');
 
   return {
-    mode, storeUrl, configured, writesEnabled, tradeWritesEnabled, approvalReference,
+    mode, storeUrl, configured, writesEnabled, wholesaleWritesEnabled, approvalReference,
     consumerKey: env.WOO_CONSUMER_KEY || '', consumerSecret: env.WOO_CONSUMER_SECRET || '',
     dataDir: env.POS_DATA_DIR || path.resolve('.data'),
     port, production, publicOrigin,
@@ -71,7 +70,7 @@ export function readConfig(env = process.env) {
 export function publicConfig(config) {
   return {
     mode: config.mode, storeUrl: config.storeUrl, configured: config.configured,
-    writesEnabled: config.writesEnabled, tradeWritesEnabled: config.tradeWritesEnabled, currency: config.currency,
+    writesEnabled: config.writesEnabled, wholesaleWritesEnabled: config.wholesaleWritesEnabled, currency: config.currency,
     lowStockThreshold: config.lowStockThreshold, receiptFooter: config.receiptFooter,
     receiptWidth: config.receiptWidth, orderStatus: config.orderStatus,
     requireShift: config.requireShift, version: APP_VERSION,

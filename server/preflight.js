@@ -17,7 +17,7 @@ add('Data directory', (() => { try { fs.mkdirSync(config.dataDir, { recursive: t
 add('WooCommerce credentials', config.mode === 'demo' || config.configured, config.configured ? 'configured' : 'missing');
 add('Staging approval', config.mode !== 'staging' || !config.writesEnabled || process.env.POS_STAGING_APPROVED === 'true', config.writesEnabled ? 'writes enabled' : 'writes locked');
 add('Live approval', config.mode !== 'live' || !config.writesEnabled || (process.env.POS_ALLOW_LIVE_WRITES === 'true' && config.approvalReference.length >= 8), config.writesEnabled ? 'writes enabled' : 'writes locked');
-add('Separate paid-trade gate', true, config.mode === 'demo' ? 'isolated demo only' : config.tradeWritesEnabled ? 'trade writes enabled; staging acceptance and written approval still required' : 'trade checkout locked');
+add('Separate wholesale gate', true, config.mode === 'demo' ? 'isolated demo only' : config.wholesaleWritesEnabled ? 'wholesale writes enabled; confirm staging acceptance and written approval' : 'wholesale checkout locked');
 add('Owner bootstrap password', config.mode === 'demo' || !config.ownerPassword || config.ownerPassword.length >= 12, config.ownerPassword ? 'present' : 'not set');
 add('Shift accountability', true, config.requireShift ? 'required' : 'optional');
 add('Session idle timeout', true, `${config.sessionIdleMinutes} minutes`);

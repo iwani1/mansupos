@@ -149,7 +149,10 @@ export function userView(row) {
 }
 export function saleView(row) {
   if (!row) return null;
-  const quote = row.sale_type === 'trade' && row.trade_quote_json ? JSON.parse(row.trade_quote_json) : null;
+  // Schema v4 used `trade` names. Keep the historical rows and approved quote
+  // intact while presenting them through the replacement Wholesale workflow.
+  const wholesale = row.sale_type === 'trade';
+  const quote = wholesale && row.trade_quote_json ? JSON.parse(row.trade_quote_json) : null;
   const savedItems = JSON.parse(row.items_json);
   // A lost create response may leave only the approved quote in the ledger.
   // Keep the agreement visible in Sales even while the Woo order is under review.
@@ -161,8 +164,8 @@ export function saleView(row) {
   });
   return {
     id: row.id, number: row.number, wooOrderId: row.woo_order_id, status: row.status,
-    saleType: row.sale_type || 'retail', buyerId: row.buyer_id || null, buyerName: row.buyer_name || '',
-    tradeApprovedById: row.trade_approved_by_id || null, tradeApprovedByName: row.trade_approved_by_name || '', tradeApprovedAt: row.trade_approved_at || null,
+    saleType: wholesale ? 'wholesale' : 'retail', buyerId: row.buyer_id || null, buyerName: row.buyer_name || '',
+    wholesaleApprovedById: row.trade_approved_by_id || null, wholesaleApprovedByName: row.trade_approved_by_name || '', wholesaleApprovedAt: row.trade_approved_at || null,
     agreedTotal: quote?.reduce((sum, item) => sum + item.agreedUnitPrice * item.quantity, 0) ?? null,
     paymentMethod: row.payment_method, paymentReference: row.payment_reference,
     total: row.total, tax: row.tax, subtotal: row.subtotal, refunded: row.refunded, tendered: row.tendered, changeDue: row.change_due,
