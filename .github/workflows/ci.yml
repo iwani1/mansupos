@@ -42,10 +42,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - name: Install Chromium for CI
-        run: |
-          node node_modules/playwright-core/cli.js install --with-deps chromium
-          echo "TEST_CHROMIUM_PATH=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
+      # The browser helper uses the Chromium binary bundled in @sparticuz/chromium.
+      # Avoid a separate Playwright CDN download, which can stall the browser job.
       - name: Start isolated production demo
         run: |
           nohup env POS_MODE=demo PORT=3000 POS_DATA_DIR="$RUNNER_TEMP/mansu-browser-data" npm start > /tmp/mansu-pos.log 2>&1 &
