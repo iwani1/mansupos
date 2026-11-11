@@ -47,7 +47,7 @@ The POS keeps the MotionSites-inspired motion layer, tuned for a working registe
 
 - Product cards reveal with a short stagger; hover uses a small lift and restrained image movement.
 - Cart lines and totals confirm changes with short rise/pulse animations.
-- Charge-button arrow feedback, dialogs, toasts, notices and selected options use short transitions and a consistent ease-out curve.
+- Prepare-order arrow feedback, dialogs, toasts, notices and selected options use short transitions and a consistent ease-out curve; routine operational pages no longer stage card-by-card entrances.
 - Decorative infinite movement is removed; the loading spinner remains animated while work is in progress.
 - All motion is CSS-only, avoids layout shift, and never gates checkout.
 - `prefers-reduced-motion: reduce` disables animations and transitions globally; print also disables motion.
@@ -60,6 +60,20 @@ The POS keeps the MotionSites-inspired motion layer, tuned for a working registe
 - Variation selection shows per-option availability, including size when size is the only attribute.
 - Demo/live/staging state is always visible.
 - Payment recording is visually distinct from payment processing.
-- Tables, reports, shifts, and staff screens share the same tokens and controls.
+- Tables, reports, shifts, and staff screens share the same tokens and controls. Phone-width records reflow without concealing actions or stock status; intermediate-width tables retain a keyboard-focusable horizontal scroller.
 - Mobile uses a bottom cart bar and full-height cart drawer; horizontal overflow is tested.
 - Focus states, skip link, reduced motion, and print rules are preserved.
+
+## Whole-POS refinement — DESIGN.md collection and Impeccable guidance
+
+The [awesome-design-md collection](https://github.com/voltagent/awesome-design-md) was used for pattern-level documentation ideas from its Oura, Notion, Nike and Shopify examples; it is not a single theme. [Impeccable](https://github.com/pbakaus/impeccable) was used as a read-only design-review guide for task completion, hierarchy, responsive composition, states and accessibility. No third-party assets, scripts, skill installer, hooks or approval-bypassing action were added. Root [`DESIGN.md`](../DESIGN.md) records the actual Mansu tokens and interaction rules for future work; it does not replace this design history.
+
+A desktop-and-phone review of all eight POS screens highlighted hidden mobile table columns, long report/staff stacks, and two axe gaps: a non-focusable horizontal scroller and an `h1`→`h3` jump on the empty audit page. The refinement:
+
+- Reflows sales, inventory, top products, shifts, staff and audit tables into labeled phone-width records, keeping the same semantic table and column headings. At intermediate widths the named table region is keyboard reachable. Inventory exposes price, available/shared stock, state and full SKU; staff exposes access actions.
+- Condenses the staff role guide and 375px report metrics, makes form/search controls easier to use on phones, and gives audit events a proper section heading. Report method bars use positive net values as a bounded denominator, while signed daily totals remain readable in the expandable list.
+- Uses **Prepare order** before the payment step rather than implying this POS charges a customer. Selected category/view/variant/payment controls expose pressed state; switching payment method clears stale amount/reference and confirmation. Mobile navigation and cart drawers restore focus and support Escape; error toasts announce promptly.
+- Separates catalogue state from write permission in the topbar/connection page: a synced catalogue does not imply checkout approval. The connection guide explicitly retains the concurrent last-item stock release gate.
+- Leaves WooCommerce stock ownership, idempotency/reconciliation, external payment verification, demo isolation, receipt printing and the server-side live write gate intact.
+
+The browser/accessibility checks use an **isolated** demo directory; none of these UI results proves real staging, actual peripherals or the WooCommerce-side concurrent-stock protection needed before live trading.

@@ -38,7 +38,7 @@ try {
     if (!simulateStaging) return route.continue();
     const response = await route.fetch();
     const data = await response.json();
-    Object.assign(data.config, { mode: 'staging', writesEnabled: false, requireShift: true });
+    Object.assign(data.config, { mode: 'staging', configured: true, writesEnabled: false, requireShift: true });
     await route.fulfill({ response, json: data });
   });
   await page.route('**/api/shifts/current', route => simulateStaging ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ shift: null, required: true }) }) : route.continue());
@@ -115,7 +115,7 @@ try {
   await page.getByLabel('Sale note').fill('Design test note');
   await page.evaluate(() => window.scrollTo(0, 0));
   await fullyVisible('.charge-button');
-  await page.getByRole('button', { name: /Charge GH/ }).click();
+  await page.getByRole('button', { name: /Prepare order GH/ }).click();
   await page.locator('.cart-details .notice.error').waitFor();
   await page.waitForFunction(() => {
     const container = document.querySelector('.cart-details').getBoundingClientRect();
@@ -172,7 +172,10 @@ try {
     const response = await route.fetch();
     if (!response.ok()) return route.fulfill({ response });
     const data = await response.json();
-    if (data.days === 7) { data.daily[0].total = -10000; data.daily[1].total = 20000; data.daily[2].total = 0; }
+    if (data.days === 7) {
+      data.daily[0].total = -10000; data.daily[1].total = 20000; data.daily[2].total = 0;
+      data.methods = [{ method: 'cash', count: 1, total: 10000 }, { method: 'momo', count: 1, total: -5000 }, { method: 'card', count: 0, total: 0 }];
+    }
     await route.fulfill({ response, json: data });
   });
   for (const id of ['sales', 'inventory', 'shifts', 'reports', 'staff', 'audit', 'connection', 'register']) {
@@ -183,6 +186,8 @@ try {
       if (!bars[0].negative || bars[0].bottom !== 0 || Math.abs(bars[1].bottom - bars[0].height) > 0.01 || bars[2].height !== 0) throw new Error(`Signed report bars use the wrong baseline: ${JSON.stringify(bars)}`);
       await page.locator('.chart-details summary').click();
       if (!(await page.locator('.chart-values > div').first().innerText()).includes('-GH₵100.00')) throw new Error('Daily totals do not expose the signed amount.');
+      const mixWidths = await page.locator('.payment-panel .progress-track span').evaluateAll(els => els.map(el => parseFloat(el.style.width)));
+      if (mixWidths.join(',') !== '100,0,0') throw new Error(`Refunded payment mix rendered misleading bars: ${mixWidths}`);
       await page.selectOption('[aria-label="Report period"]', '90');
       await page.locator('.bar-chart.dense').waitFor();
       if (await page.locator('.bar-chart .bar').count() !== 90) throw new Error('90-day report is missing daily bars.');
@@ -203,6 +208,10 @@ try {
   simulateStaging = true;
   await page.reload({ waitUntil: 'networkidle' });
   await page.getByText('Open a shift before selling.', { exact: false }).waitFor();
+  if (await page.locator('.topbar .badge').innerText() !== 'Checkout locked') throw new Error('Synced staging catalogue was mistaken for trading approval.');
+  await page.locator('[data-nav="connection"]').click();
+  await page.getByText('Staging · checkout locked').waitFor();
+  await page.locator('[data-nav="register"]').click();
   const liveVariable = page.locator('.product-card').filter({ hasText: sample.mixed });
   if (!(await liveVariable.innerText()).includes('See option availability')) throw new Error('Variable live stock should not sum potentially shared parent stock.');
   await page.locator('[data-nav="inventory"]').click();

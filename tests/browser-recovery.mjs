@@ -30,7 +30,7 @@ try {
     }
     await route.abort('failed');
   });
-  await page.getByRole('button', { name: /Charge GH/ }).click();
+  await page.getByRole('button', { name: /Prepare order GH/ }).click();
   await page.locator('.cart-bottom .notice.error').waitFor();
   await page.unroute('**/api/sales/prepare');
   // Rebuild the same cart after a reload: the persisted checkout key must still be reused.
@@ -41,7 +41,7 @@ try {
     await page.locator('.size-options button:not([disabled])').first().click();
     await page.getByRole('dialog').getByRole('button', { name: /Add to sale/ }).click();
   }
-  await page.getByRole('button', { name: /Charge GH/ }).click();
+  await page.getByRole('button', { name: /Prepare order GH/ }).click();
   await page.getByRole('heading', { name: 'Complete payment' }).waitFor();
   const after = await page.evaluate(async () => (await (await fetch('/api/sales', { credentials: 'same-origin' })).json()).sales.map(s => s.id));
   const newIds = after.filter(id => !before.includes(id));

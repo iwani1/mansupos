@@ -20,9 +20,16 @@ try {
   await page.locator('.size-options button:not([disabled])').first().click();
   await page.getByRole('dialog').getByRole('button', { name: /Add to sale/ }).click();
   await page.screenshot({ path: 'test-results/cart-desktop.png', fullPage: true });
-  await page.getByRole('button', { name: /Charge GH/ }).click();
+  await page.getByRole('button', { name: /Prepare order GH/ }).click();
   await page.getByRole('heading', { name: 'Complete payment' }).waitFor();
   await page.screenshot({ path: 'test-results/checkout.png' });
+  await page.getByRole('button', { name: 'MoMo', exact: true }).click();
+  if (await page.getByRole('button', { name: 'MoMo', exact: true }).getAttribute('aria-pressed') !== 'true') throw new Error('Payment method selection is not announced.');
+  await page.getByLabel('MoMo transaction reference').fill('DEMO-CHECK-123');
+  await page.getByRole('checkbox', { name: /demo payment record/ }).check();
+  await page.getByRole('button', { name: 'Card', exact: true }).click();
+  if (await page.getByLabel('Terminal approval / merchant reference').inputValue() || await page.getByRole('checkbox', { name: /demo payment record/ }).isChecked()) throw new Error('Switching payment methods retained an unverified reference or confirmation.');
+  await page.getByRole('button', { name: 'Cash', exact: true }).click();
   await page.getByLabel('Cash received (GH₵)').fill(String(Math.ceil(target.price / 100) + 20));
   await page.getByRole('checkbox', { name: /demo payment record/ }).check();
   await page.getByRole('button', { name: 'Complete demo sale' }).click();
@@ -79,8 +86,8 @@ try {
   await page.getByLabel('Opening cash float (GH₵)').fill('50');
   await page.getByRole('button', { name: 'Open shift', exact: true }).click();
   await page.getByRole('heading', { name: 'Current shift' }).waitFor();
-  await page.getByPlaceholder('Amount GH₵').fill('10');
-  await page.getByPlaceholder('Reason, e.g. supplier pickup or float top-up').fill('Browser test float top-up');
+  await page.getByLabel('Amount (GH₵)').fill('10');
+  await page.getByLabel('Reason', { exact: true }).fill('Browser test float top-up');
   await page.getByRole('button', { name: 'Record movement' }).click();
   await page.getByText('Cash movement recorded.').waitFor();
   await page.getByLabel('Counted closing cash (GH₵)').fill('60');
