@@ -95,6 +95,8 @@ try {
   await page.locator('[data-nav="instore"]').click();
   await page.getByRole('heading', { name: 'In-store collection' }).waitFor();
   await page.getByText('Catalogue only — in-store checkout locked.').waitFor();
+  await page.getByText('These PDF figures are historical, not live WooCommerce stock.', { exact: false }).waitFor();
+  await page.getByText('PDF positive count', { exact: true }).first().waitFor();
   await page.getByRole('button', { name: 'Open quick guide' }).click();
   const guide = page.getByRole('dialog', { name: 'Your quick guide' });
   await guide.getByText('The read-only pilot cannot sell or recount this stock.', { exact: false }).waitFor();

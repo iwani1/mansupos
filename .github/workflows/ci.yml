@@ -16,9 +16,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: test -z "$(git ls-files 'wc-product-export-*.csv')" # no raw Woo export in branch head
       - run: npm test
       - run: npm run build:live
-      - run: test -f dist/index.html && test -f dist/favicon.svg && test ! -e dist/demo && test ! -e dist/products.csv && test ! -e dist/Stock-2026-11-12.pdf && test ! -e dist/data/instore-stock-snapshot.json
+      - run: test -f dist/index.html && test -f dist/favicon.svg && test ! -e dist/demo && test ! -e dist/products.csv && test ! -e dist/Stock-2026-11-12.pdf && test ! -e dist/data/instore-stock-snapshot.json && test -z "$(find dist -name 'wc-product-export-*.csv' -print -quit)"
       - run: npm audit --audit-level=high
       - run: npm run preflight
       - name: Validate isolated native systemd units
@@ -78,9 +79,11 @@ jobs:
         run: |
           docker run --rm mansu-pos:ci node --input-type=module -e '
             import { loadInStoreSnapshot } from "./server/instore-catalog.js";
+            import fs from "node:fs";
             const snapshot = loadInStoreSnapshot();
-            if (snapshot.summary.items !== 1571 || snapshot.summary.needsReview !== 41) process.exit(1);
-            console.log("In-store source hashes and quarantine verified in the production image.");
+            if (snapshot.summary.items !== 1571 || snapshot.summary.needsReview !== 41 ||
+                fs.readdirSync(".").some(name => /^wc-product-export-.*\.csv$/.test(name))) process.exit(1);
+            console.log("In-store source hashes verified; raw Woo export excluded from runtime image.");
           '
       - name: Smoke test container
         run: |

@@ -111,6 +111,6 @@ To stop new sales quickly, set the relevant write gate to `false` and restart:
 
 - Staging: `POS_STAGING_APPROVED=false` (all writes) or `POS_STAGING_WHOLESALE_APPROVED=false` (wholesale only)
 - Live Woo Retail/Wholesale: `POS_ALLOW_LIVE_WRITES=false` (Woo writes) or `POS_LIVE_WHOLESALE_APPROVED=false` (Wholesale only)
-- Independent physical-store cash: `POS_INSTORE_CASH_APPROVED=false` (new POS-only cash sales, owner counts and imports). It does not unlock or relock Woo orders.
+- Legacy independent physical-store cash: keep `POS_INSTORE_CASH_APPROVED=false`. Under the client's new [shared-Woo stock target](SHARED-WOO-STOCK.md), this local stock path must **never** be enabled for these goods; branch version 1.2.1 rejects it in production. If an older isolated ledger ever contained POS-only receipts, preserve and reconcile it separately. This flag does not unlock or relock Woo orders.
 
 Keep the POS ledger and any WooCommerce orders for reconciliation. With the Woo write gate revoked, Woo-backed POS payment **and remote cancellation** are blocked; the owner must review an unpaid order directly in WooCommerce rather than bypassing the gate. Locking In-store cash separately stops new POS-only sales/counts but preserves paid receipts and last balances. Do not delete orders or restore an old database over new trading data.

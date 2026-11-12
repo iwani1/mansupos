@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.2.1';
 const PRODUCTION_HOSTS = ['mansutrendzgh.com', 'www.mansutrendzgh.com'];
 
 function httpsOrigin(value, label) {
@@ -48,8 +48,9 @@ export function readConfig(env = process.env) {
   const wholesaleWritesEnabled = mode === 'demo' || (writesEnabled && (mode === 'staging'
     ? env.POS_STAGING_WHOLESALE_APPROVED === 'true'
     : env.POS_LIVE_WHOLESALE_APPROVED === 'true' && liveWholesaleAcceptance.length >= 8));
-  // Physical goods have their own till, ledger and cash-only gate. Retail and
-  // Wholesale Woo approvals DO NOT authorize selling this separate stock pool.
+  // This is a legacy local-stock path. The client's new shared-Woo plan must
+  // never run it outside isolated tests: a local deduction would leave website
+  // stock unchanged. Keep fixture coverage for historical ledger safety.
   if (env.POS_INSTORE_CASH_APPROVED && !['true', 'false'].includes(env.POS_INSTORE_CASH_APPROVED)) {
     throw new Error('POS_INSTORE_CASH_APPROVED must be true or false.');
   }
@@ -61,7 +62,15 @@ export function readConfig(env = process.env) {
       (env.POS_REQUIRE_SHIFT && env.POS_REQUIRE_SHIFT !== 'true'))) {
     throw new Error('In-store cash requires a separate reviewed live trading service, a distinct acceptance reference, a pinned stock source SHA-256, and mandatory shifts; never enable it on the read-only pilot.');
   }
-  const inStoreCashEnabled = inStoreRequested && mode === 'live' && !liveReadOnly;
+  // An acceptance reference is NOT a way to revive the old POS-only stock pool
+  // after these goods become shared online. Fail closed even if a service unit
+  // was mistakenly amended and its env contains every former approval value.
+  if (inStoreRequested && env.NODE_ENV !== 'test') {
+    throw new Error('POS-only In-store cash is retired for shared WooCommerce stock. Keep this gate off; use a separately reviewed Woo-backed Wholesale checkout.');
+  }
+  // The old local ledger remains exercisable only by isolated test fixtures;
+  // production and accidentally non-production live services cannot revive it.
+  const inStoreCashEnabled = inStoreRequested && mode === 'live' && !liveReadOnly && env.NODE_ENV === 'test';
   if (env.POS_STAGING_APPROVED === 'true' && mode === 'staging' && !configured) throw new Error('Staging approval requires WooCommerce credentials.');
   if (env.POS_ALLOW_LIVE_WRITES === 'true' && mode === 'live' && !configured) throw new Error('Live writes require WooCommerce credentials.');
 

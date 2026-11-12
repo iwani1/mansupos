@@ -8,6 +8,8 @@ import { spawnSync } from 'node:child_process';
 import { createApp } from '../server/app.js';
 import { readConfig } from '../server/config.js';
 import { WooCommerce, fetchLiveCatalog } from '../server/woocommerce.js';
+import { Catalog } from '../server/catalog.js';
+import { openDatabase } from '../server/db.js';
 
 const pilotEnvironment = {
   NODE_ENV: 'production', POS_MODE: 'live', POS_LIVE_READ_ONLY: 'true',
@@ -53,6 +55,47 @@ test('preflight accepts a locked live catalogue pilot but requires an owner and 
   const missingOwner = run({ POS_OWNER_PASSWORD: '' });
   assert.notEqual(missingOwner.status, 0);
   assert.match(missingOwner.stdout, /FAIL {2}Owner sign-in available/);
+});
+
+test('read-only Woo catalogue picks up names, website retail prices, stock and new products without seeding historical POS stock', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mansu-shared-woo-read-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const config = readConfig({ ...pilotEnvironment, POS_DATA_DIR: dir });
+  const db = openDatabase(config);
+  t.after(() => db.close());
+  let calls = 0;
+  let products = [{ id: 700, name: 'Shop dress', type: 'simple', sku: 'DRESS-700', status: 'publish',
+    price: '90.00', manage_stock: true, stock_quantity: 4, stock_status: 'instock', backorders: 'no', purchasable: true }];
+  const api = {
+    async products(page) { assert.equal(page, 1); calls++; return { data: products, pages: 1, total: products.length }; },
+    async product(id) { calls++; return products.find(product => product.id === id); },
+    async variations() { throw new Error('No variations in this fixture.'); },
+    async request() { throw new Error('A read-only catalogue must not write WooCommerce.'); },
+  };
+  const catalog = new Catalog(db, api, config);
+  const original = await catalog.get();
+  assert.equal(original.products[0].name, 'Shop dress');
+  assert.equal(original.products[0].price, 9000);
+  assert.equal(original.products[0].stock, 4);
+  // Woo is the authority. A new listing and edited product show up on the next
+  // scheduled catalogue refresh, not by importing the PDF into a POS ledger.
+  products = [{ ...products[0], name: 'Shop dress updated in Woo', price: '105.50', stock_quantity: 2 },
+    { id: 701, name: 'New shop top', type: 'simple', sku: 'TOP-701', status: 'publish',
+      price: '75.00', manage_stock: true, stock_quantity: 3, stock_status: 'instock', backorders: 'no', purchasable: true }];
+  catalog.cache.fetchedAt = new Date(Date.now() - 60_000).toISOString();
+  const refreshed = await catalog.get();
+  assert.equal(refreshed.products.length, 2);
+  assert.deepEqual(refreshed.products.map(item => [item.name, item.price, item.stock]), [
+    ['Shop dress updated in Woo', 10550, 2], ['New shop top', 7500, 3],
+  ]);
+  const [line] = await catalog.fresh([{ productId: 701, variationId: 0, quantity: 1 }]);
+  assert.equal(line.name, 'New shop top');
+  assert.equal(line.price, 7500);
+  assert.equal(line.stock, 3);
+  assert.equal(calls, 3, 'Two catalogue reads and one fresh product read only.');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM instore_imports').get().n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM instore_inventory').get().n, 0);
+  assert.equal(config.writesEnabled, false);
 });
 
 test('native pilot units override unsafe env flags and cannot bind an existing app port', () => {

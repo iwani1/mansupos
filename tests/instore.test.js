@@ -107,7 +107,7 @@ test('source hashes, missing report rows and duplicate product SKUs fail closed'
   assert.throws(() => buildInStoreSnapshot([sample, { ...sample }], stock), /duplicate product SKU/);
 });
 
-test('in-store cash needs a distinct live acceptance, pinned source, mandatory shifts and cannot run on the pilot', t => {
+test('legacy local cash fixtures retain safeguards but production rejects the obsolete second stock pool', t => {
   const dir = fixtureDir(t);
   const gate = envFor(dir, { enabled: true });
   assert.equal(readConfig(gate).inStoreCashEnabled, true);
@@ -118,6 +118,11 @@ test('in-store cash needs a distinct live acceptance, pinned source, mandatory s
   assert.throws(() => readConfig({ ...gate, POS_INSTORE_SOURCE_SHA256: '' }), /pinned stock source/);
   assert.throws(() => readConfig({ ...gate, POS_OWNER_APPROVAL_REFERENCE: 'separate-physical-stock-acceptance' }), /distinct acceptance reference/);
   assert.throws(() => readConfig({ ...gate, POS_MODE: 'staging', WOO_BASE_URL: 'https://staging.example.com' }), /separate reviewed live/);
+  const productionGate = { ...gate, NODE_ENV: 'production', POS_PUBLIC_ORIGIN: 'https://pos.mansutrendzgh.com' };
+  assert.throws(() => readConfig(productionGate), /retired for shared WooCommerce stock/);
+  assert.throws(() => readConfig({ ...gate, NODE_ENV: 'development' }), /retired for shared WooCommerce stock/);
+  assert.throws(() => readConfig({ ...gate, NODE_ENV: '' }), /retired for shared WooCommerce stock/);
+  assert.equal(readConfig({ ...productionGate, POS_INSTORE_CASH_APPROVED: 'false' }).inStoreCashEnabled, false);
   assert.equal(readConfig(envFor(dir)).inStoreCashEnabled, false);
 });
 
