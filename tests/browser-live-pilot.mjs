@@ -10,7 +10,7 @@ try {
     data.config = {
       ...data.config, mode: 'live', liveReadOnly: true, configured: true,
       writesEnabled: false, wholesaleWritesEnabled: false, requireShift: false,
-      storeUrl: 'https://mansutrendzgh.com',
+      paymentMethods: ['cash'], storeUrl: 'https://mansutrendzgh.com',
     };
     await route.fulfill({ response, json: data });
   });

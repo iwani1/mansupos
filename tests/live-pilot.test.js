@@ -21,6 +21,7 @@ test('live catalogue pilot cannot be mistaken for staging or unlocked through a 
   assert.equal(pilot.liveReadOnly, true);
   assert.equal(pilot.writesEnabled, false);
   assert.equal(pilot.wholesaleWritesEnabled, false);
+  assert.deepEqual(pilot.paymentMethods, ['cash']);
   assert.throws(() => readConfig({ ...pilotEnvironment, POS_ALLOW_LIVE_WRITES: 'true', POS_OWNER_APPROVAL_REFERENCE: 'written-owner-approval' }), /read-only live pilot/);
   assert.throws(() => readConfig({ ...pilotEnvironment, POS_MODE: 'staging', WOO_BASE_URL: 'https://staging.example.com' }), /POS_LIVE_READ_ONLY/);
   assert.throws(() => readConfig({ ...pilotEnvironment, POS_LIVE_READ_ONLY: 'maybe' }), /POS_LIVE_READ_ONLY/);

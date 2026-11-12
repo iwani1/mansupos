@@ -477,6 +477,29 @@ test('an older pending wholesale cart cannot be duplicated by a different approv
   assert.equal(h.api.state.creates, 2, 'A different cart remains available.');
 });
 
+test('simulated live Wholesale requires its distinct acceptance gate and can record cash only', async t => {
+  const h = await harness(t, 'live', { env: {
+    POS_STAGING_WHOLESALE_APPROVED: 'false', POS_ALLOW_LIVE_WRITES: 'true',
+    POS_OWNER_APPROVAL_REFERENCE: 'written-owner-approval', POS_LIVE_WHOLESALE_APPROVED: 'true',
+    POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'simulated-only-not-real-acceptance',
+  } });
+  assert.equal(h.config.wholesaleWritesEnabled, true);
+  const prepared = await prepare(h, wholesaleWithoutBuyer());
+  assert.equal(prepared.status, 201, JSON.stringify(prepared.data));
+  const sale = prepared.data.sale;
+  const blocked = await h.request(`/sales/${sale.id}/pay`, { method: 'POST', token: h.token,
+    body: { method: 'momo', reference: 'TEST-EXTERNAL', confirmed: true } });
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.data.code, 'PAYMENT_METHOD_LOCKED');
+  assert.equal(h.api.state.payments, 0);
+  const paid = await h.request(`/sales/${sale.id}/pay`, { method: 'POST', token: h.token,
+    body: { method: 'cash', tendered: 10000, confirmed: true } });
+  assert.equal(paid.status, 200, JSON.stringify(paid.data));
+  assert.equal(paid.data.sale.status, 'paid');
+  assert.equal(h.api.state.orders[0].payment_method, 'pos_cash');
+  assert.equal(h.api.state.payments, 1);
+});
+
 test('closing the separate wholesale gate blocks payment of an already prepared wholesale order', async t => {
   const h = await harness(t, 'staging', { env: { POS_STAGING_WHOLESALE_APPROVED: 'true' } });
   const { sale } = (await prepare(h, wholesale(h))).data;
@@ -488,7 +511,9 @@ test('closing the separate wholesale gate blocks payment of an already prepared 
   assert.equal((await h.request(`/sales/${sale.id}/cancel`, { method: 'POST', token: h.token, body: {} })).data.code, 'WHOLESALE_CHECKOUT_LOCKED');
   assert.equal(h.api.state.orders[0].status, 'pending', 'Revoked approval must also block remote cancellation writes.');
   assert.equal(h.sales.get(sale.id, { role: 'owner' }).status, 'awaiting_payment');
-  assert.equal(readConfig({ POS_MODE: 'live', WOO_CONSUMER_KEY: 'k', WOO_CONSUMER_SECRET: 's', POS_ALLOW_LIVE_WRITES: 'true', POS_OWNER_APPROVAL_REFERENCE: 'written-owner-approval', POS_LIVE_WHOLESALE_APPROVED: 'true' }).wholesaleWritesEnabled, false);
+  assert.throws(() => readConfig({ POS_MODE: 'live', WOO_CONSUMER_KEY: 'k', WOO_CONSUMER_SECRET: 's', POS_ALLOW_LIVE_WRITES: 'true', POS_OWNER_APPROVAL_REFERENCE: 'written-owner-approval', POS_LIVE_WHOLESALE_APPROVED: 'true' }), /POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE/);
+  assert.equal(readConfig({ POS_MODE: 'live', WOO_CONSUMER_KEY: 'k', WOO_CONSUMER_SECRET: 's', POS_ALLOW_LIVE_WRITES: 'true', POS_OWNER_APPROVAL_REFERENCE: 'written-owner-approval', POS_STAGING_WHOLESALE_APPROVED: 'false', POS_LIVE_WHOLESALE_APPROVED: 'true', POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'documented-live-acceptance' }).wholesaleWritesEnabled, true, 'Documented live acceptance can authorize Wholesale without falsely claiming staging was passed.');
+  assert.equal(readConfig({ POS_MODE: 'live', WOO_CONSUMER_KEY: 'k', WOO_CONSUMER_SECRET: 's', POS_ALLOW_LIVE_WRITES: 'true', POS_OWNER_APPROVAL_REFERENCE: 'written-owner-approval', POS_STAGING_WHOLESALE_APPROVED: 'true', POS_LIVE_WHOLESALE_APPROVED: 'false', POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'documented-live-acceptance' }).wholesaleWritesEnabled, false, 'Staging approval cannot enable live Wholesale.');
 });
 
 test('revoking the general write gate blocks payment and cancellation for retail and wholesale pending orders', async t => {

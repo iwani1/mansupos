@@ -88,7 +88,7 @@ See [HARDWARE.md](HARDWARE.md) for the owner-supplied counter hardware profile a
 
 ## 5. Acceptance and live approval
 
-Complete `docs/ACCEPTANCE.md`, including the parent-shared variation stock and concurrent online/POS last-item checks. The POS does not atomically reserve stock: agree on a WooCommerce-side safeguard shared by both channels or an approved operational control, then verify it on staging before live trading. Keep evidence without customer secrets. Obtain written approval identifying the tested version, staging URL, hardware, payment workflow, limitations, and rollback plan.
+Complete `docs/ACCEPTANCE.md`, including parent-shared variation stock and concurrent online/POS last-item controls. The POS does not atomically reserve stock: agree on a WooCommerce-side safeguard shared by both channels or an approved operational control. Staging is preferred; if the owner declines it, follow [LIVE-CASH-ROLLOUT.md](LIVE-CASH-ROLLOUT.md) to document the accepted risks and a supervised genuine cash-sale plan before any live write. Keep evidence without customer secrets. Obtain written approval identifying the version, environment, hardware, payment workflow, limitations, and reconciliation plan.
 
 Live mode requires **all** of these deliberate gates:
 
@@ -101,9 +101,9 @@ POS_ALLOW_LIVE_WRITES=true
 POS_OWNER_APPROVAL_REFERENCE=<written-approval-reference>
 ```
 
-The approval reference must be at least eight characters. This is a deployment guard, not a substitute for actual written approval. **Retail approval and legacy trade flags never enable Wholesale.** Wholesale also requires `POS_STAGING_WHOLESALE_APPROVED=true` (only after recorded successful staging tax/total tests) and `POS_LIVE_WHOLESALE_APPROVED=true` (a distinct written owner decision for live negotiated-price checkout). Leave the live wholesale flag `false` until both conditions are met; no live wholesale writes are authorized by this build alone. The five dispatch-before-payment buyers remain a future, separately approved workflow.
+The approval reference must be at least eight characters. This is a deployment guard, not a substitute for actual written approval. **Retail approval and legacy trade flags never enable Wholesale.** Wholesale also needs `POS_LIVE_WHOLESALE_APPROVED=true` (a distinct written owner decision) and an at-least-eight-character `POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE` pointing to a documented live acceptance plan/record. Staging's approval flag does not count toward live authorization. Leave the live wholesale flag false until a supervised, risk-reviewed live acceptance plan is approved; general Wholesale trading needs signed-off actual tax/stock/recovery results. The five dispatch-before-payment buyers remain a future, separately approved workflow.
 
-Before the first live sale, take a fresh full WordPress backup and a POS-ledger backup. Run a small owner-approved live smoke test only after staging passes and the owner explicitly authorizes it. Never use a real customer payment as a test.
+Before the first live sale, take fresh full WordPress and POS-ledger backups and verify off-host restore evidence. Prefer an isolated staging clone. Without staging, do not run synthetic test orders or use customer money merely as a test; first verify live pending-order side effects, then only conduct a separately authorized **genuine** cash sale under owner supervision. Live POS is cash-only; keep online Paystack separate. See [LIVE-CASH-ROLLOUT.md](LIVE-CASH-ROLLOUT.md).
 
 ## 6. Backup and rollback
 

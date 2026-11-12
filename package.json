@@ -1,6 +1,6 @@
 {
   "name": "mansu-pos",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "private": true,
   "type": "module",
   "description": "A WooCommerce-connected point of sale for MansutRENDZGH, with an isolated demo workspace.",
@@ -12,7 +12,7 @@
     "start": "NODE_ENV=production node server/index.js",
     "build": "vite build",
     "test": "node --test tests/*.test.js",
-    "test:browser": "node tests/browser.mjs && node tests/browser-recovery.mjs && node tests/browser-preview.mjs && node tests/browser-motion.mjs && node tests/browser-design.mjs && node tests/browser-wholesale.mjs && node tests/browser-live-pilot.mjs",
+    "test:browser": "node tests/browser.mjs && node tests/browser-recovery.mjs && node tests/browser-preview.mjs && node tests/browser-motion.mjs && node tests/browser-design.mjs && node tests/browser-wholesale.mjs && node tests/browser-live-pilot.mjs && node tests/browser-live-cash.mjs",
     "test:design": "node tests/browser-design.mjs",
     "test:a11y": "node tests/browser-a11y.mjs",
     "backup": "node server/backup.js",

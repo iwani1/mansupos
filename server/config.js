@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 
-export const APP_VERSION = '1.1.4';
+export const APP_VERSION = '1.1.5';
 const PRODUCTION_HOSTS = ['mansutrendzgh.com', 'www.mansutrendzgh.com'];
 
 function httpsOrigin(value, label) {
@@ -38,10 +38,16 @@ export function readConfig(env = process.env) {
   const writesEnabled = mode === 'staging'
     ? configured && env.POS_STAGING_APPROVED === 'true'
     : mode === 'live' && !liveReadOnly && configured && env.POS_ALLOW_LIVE_WRITES === 'true' && approvalReference.length >= 8;
-  // Wholesale is a separate, explicitly approved write path. Legacy trade
-  // flags never enable it; replacing the workflow must not inherit approval.
-  const wholesaleWritesEnabled = mode === 'demo' || (writesEnabled && env.POS_STAGING_WHOLESALE_APPROVED === 'true' &&
-    (mode === 'staging' || env.POS_LIVE_WHOLESALE_APPROVED === 'true'));
+  // Wholesale is a separate, explicitly approved write path. Staging approval
+  // is only for staging; a no-staging live rollout must not pretend it passed
+  // staging tests. Require a distinct reference to documented live acceptance.
+  const liveWholesaleAcceptance = (env.POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE || '').trim();
+  if (mode === 'live' && env.POS_LIVE_WHOLESALE_APPROVED === 'true' && liveWholesaleAcceptance.length < 8) {
+    throw new Error('Live wholesale approval also requires a documented POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE.');
+  }
+  const wholesaleWritesEnabled = mode === 'demo' || (writesEnabled && (mode === 'staging'
+    ? env.POS_STAGING_WHOLESALE_APPROVED === 'true'
+    : env.POS_LIVE_WHOLESALE_APPROVED === 'true' && liveWholesaleAcceptance.length >= 8));
   if (env.POS_STAGING_APPROVED === 'true' && mode === 'staging' && !configured) throw new Error('Staging approval requires WooCommerce credentials.');
   if (env.POS_ALLOW_LIVE_WRITES === 'true' && mode === 'live' && !configured) throw new Error('Live writes require WooCommerce credentials.');
 
@@ -68,6 +74,9 @@ export function readConfig(env = process.env) {
     receiptFooter: env.POS_RECEIPT_FOOTER || 'Thank you for shopping with MansutRENDZGH.',
     receiptWidth: ['58', '80', 'a4'].includes(env.POS_RECEIPT_WIDTH) ? env.POS_RECEIPT_WIDTH : '80',
     orderStatus: env.POS_ORDER_STATUS === 'processing' ? 'processing' : 'completed',
+    // First live rollout is cash-only. This is enforced on the server; a
+    // changed browser or copied env flag cannot record MoMo/card as paid.
+    paymentMethods: mode === 'live' ? ['cash'] : ['cash', 'momo', 'card'],
     currency: 'GHS', lowStockThreshold,
     requireShift: env.POS_REQUIRE_SHIFT ? env.POS_REQUIRE_SHIFT === 'true' : mode !== 'demo',
     sessionIdleMinutes, reconcileIntervalSeconds,
@@ -82,7 +91,7 @@ export function publicConfig(config) {
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, currency: config.currency,
     lowStockThreshold: config.lowStockThreshold, receiptFooter: config.receiptFooter,
     receiptWidth: config.receiptWidth, orderStatus: config.orderStatus,
-    requireShift: config.requireShift, version: APP_VERSION,
+    paymentMethods: config.paymentMethods, requireShift: config.requireShift, version: APP_VERSION,
     businessName: config.businessName, businessAddress: config.businessAddress,
     businessPhone: config.businessPhone, businessTaxId: config.businessTaxId,
   };

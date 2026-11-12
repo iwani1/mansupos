@@ -284,10 +284,10 @@ export class SalesService {
     }
   }
   async prepare(user, input) {
-    if (this.config.mode !== 'demo' && !this.config.writesEnabled) throw new AppError('Checkout is locked. Complete staging tests and enable the approved server-side write gate first.', 403, 'CHECKOUT_LOCKED');
+    if (this.config.mode !== 'demo' && !this.config.writesEnabled) throw new AppError('Checkout is locked. Complete the documented acceptance checks and approved server-side write gate first.', 403, 'CHECKOUT_LOCKED');
     const saleType = input.saleType || 'retail';
     if (saleType === 'wholesale' && !['owner', 'manager'].includes(user.role)) throw new AppError('Only an owner or manager can agree a wholesale price.', 403, 'WHOLESALE_ROLE_REQUIRED');
-    if (saleType === 'wholesale' && !this.config.wholesaleWritesEnabled) throw new AppError('Wholesale checkout is locked. Authorize isolated staging wholesale tests first; live wholesale requires separate acceptance and written approval.', 403, 'WHOLESALE_CHECKOUT_LOCKED');
+    if (saleType === 'wholesale' && !this.config.wholesaleWritesEnabled) throw new AppError('Wholesale checkout is locked. Live sales require separately documented tax/total acceptance and written owner approval.', 403, 'WHOLESALE_CHECKOUT_LOCKED');
     const items = normalizeItems(input.items);
     const buyer = saleType === 'wholesale' && input.buyerId ? this.db.prepare('SELECT id,name FROM trade_buyers WHERE id=?').get(input.buyerId) : null;
     if (input.buyerId && !buyer) throw new AppError('That saved wholesale buyer no longer exists. Review Sales before retrying.', 400);
@@ -388,6 +388,9 @@ export class SalesService {
   async complete(user, id, payment) {
     return this.exclusive(`sale:${id}`, async () => {
       const row = this.get(id, user);
+      if (!this.config.paymentMethods.includes(payment.method)) {
+        throw new AppError('Live POS payments are cash-only. Do not record MoMo or card as a cash sale.', 403, 'PAYMENT_METHOD_LOCKED');
+      }
       if (isSettled(row.status)) return saleView(row);
       if (this.config.mode !== 'demo' && !this.config.writesEnabled) throw new AppError('Checkout writes are locked. Do not collect payment or release goods.', 403, 'CHECKOUT_LOCKED');
       if (row.sale_type === 'trade' && !this.config.wholesaleWritesEnabled) throw new AppError('Wholesale checkout is locked. Do not collect payment or release goods.', 403, 'WHOLESALE_CHECKOUT_LOCKED');

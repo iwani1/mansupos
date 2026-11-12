@@ -134,6 +134,31 @@ test('staging uses WooCommerce authoritative totals and records external payment
   assert.equal(h.api.state.creates,1);
 });
 
+test('first live trading scope is cash-only at the API even if a client posts MoMo/card',async t=>{
+  const h=await harness(t,'live',{POS_ALLOW_LIVE_WRITES:'true',POS_OWNER_APPROVAL_REFERENCE:'written-owner-approval'});
+  assert.equal(h.config.writesEnabled,true);
+  assert.deepEqual(h.config.paymentMethods,['cash']);
+  assert.deepEqual(readConfig({ POS_MODE: 'live', POS_PAYMENT_METHODS: 'cash,momo,card' }).paymentMethods,['cash'], 'No copied env setting can enable electronic payment recording in live mode.');
+  const session=await h.request('/session',{token:h.token});
+  assert.equal(session.status,200);
+  assert.deepEqual(session.data.config.paymentMethods,['cash']);
+  const prepared=await h.request('/sales/prepare',{method:'POST',token:h.token,body:{...cart,idempotencyKey:randomUUID()}});
+  assert.equal(prepared.status,201,JSON.stringify(prepared.data));
+  for(const method of ['momo','card']) {
+    const blocked=await h.request(`/sales/${prepared.data.sale.id}/pay`,{method:'POST',token:h.token,body:{method,reference:'EXTERNAL-REF',confirmed:true}});
+    assert.equal(blocked.status,403);
+    assert.equal(blocked.data.code,'PAYMENT_METHOD_LOCKED');
+    assert.equal(h.api.state.updates,0,'No Woo payment write for a blocked method');
+    assert.equal(h.api.state.orders[0].status,'pending');
+  }
+  const paid=await h.request(`/sales/${prepared.data.sale.id}/pay`,{method:'POST',token:h.token,body:{method:'cash',tendered:12000,confirmed:true}});
+  assert.equal(paid.status,200,JSON.stringify(paid.data));
+  assert.equal(paid.data.sale.status,'paid');
+  assert.equal(h.api.state.orders[0].payment_method,'pos_cash');
+  const mistakenRetry=await h.request(`/sales/${prepared.data.sale.id}/pay`,{method:'POST',token:h.token,body:{method:'momo',reference:'EXTERNAL-REF',confirmed:true}});
+  assert.equal(mistakenRetry.status,403,'Even a paid sale cannot be re-labelled as MoMo');
+});
+
 test('interrupted create can be reconciled without creating a duplicate order',async t=>{
   const h=await harness(t,'staging');
   h.api.state.failCreate=true;

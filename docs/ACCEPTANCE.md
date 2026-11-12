@@ -1,8 +1,8 @@
-# Staging acceptance checklist
+# Store acceptance checklist (staging preferred)
 
 Record **Pass / Fail / Not tested**, date, tester, environment, plugin/app version, and evidence reference. Do not include secrets or customer personal information.
 
-Automated baseline: backend/mocked WooCommerce/restore and deployment-safety regression tests include live-read-only pilot config/unit/Woo write guards, optional/unnamed Wholesale quotes, tax, historical-order compatibility and payment-recovery cases; the isolated Chromium demo walkthrough, lost-prepare-response recovery after reload, session-expiry handling, embedded-preview session fallback when Authorization/cookies are stripped, reduced-motion preference checks, counter/mobile layout and mocked shared-stock/variation/backorder/report checks, pilot checkout-lock UI, axe accessibility scans, lint, receipt PDF content check, production build, dependency audit, preflight, SQLite backup/restore integrity check, and Docker image build/smoke in CI. The items below must still be executed against an approved staging clone and real hardware **before any trading approval**. Connecting to the live catalogue in the read-only pilot does not pass these tests.
+Automated baseline: backend/mocked WooCommerce/restore and deployment-safety regression tests include live-read-only pilot config/unit/Woo write guards, optional/unnamed Wholesale quotes, tax, historical-order compatibility and payment-recovery cases; the isolated Chromium demo walkthrough, lost-prepare-response recovery after reload, session-expiry handling, embedded-preview session fallback when Authorization/cookies are stripped, reduced-motion preference checks, counter/mobile layout and mocked shared-stock/variation/backorder/report checks, pilot checkout-lock UI, axe accessibility scans, lint, receipt PDF content check, production build, dependency audit, preflight, SQLite backup/restore integrity check, and Docker image build/smoke in CI. The items below require real store behavior and real hardware, preferably on an approved **separate staging clone**, before general POS trading. If the owner declines staging, follow [LIVE-CASH-ROLLOUT.md](LIVE-CASH-ROLLOUT.md) for a documented, owner-supervised genuine cash sale; record untested cases as **Not tested**, never as Pass. Connecting to the live catalogue in the read-only pilot does not pass these tests.
 
 ## Live catalogue pilot only (not permission to trade)
 
@@ -17,10 +17,10 @@ Automated baseline: backend/mocked WooCommerce/restore and deployment-safety reg
 - [ ] Full WordPress files/database backup verified and restoration tested.
 - [ ] POS-ledger backup created and integrity checked.
 - [ ] Guarded restore tested in an isolated environment; post-restore reconciliation procedure reviewed.
-- [ ] Staging is separate from production; email, fulfilment, webhooks, and live payment side effects are controlled.
+- [ ] On staging, it is separate from production and email/fulfilment/webhooks/payments are isolated. If staging was declined, document and accept **all** pending/paid live-order side effects before any controlled real sale; a backup cannot undo emails or fulfilment.
 - [ ] WordPress/WooCommerce/PHP versions and relevant plugins recorded.
 - [ ] GHS currency and tax-inclusive/exclusive behavior verified.
-- [ ] Live write gate remains disabled during staging.
+- [ ] Live write gate remains disabled during staging **and** until the separately reviewed trading deployment and controlled acceptance plan are approved; the catalogue pilot stays read-only.
 - [ ] On a shared VPS, the POS has its own service/project, private ledger/volume, HTTPS hostname and localhost-only listener/host port; the existing application still works and its 80/443 bindings are unchanged. A restart after an abrupt exit succeeds, and a second POS using the same ledger is refused.
 - [ ] A first owner is configured and changes the temporary password; the bootstrap secret is then removed from the server environment without losing owner sign-in.
 
@@ -31,39 +31,39 @@ Automated baseline: backend/mocked WooCommerce/restore and deployment-safety reg
 - [ ] Existing SKU scan selects the correct product.
 - [ ] Variation SKU scan selects the correct variation.
 - [ ] Missing/duplicate SKU report reviewed; no unapproved SKU changes.
-- [ ] POS test sale creates exactly one WooCommerce order.
+- [ ] A staging test sale (or a separately approved **genuine** cash sale without staging) creates exactly one WooCommerce order.
 - [ ] Correct variation stock decreases by the sold quantity.
 - [ ] Parent-managed options share one stock pool; independently managed options use their own stock. Combined cart quantities are tested against the real staging responses.
 - [ ] Online storefront reflects the updated stock.
-- [ ] Online test order updates stock seen by the POS after refresh.
-- [ ] A safeguard shared by online and POS sales, or an owner-approved operational control, prevents simultaneous last-item overselling. Exercise concurrent purchases on staging; the POS read-check and order update are not atomic.
+- [ ] On staging, an online test order updates stock seen by the POS after refresh; without staging, observe a genuine online order without manufacturing a test purchase.
+- [ ] A safeguard shared by online and POS sales, or an owner-approved operational control, prevents simultaneous last-item overselling. Exercise concurrent purchases **only on staging**; without it, document and enforce an operational last-item limit. The POS read-check and order update are not atomic.
 - [ ] Cancelled unpaid order and refunded paid order behave as documented.
 - [ ] Backorder (`yes` and `notify`) and untracked-stock behavior reviewed; customers are notified where required.
 
 ## Payments
 
 - [ ] Cash sale records amount received and correct change.
-- [ ] MoMo test uses a simulated external reference and explicit confirmation.
-- [ ] Card test uses a simulated terminal reference and explicit confirmation.
-- [ ] No real customer payment is processed.
+- [ ] On **staging only**, MoMo test uses a simulated external reference and explicit confirmation; live POS is cash-only until separately reviewed.
+- [ ] On **staging only**, card test uses a simulated terminal reference and explicit confirmation; live POS is cash-only until separately reviewed.
+- [ ] On staging, no real customer payment is processed. Without staging, the supervised live cash sale is **genuine**, with counted funds, owner approval and a normal receipt; never take payment merely for a test.
 - [ ] Order and report payment labels are correct.
 - [ ] Missing external reference and insufficient cash are rejected.
 - [ ] Full card numbers/PINs/CVVs are never entered or stored.
 - [ ] Staff understand that recording is not processing or proof of settlement.
 
-## Wholesale checkout — separate staging acceptance (not dispatch on credit)
+## Wholesale checkout — separate acceptance (not dispatch on credit)
 
-- [ ] Owner explicitly authorized **isolated staging wholesale tests**; `POS_STAGING_WHOLESALE_APPROVED=true` is enabled only on that clone for the tests. Live wholesale remains off.
+- [ ] On staging, owner explicitly authorized isolated Wholesale tests (`POS_STAGING_WHOLESALE_APPROVED=true` only on that clone). If staging is declined, the owner documents a controlled **real** Wholesale cash-sale plan after Retail checks; the distinct live approval and acceptance-plan reference are needed before any live Wholesale write. A flag is not evidence that testing passed.
 - [ ] **Wholesale** is a separate owner/manager navigation page; no negotiated-price controls are in the retail register. Goods are available immediately without choosing or creating a buyer. Type an optional name or leave it blank. A cashier cannot open the wholesale workspace or enter/approve a negotiated price; the API also rejects these actions.
 - [ ] Add one item, several different items, and a quantity greater than one, with independently agreed tax-inclusive **final unit prices**. No quantity breaks, minimums, or pack rules; a missing/invalid price blocks review. A one-character/invalid buyer name blocks review, but a blank name does not.
 - [ ] **Review quote** shows the optional name (or “Not provided”), approver, each quantity/line price and final all-in amount. Explicit owner/manager approval is required before order creation; editing prices or the name clears approval without discarding goods.
 - [ ] For both named and unnamed Wholesale sales, the prepared quote, Sales history and printed 58/80 mm receipt show the approver and agreed final amount; a supplied name is shown, but an unnamed receipt has no empty buyer field. Catalogue prices remain unchanged and visible as a reference; no customer-facing total adds tax to the agreement.
-- [ ] On the **actual staging WooCommerce version/settings**, inspect the REST order line `subtotal`/`total` (pre-tax), `total_tax`, `tax_lines`, order total and approval metadata. For named orders, verify the entered name in billing/order metadata; for unnamed orders, verify Woo leaves those buyer fields blank rather than supplying a default name. Confirm each line gross equals its agreed unit amount × quantity, including tax where applicable. Confirm WooCommerce has no added fees, coupons or shipping.
+- [ ] On the **actual WooCommerce version/settings** (staging preferred; otherwise owner-supervised genuine sale), inspect the REST order line `subtotal`/`total` (pre-tax), `total_tax`, `tax_lines`, order total and approval metadata. For named orders, verify the entered name in billing/order metadata; for unnamed orders, verify Woo leaves those buyer fields blank rather than supplying a default name. Confirm each line gross equals its agreed unit amount × quantity, including tax where applicable. Confirm WooCommerce has no added fees, coupons or shipping.
 - [ ] Verify the **in-store collection** tax location Woo applies both with an optional name and with no name; neither path supplies a shipping/delivery address in this workflow. Test taxable, exempt/zero-rate, and mixed-class goods plus cent-rounding cases; if a different delivery location changes tax, do not use this workflow for that delivery. When Woo cannot reproduce an exact all-in amount, the pending order stays under review and no payment is recorded.
-- [ ] Confirm an edited Woo name (including one added to an unnamed order), price, quantity, line tax, payment status or quote metadata is detected **before** payment; an interrupted order-create/reprice/payment response never creates another Woo order or a second external collection.
-- [ ] Full cash or externally verified MoMo/card payment is confirmed and recorded, with the merchant/terminal reference as applicable, **before goods leave**. Leaving an order unpaid saves it for review but never authorizes dispatch.
+- [ ] On an isolated clone or mocked harness (never deliberately corrupting a real order), confirm an edited Woo name (including one added to an unnamed order), price, quantity, line tax, payment status or quote metadata is detected **before** payment; an interrupted order-create/reprice/payment response never creates another Woo order or a second external collection.
+- [ ] Full cash payment (live), or cash / externally verified MoMo/card payment (staging only), is confirmed and recorded **before goods leave**. Leaving an order unpaid saves it for review but never authorizes dispatch.
 - [ ] The five special dispatch-first/pay-in-one-to-two-weeks customers are **not** enabled by this feature. Their credit workflow requires a future design and separate authorization.
-- [ ] Only after documented staging wholesale acceptance and written owner approval, decide whether to enable `POS_LIVE_WHOLESALE_APPROVED=true` alongside the recorded staging gate and existing live safeguards. No live wholesale test uses real customer money.
+- [ ] Only with a distinct written owner decision, the existing live write safeguards and a documented controlled live Wholesale acceptance plan/record (`POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE`) consider enabling `POS_LIVE_WHOLESALE_APPROVED=true`. Do **not** copy a staging approval flag into live. Before general staff trading, verify the observed real tax/total, stock and side effects; never use a customer's payment merely as a test.
 
 ## Failure recovery
 

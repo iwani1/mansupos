@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-This application includes production-oriented controls. The code blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) have been remediated and regression-tested. **A live-catalogue *read-only* pilot is possible without Woo staging, but it does not authorize checkout.** Trading requires acceptance of the actual store's tax/stock/recovery behavior (preferably on a separate staging clone), hardware verification, tested off-host backups and written owner approval. Do not paste secrets into chat or commit them.
+This application includes production-oriented controls. The code blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) have been remediated and regression-tested. **A live-catalogue *read-only* pilot is possible without Woo staging, but it does not authorize checkout.** Trading requires acceptance of the actual store's tax/stock/recovery behavior (preferably on a separate staging clone), hardware verification, tested off-host backups and written owner approval. If the owner declines staging, use the controlled [cash-only live acceptance plan](LIVE-CASH-ROLLOUT.md); it is not a go-live authorization. Do not paste secrets into chat or commit them.
 
 ## 1. Prerequisites
 
@@ -103,7 +103,7 @@ POS_ALLOW_LIVE_WRITES=true
 POS_OWNER_APPROVAL_REFERENCE=<written-approval-reference>
 ```
 
-Take fresh WordPress and POS backups. Run a small owner-approved live smoke test only after staging passes. Never use a real customer payment as a test. Wholesale stays **off** unless documented staging tax acceptance also permits `POS_STAGING_WHOLESALE_APPROVED=true` in the live environment and a distinct written wholesale authorization permits `POS_LIVE_WHOLESALE_APPROVED=true`. Retail's live write gate and legacy trade flags alone are not Wholesale approval; keep the five dispatch-before-payment customers outside this workflow.
+Take fresh WordPress and POS backups. Prefer a separate staging clone for acceptance. If the owner declines staging, follow [LIVE-CASH-ROLLOUT.md](LIVE-CASH-ROLLOUT.md) before even a **supervised genuine sale**: verify pending/paid order side effects first; never use fake orders or a customer payment merely as a test. Live POS payment recording is **cash only** for both Retail and Wholesale; Paystack remains for the separate online checkout. Wholesale stays **off** until the distinct owner authorization (`POS_LIVE_WHOLESALE_APPROVED=true`) and a reference to the documented live Wholesale acceptance plan/record (`POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE`, at least eight characters) are available. `POS_STAGING_WHOLESALE_APPROVED` is only for an actual staging clone; never set it in live to claim tests passed. A reference and flags do not prove acceptance or permit general staff access before sign-off. Keep the five dispatch-before-payment customers outside this workflow.
 
 ## 8. Emergency stop
 

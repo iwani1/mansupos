@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 
 test('host-level POS listener can bind only to loopback without exposing another app port', { timeout: 15000 }, async t => {
@@ -45,10 +45,9 @@ test('host-level POS listener can bind only to loopback without exposing another
   const response = await fetch(`http://127.0.0.1:${port}/api/health`);
   assert.equal(response.status, 200);
   assert.equal((await response.json()).mode, 'demo');
-  // A listener accidentally bound to 0.0.0.0 would also accept a connection
-  // through a non-loopback interface on the same host.
-  const address = Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address;
-  if (address) {
-    await assert.rejects(fetch(`http://${address}:${port}/api/health`, { signal: AbortSignal.timeout(1200) }));
-  }
+  // Inspect the kernel listener rather than fetching the sandbox's non-loopback
+  // address: its preview proxy can route a request back to a loopback service.
+  const listeners = execFileSync('ss', ['-ltnH', `( sport = :${port} )`], { encoding: 'utf8' });
+  assert.match(listeners, new RegExp(`\\b127\\.0\\.0\\.1:${port}\\s`));
+  assert.doesNotMatch(listeners, new RegExp(`(?:0\\.0\\.0\\.0|\\*):${port}\\s`));
 });

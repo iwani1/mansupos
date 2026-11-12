@@ -25,7 +25,9 @@ add('Staging approval', config.mode !== 'staging' || !config.writesEnabled || pr
 add('Live approval', config.mode !== 'live' || !config.writesEnabled || (process.env.POS_ALLOW_LIVE_WRITES === 'true' && config.approvalReference.length >= 8), config.writesEnabled ? 'writes enabled' : 'writes locked');
 add('Live catalogue pilot', !config.liveReadOnly || (!config.writesEnabled && !config.wholesaleWritesEnabled && config.mode === 'live'),
   config.liveReadOnly ? 'live WooCommerce reads only; retail and wholesale checkout locked' : 'not requested');
-add('Separate wholesale gate', true, config.mode === 'demo' ? 'isolated demo only' : config.wholesaleWritesEnabled ? 'wholesale writes enabled; confirm staging acceptance and written approval' : 'wholesale checkout locked');
+add('Separate wholesale gate', true, config.mode === 'demo' ? 'isolated demo only' : config.wholesaleWritesEnabled ? 'wholesale writes enabled; verify documented tax/stock/recovery acceptance and written approval' : 'wholesale checkout locked');
+add('Live payment scope', config.mode !== 'live' || config.paymentMethods.length === 1 && config.paymentMethods[0] === 'cash',
+  config.mode === 'live' ? 'cash only; MoMo/card/Paystack POS recording is disabled' : 'non-live payment methods');
 let existingOwner = false;
 if (config.mode !== 'demo') {
   const ledger = path.join(config.dataDir, `pos-${config.mode}.db`);
