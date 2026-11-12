@@ -126,7 +126,7 @@ export function Connection({ config, catalog, refresh, notify, user }) {
 }
 
 
-export function Help({ onClose, config, scope }) {
+export function Help({ onClose, config, scope, canInstall = false, installed = false, onInstall }) {
   const physical = scope === 'instore';
   const physicalCash = physical && config.inStoreCashEnabled && !config.liveReadOnly;
   const steps = physical
@@ -145,7 +145,7 @@ export function Help({ onClose, config, scope }) {
       : config.mode === 'demo'
         ? 'You are in a safe demo. Product names and prices came from the public store catalogue. Demo images are illustrations, not actual product photos. Inventory, DEMO- barcodes, and transactions are sample data. Nothing is sent to the live website.'
         : 'A Woo Retail/Wholesale sale is complete only when WooCommerce confirms the order and payment status. If a connection interruption occurs, use Sales → Reconcile before trying again.';
-  return <Modal title="Your quick guide" subtitle={physical ? 'Historical physical-store source · checkout locked' : config.liveReadOnly ? 'Live catalogue · checkout locked' : 'Everything you need to make a sale.'} onClose={onClose} wide><div className="modal-body"><div className="help-grid">{steps.map(([Icon,title,text])=><div className="help-item" key={title}><Icon size={23}/><h3>{title}</h3><p>{text}</p></div>)}</div><Notice tone={config.liveReadOnly || physical && !physicalCash ? 'warning' : undefined}>{guidance}</Notice><div className="shortcut-list">{!physical && <><span><kbd>/</kbd> Search products</span><span><kbd>F2</kbd> Scan product</span></>}<span><kbd>Esc</kbd> Close dialog</span></div></div><div className="modal-footer" role="group" aria-label="Dialog actions"><button className="button primary" onClick={onClose}>Got it<CheckCircle2 size={16}/></button></div></Modal>;
+  return <Modal title="Your quick guide" subtitle={physical ? 'Historical physical-store source · checkout locked' : config.liveReadOnly ? 'Live catalogue · checkout locked' : 'Everything you need to make a sale.'} onClose={onClose} wide><div className="modal-body"><div className="help-grid">{steps.map(([Icon,title,text])=><div className="help-item" key={title}><Icon size={23}/><h3>{title}</h3><p>{text}</p></div>)}</div><Notice tone={config.liveReadOnly || physical && !physicalCash ? 'warning' : undefined}>{guidance}</Notice><section className="install-help" aria-label="Desktop installation"><div><h3>Install on your computer</h3><p>Open the HTTPS POS address in Chrome or Edge, then choose the browser’s Install icon or menu → Install app. It opens in its own resizable window and uses this same server. Installation does not enable checkout or offline sales; reconnect and refresh to see current stock.</p></div>{canInstall&&<button type="button" className="button secondary" onClick={onInstall}><Download size={16}/>Install app</button>}{installed&&<span className="install-status">Installed on this device</span>}</section><div className="shortcut-list">{!physical && <><span><kbd>/</kbd> Search products</span><span><kbd>F2</kbd> Scan product</span></>}<span><kbd>Esc</kbd> Close dialog</span></div></div><div className="modal-footer" role="group" aria-label="Dialog actions"><button className="button primary" onClick={onClose}>Got it<CheckCircle2 size={16}/></button></div></Modal>;
 }
 
 export function Shifts({ config, shift, refresh, notify }) {

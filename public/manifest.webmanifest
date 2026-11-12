@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "MansutRENDZGH Retail Studio",
+  "short_name": "Mansu POS",
+  "description": "MansutRENDZGH staff catalogue and point-of-sale workspace.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3efe8",
+  "theme_color": "#2b2028",
+  "lang": "en-GH",
+  "icons": [
+    { "src": "/icons/mansu-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/mansu-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/mansu-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

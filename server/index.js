@@ -31,7 +31,8 @@ if (config.production) {
     index: false,
     maxAge: 0,
     setHeaders(res, filePath) {
-      if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+      if (filePath.endsWith(`${path.sep}sw.js`)) res.setHeader('Cache-Control', 'no-store');
+      else if (filePath.endsWith('.html') || filePath.endsWith('.webmanifest')) res.setHeader('Cache-Control', 'no-cache');
       else if (filePath.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       else res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
     },
