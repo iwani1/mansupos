@@ -105,10 +105,34 @@ try {
   await page.setViewportSize({ width: 1280, height: 800 });
   const columns = await page.locator('.product-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
   if (columns !== 3) throw new Error(`Expected three product columns at 1280px, found ${columns}.`);
+  const directory = await page.locator('.sidebar nav').evaluate(nav => {
+    const region = nav.getBoundingClientRect();
+    const links = [...nav.querySelectorAll('.nav-item')].filter(el => el.getClientRects().length);
+    return { top: links[0].getBoundingClientRect().top, bottom: links.at(-1).getBoundingClientRect().bottom,
+      regionTop: region.top, regionBottom: region.bottom, scrollTop: nav.scrollTop };
+  });
+  if (directory.top < directory.regionTop - 1 || directory.bottom > directory.regionBottom + 1 || directory.scrollTop !== 0) {
+    throw new Error(`Desktop directory hides a destination at 1280×800: ${JSON.stringify(directory)}`);
+  }
   for (const selector of ['.product-category', '.stock-caption', '.nav-short-label']) {
     const size = await page.locator(selector).first().evaluate(el => parseFloat(getComputedStyle(el).fontSize));
     if (size < 11) throw new Error(`${selector} is too small: ${size}px.`);
   }
+  await page.locator('[data-nav="wholesale"]').click();
+  const totalContrast = await page.locator('.wholesale-agreed-total strong').evaluate(el => {
+    const luminance = color => {
+      const channels = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(value => {
+        const srgb = value / 255;
+        return srgb <= .04045 ? srgb / 12.92 : ((srgb + .055) / 1.055) ** 2.4;
+      });
+      return .2126 * channels[0] + .7152 * channels[1] + .0722 * channels[2];
+    };
+    const foreground = luminance(getComputedStyle(el).color);
+    const background = luminance(getComputedStyle(el.parentElement).backgroundColor);
+    return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+  });
+  if (totalContrast < 4.5) throw new Error(`Wholesale agreed total disappears on its status panel (contrast ${totalContrast}).`);
+  await page.locator('[data-nav="register"]').click();
 
   await page.locator('.product-card').filter({ hasText: sample.simple }).click();
   await page.getByRole('button', { name: 'Add note' }).click();
@@ -194,6 +218,13 @@ try {
       await noPageOverflow('90-day mobile report');
     }
   }
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mobileNavigate('reports');
+  await page.locator('.stats-grid.four .stat-card').first().waitFor();
+  const metricColumns = await page.locator('.stats-grid.four').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  if (metricColumns !== 2) throw new Error(`375px reports waste the first screen with ${metricColumns} stacked metric columns.`);
+  await noPageOverflow('375px report metrics');
+  await mobileNavigate('register');
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.evaluate(() => window.scrollTo(0, 0));
   removeSelectedOption = true;

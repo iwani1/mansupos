@@ -22,7 +22,17 @@ try {
   await page.screenshot({ path: 'test-results/cart-desktop.png', fullPage: true });
   await page.getByRole('button', { name: /Prepare order GH/ }).click();
   await page.getByRole('heading', { name: 'Complete payment' }).waitFor();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const paymentLayout = await page.locator('.checkout-modal').evaluate(el => ({
+    confirmation: el.querySelector('.payment-confirm').getBoundingClientRect().bottom,
+    footerTop: el.querySelector('.modal-footer').getBoundingClientRect().top,
+    footerBottom: el.querySelector('.modal-footer').getBoundingClientRect().bottom,
+  }));
+  if (paymentLayout.confirmation > paymentLayout.footerTop + 1 || paymentLayout.footerBottom > 801) {
+    throw new Error(`Payment confirmation or action is obscured at counter height: ${JSON.stringify(paymentLayout)}`);
+  }
   await page.screenshot({ path: 'test-results/checkout.png' });
+  await page.setViewportSize({ width: 1440, height: 1050 });
   await page.getByRole('button', { name: 'MoMo', exact: true }).click();
   if (await page.getByRole('button', { name: 'MoMo', exact: true }).getAttribute('aria-pressed') !== 'true') throw new Error('Payment method selection is not announced.');
   await page.getByLabel('MoMo transaction reference').fill('DEMO-CHECK-123');

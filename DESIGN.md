@@ -78,7 +78,7 @@ components:
 
 ## Overview
 
-**Retail studio, not a generic dashboard.** This is a fashion-boutique selling workspace. The garment and the current sale lead; records and configuration are quieter, task-first companions. Keep the incumbent ivory, aubergine-black and restrained brass identity. CSS custom properties in `src/styles.css` are the implementation source of truth; the frontmatter above captures their portable core. `docs/UI-DESIGN.md` records earlier design decisions and audit history.
+**Retail studio, not a generic dashboard.** This is a fashion-boutique selling workspace. The garment and the current sale lead; records and configuration are quieter, task-first companions. Keep the incumbent ivory, aubergine-black and restrained brass identity. CSS custom properties in `src/styles.css` are the implementation source of truth; `src/studio.css` composes the current whole-workspace layout on top of those tokens and the existing In-store styles. The frontmatter above captures their portable core. `docs/UI-DESIGN.md` records earlier design decisions and audit history.
 
 The [awesome-design-md collection](https://github.com/voltagent/awesome-design-md) informed the token/component/responsive documentation pattern (Oura, Notion, Nike and Shopify analyses are *different brands*, not themes to borrow). [Impeccable](https://github.com/pbakaus/impeccable) informed the task-first inspection of hierarchy, states, accessibility and responsive behavior. Neither supplied assets, installed skills nor an approval-bypassing workflow to this app.
 
@@ -101,10 +101,11 @@ Hierarchy: one page `h1`; section `h2`; item/empty-state `h3` within its section
 
 ## Layout
 
-- **Counter (over 820px):** product search, scanner, category filters and three-column garment grid beside a sticky sale cart. The total and prepare-order action remain visible at 1280 × 800; cart detail can scroll independently.
-- **Navigation (up to 1080px):** the narrow desktop rail becomes a full drawer. Its off-screen contents are hidden from focus; Escape closes it. The active page and environment are always visible in text.
-- **Phone (up to 640px):** a fixed bottom sale bar opens the cart. Data tables keep semantic headers but reflow into labeled two-column records instead of hiding price, stock status, actions or access. Search and filters stack; records and long SKUs wrap. At intermediate widths, a labeled, focusable table region retains horizontal scrolling.
-- Stats are compact and comparative, not decorative hero cards. Reports show a signed daily chart *and* expandable daily totals. Period, scope and export remain in view; reports cover recorded POS sales, not all web orders.
+- **Counter (over 820px):** search, scanner and category filters form one collection shelf beside a viewport-sized sale cart. Three garment columns fit at 1280px; two are preferable at narrower counter widths, with four on very wide displays. The total and **Prepare order** remain visible at 1280 × 800 while cart detail scrolls independently.
+- **Directory:** desktop uses a 208px labeled, grouped workroom directory, not an icon-only rail. At a short counter height its supplementary connection card yields to the actual destinations. At 1080px and below it becomes a focus-contained drawer; Escape closes it, and the off-screen drawer is hidden from focus. Active page and environment remain legible in text.
+- **Phone (up to 640px):** a fixed bottom sale bar opens the full-height cart. Data tables keep semantic headers but reflow into labeled two-column records instead of hiding price, stock status, actions or access. Search and filters stack; records and long SKUs wrap. At intermediate widths, a labeled, focusable table region retains horizontal scrolling.
+- **Operational sheets:** records have a section title, count, filters and semantic table in that order. Stats form one compact comparative strip (two columns at 375px, one at very narrow widths). Reports show a signed daily chart *and* expandable daily totals; an all-zero period says so rather than fabricating activity. Period, scope and export remain in view; reports cover recorded POS sales, not all web orders.
+- **Task progression:** Wholesale uses a visible goods → approval → full-payment sequence and a sticky agreed-total sheet. The cash desk pairs the opening-float form with a practical procedure, while connection keeps read permissions, write gates and trading acceptance separate.
 
 Use the actual data's length: long names, missing SKUs, zero/negative totals, no records and interrupted sales all need a complete layout. No screen may cause page-level horizontal overflow at 320px.
 
@@ -114,12 +115,12 @@ Surfaces use a one-pixel line; don't add a shadow to every card. The sticky cart
 
 ## Shapes
 
-Controls use approximately 3–4px corners; sections 6px; dialogs 8px. Badges, avatars, stock dots and the product add affordance are circular/pill by function. Use Lucide stroke icons consistently; icons support text, never replace a payment instruction or security state. Buttons and fields are generally at least 44px high, with visible brass keyboard focus. Native checkbox, select and focus behavior is preferable to an ornamental replacement.
+Controls and ledger sheets use approximately 2–4px corners; dialogs 3px. Badges, avatars and stock dots remain circular/pill by function; the product add affordance is a small squared-off control. Use Lucide stroke icons consistently; icons support text, never replace a payment instruction or security state. Buttons and fields are generally at least 44px high, with visible brass keyboard focus. Native checkbox, select and focus behavior is preferable to an ornamental replacement.
 
 ## Components
 
 - **Register/cart:** `PageHeading`, product grid, search and F2 scanner form one selling path. Category and view filters expose pressed state. Stock/backorder/shared-pool warnings stay visible; unknown connected stock is never presented as sellable. The primary CTA says **Prepare order** because it prepares a WooCommerce order, not a charge. The cart total and CTA stay visible; notes and item details can scroll.
-- **Checkout/receipt:** the store-confirmed total leads. Cash needs a counted tender and explicit confirmation; MoMo/Card need an externally verified reference and confirmation. Switching method clears stale input/confirmation. Recording a payment is not payment processing. Receipt width and demo watermark remain explicit and printer-safe.
+- **Checkout/receipt:** the store-confirmed total leads. Cash needs a counted tender and explicit confirmation; MoMo/Card need an externally verified reference and confirmation. Switching method clears stale input/confirmation. The checkout decision remains in view when long quotes or fields scroll; at 1280 × 800, the confirmation and action are both visible. Recording a payment is not payment processing. Receipt width and demo watermark remain explicit and printer-safe.
 - **Records/reports:** native tables within named `TableRegion` components; headers remain accessible when phone records reflow. Status is a text badge. Filters show a specific empty state with a way to clear filters. Daily bars have a zero baseline and a readable daily-totals list; never imply a net refund is a new sale.
 - **Shifts/staff/audit:** cash movements use labeled type, amount and reason; counted close remains a deliberate action. Staff access is a compact role comparison, not decorative cards. Audit events have their own section heading and preserve long subjects and timestamps.
 - **Connection/navigation/feedback:** show catalogue and write-gate states separately. `Notice` is inline guidance; errors use alert semantics, while a dismissible `Toast` confirms an action. Drawer, modal and data-region focus must work with a keyboard. Reduced-motion users get no animation; product/card and feedback motion never delay a sale.

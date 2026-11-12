@@ -32,6 +32,9 @@ try {
   await page.setViewportSize({ width: 375, height: 812 });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('Read-only banner or connection page overflows a phone.');
   await page.getByRole('region', { name: 'Live catalogue read-only notice' }).getByText('Live catalogue · no checkout').waitFor();
+  if (!(await page.getByRole('region', { name: 'Live catalogue read-only notice' }).getByText(/Do not release goods using this POS/).isVisible())) {
+    throw new Error('Phone layout conceals the read-only trading warning.');
+  }
   if (pageErrors.length) throw new Error(`Browser errors: ${pageErrors.join('; ')}`);
   console.log('PASS: live catalogue pilot labels, locked checkout/Wholesale/cash and phone layout (isolated demo fixture).');
 } catch (error) {

@@ -9,7 +9,7 @@ Visual system:
 - Warm ivory paper and deep aubergine-black ink.
 - Restrained brass accents; sage/amber/red only for operational meaning.
 - Bodoni Moda display serif for headings and brand moments; DM Sans for product names and operational text.
-- Narrow icon-and-label navigation rail on desktop; full drawer navigation on tablet/mobile.
+- Readable, grouped workroom directory on desktop; focus-contained drawer navigation on tablet/mobile.
 - Product-first grid with illustrative demo imagery, minimal chrome, and clear price/stock hierarchy.
 - Persistent, high-contrast cart and checkout total.
 - Receipt styling that matches the brand while remaining printer-safe.
@@ -77,3 +77,16 @@ A desktop-and-phone review of all eight POS screens highlighted hidden mobile ta
 - Leaves WooCommerce stock ownership, idempotency/reconciliation, external payment verification, demo isolation, receipt printing and the server-side live write gate intact.
 
 The browser/accessibility checks use an **isolated** demo directory; none of these UI results proves real staging, actual peripherals or the WooCommerce-side concurrent-stock protection needed before live trading.
+
+## Counter / ledger — whole-workspace layout
+
+This iteration applies the existing design recommendations to the entire POS, not just the register. The palette, self-hosted typography, product imagery and operational language remain Mansu's; `src/studio.css` composes the new layouts after the base styles. There are no decorative stock photos, gradients, dashboard hero tiles, new checkout permissions or changes to WooCommerce order logic.
+
+- **Directory and masthead:** replace the narrow desktop icon rail with a 208px labeled workroom directory, grouped into counter and studio destinations. The current store/page and explicit environment state live in the masthead. On short displays, remove the supplemental connection card so every destination and the profile remain reachable; the 1080px drawer still traps focus and closes on Escape.
+- **Counter:** collect search, scanner, categories and stock/view filters on a single collection shelf. Merchandise remains a three-column line sheet at 1280px, two columns on phone. The aubergine sale header, independent item scroll, tabular total and fixed prepare-order action make the current sale legible without mistaking a demo/cart reference for a charge.
+- **Orders and stock:** give Sales and Inventory named record sections, a count and scoped filters. Use one comparative metric strip instead of separate raised cards. Preserve shared-parent-stock language, private wholesale price visibility by role, labeled phone records, missing SKU flags and reconciliation actions.
+- **Wholesale and cash:** express the goods → review → full-payment sequence as a clear order form, with a contrasting agreed total. Pair the shift opening form with concise cash-desk procedure; keep counted close and interrupted-order cautions. Checkout's confirmation and action fit at a 1280 × 800 counter height; longer quote bodies scroll beneath a visible footer. Receipt print output is unchanged.
+- **Reports, staff, audit, connection and physical collection:** shorten the daily graph without hiding signed values or the expandable ledger; an all-zero period says no POS sales. Role permissions remain comparative, audit entries remain a semantic table, and connection still distinguishes catalogue reads, write gates and last-item trading acceptance. The separate physical collection retains its legacy-source warning and retired-cash restrictions.
+- **Phone:** at 375px metrics form two readable columns, while very narrow widths stack them. Cart/drawer controls, stock and locked-state wording stay visible; no page-level horizontal overflow at 320px. Motion remains short and respects reduced motion.
+
+Visual review used isolated demo desktop (1280 × 800) and phone (375 × 812) screenshots for every route, plus a payment dialog at counter height. `tests/browser-design.mjs` now checks that desktop navigation destinations fit, the wholesale total has usable contrast and 375px report metrics do not turn into a long single column. `tests/browser.mjs` checks that payment confirmation and its action fit at 1280 × 800; the pilot browser check requires the full read-only warning on a phone. Browser walkthroughs use an isolated `POS_DATA_DIR`; these results cannot approve live trading, deploy to Contabo or prove concurrent WooCommerce stock safety.
