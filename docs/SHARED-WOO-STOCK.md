@@ -40,6 +40,18 @@ The tool needs **no Woo key or raw Woo export**. It writes two SHA-named Markdow
 
 On the pinned historical source, the first conservative preview proposes **344 possible multi-size groups covering 1,138 eligible records**; **60 groups containing 178 eligible and 34 held records** need manual identity review; **214 eligible records** have no proposed group and **seven held records** are outside groups. This partitions all 1,571 records exactly once (1,530 eligible; 41 held). These are **record counts, not units or confirmed Woo products**. Nothing was imported or priced. The installed pilot remains read-only.
 
+## Compare both colour layouts — still offline
+
+If the owner is deciding between **a separate website product page for each colour** and **one page with both Colour and Size choices**, generate both alternatives and a short comparison:
+
+```bash
+node scripts/compare-shared-woo-colours.mjs
+```
+
+It reads only the hash-checked local physical source; it needs **no Woo key or export**. Four private, SHA-named files are written in ignored `test-results/` with mode 0600 and are never overwritten: `shared-woo-colour-visual-*.html` (self-contained, side-by-side mock-up, no scripts, photos, prices, stock or checkout), `shared-woo-colour-compare-*.md` (short comparison), `shared-woo-colour-separate-*.md` and `shared-woo-colour-combined-*.md` (the full, text-only alternatives and review cases). These are **offline product-page ideas**, not live Woo pages or import templates. No product is drafted, published, repriced or stocked. The colour comparison only considers groups with a single exact colour word in the same name position, a matching remainder of the style name, and the same original source group. It never invents a missing Colour × Size combination, merges fuzzy names or assumes a Woo ID/parent SKU. A possible uncoloured, compound, multiword or reordered colour name for an otherwise matching style blocks the *whole combined-family suggestion* until the owner checks it; that extra record remains in the size-only review.
+
+For the pinned source this yields **20 strict-name-match but unconfirmed colour families**: Option A would be **58 possible colour-specific pages**, while Option B would be **20 possible combined pages**, covering the **same 180 eligible source size records**. Another **44 family patterns** need manual review before combining colours (including exact-token matches with additional compound or multiword colour names), and **221 other size groups** have no strict colour match; the earlier size-only worksheet remains their review source. The **41 held records remain held** under both alternatives. These counts reflect a *subset for comparison*, not a decision for all 1,530 eligible goods. The owner may choose A, B or a mix by style after seeing real photos, descriptions and the physical goods. No retail price or fresh cutover stock count is needed to compare the layouts.
+
 ## Blockers before *any* live product/stock change
 
 1. The owner has confirmed none of the 115 exported existing parent products overlap the physical goods. Recheck this against a fresh Woo listing immediately before import, resolve any conflicts product by product, and record a durable SKU ↔ Woo ID/variation crosswalk. No automatic fuzzy merge or bulk create solely from zero matches.
