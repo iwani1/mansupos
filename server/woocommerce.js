@@ -87,7 +87,7 @@ export class WooCommerce {
   async product(id) { return (await this.request(`products/${id}`)).data; }
   async variation(productId, id) { return (await this.request(`products/${productId}/variations/${id}`)).data; }
   async order(id) { return (await this.request(`orders/${id}`)).data; }
-  async createOrder(body) { return (await this.request('orders', { method: 'POST', body: { created_via: 'mansu-pos', ...body } })).data; }
+  async createOrder(body) { return (await this.request('orders', { method: 'POST', body: { ...body, created_via: 'mansu-pos' } })).data; }
   async updateOrder(id, body) { return (await this.request(`orders/${id}`, { method: 'PUT', body })).data; }
   async findOrderByKey(key, createdAt) {
     const after = new Date(new Date(createdAt).getTime() - 300000).toISOString();

@@ -29,6 +29,7 @@ function fakeApi(opts = {}) {
       if (body.status === 'cancelled' && state.failCancel) throw new RemoteError('timeout after remote cancel', 502, true);
       const o = state.orders.find(x => x.id === id);
       const { meta_data, ...rest } = body;
+      if (opts.ignoreCancel && body.status === 'cancelled') delete rest.status;
       Object.assign(o, rest);
       if (meta_data) { o.meta_data = o.meta_data || []; for (const m of meta_data) { const e = o.meta_data.find(x => x.key === m.key); if (e) e.value = m.value; else o.meta_data.push(m); } }
       if (body.set_paid) { const paid = new Date().toISOString().replace('Z', ''); o.date_paid = paid; o.date_paid_gmt = paid; if (state.driftTotal) o.total = '200.00'; if (state.driftCurrency) o.currency = state.driftCurrency; }
@@ -98,6 +99,55 @@ test('uncertain cancellation blocks subsequent payment', async t => {
   assert.equal(pay.status, 409);
   const sale = h.sales.get(p.data.sale.id, { role: 'owner' });
   assert.equal(sale.status, 'needs_reconciliation');
+});
+
+test('unpaid non-pending Woo status never becomes a payable POS sale after reconciliation', async t => {
+  const h = await harness(t);
+  const sale = (await h.request('/sales/prepare', { method: 'POST', token: h.token, body: cart() })).data.sale;
+  h.api.state.orders[0].status = 'on-hold'; // Some integrations reduce stock on this status.
+  const payment = await h.request(`/sales/${sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 11500, confirmed: true } });
+  assert.equal(payment.status, 409);
+  assert.equal(payment.data.code, 'ORDER_NOT_PAYABLE');
+  assert.equal(h.api.state.updates, 0, 'An unexpected remote state cannot receive a POS payment write.');
+  assert.equal(h.sales.get(sale.id, { role: 'owner' }).status, 'needs_reconciliation');
+  const checked = await h.request(`/sales/${sale.id}/reconcile`, { method: 'POST', token: h.token, body: {} });
+  assert.equal(checked.data.sale.status, 'needs_reconciliation', 'Reconcile must not reopen an on-hold order for cash collection.');
+});
+
+test('ambiguous pending Woo order with a paid timestamp cannot be paid from POS', async t => {
+  const h = await harness(t);
+  const sale = (await h.request('/sales/prepare', { method: 'POST', token: h.token, body: cart() })).data.sale;
+  h.api.state.orders[0].date_paid_gmt = new Date().toISOString();
+  const payment = await h.request(`/sales/${sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 11500, confirmed: true } });
+  assert.equal(payment.data.code, 'ORDER_NOT_PAYABLE');
+  assert.equal(h.api.state.updates, 0);
+  assert.equal((await h.request(`/sales/${sale.id}/reconcile`, { method: 'POST', token: h.token, body: {} })).data.sale.status, 'needs_reconciliation');
+});
+
+test('POS cancellation refuses an unexpected remote status and unconfirmed cancellation response', async t => {
+  const h = await harness(t);
+  const sale = (await h.request('/sales/prepare', { method: 'POST', token: h.token, body: cart() })).data.sale;
+  h.api.state.orders[0].status = 'on-hold';
+  const refused = await h.request(`/sales/${sale.id}/cancel`, { method: 'POST', token: h.token, body: {} });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.data.code, 'ORDER_NOT_CANCELLABLE');
+  assert.equal(h.api.state.updates, 0);
+  assert.equal(h.sales.get(sale.id, { role: 'owner' }).status, 'needs_reconciliation');
+
+  const h2 = await harness(t, { ignoreCancel: true });
+  const other = (await h2.request('/sales/prepare', { method: 'POST', token: h2.token, body: cart() })).data.sale;
+  const unconfirmed = await h2.request(`/sales/${other.id}/cancel`, { method: 'POST', token: h2.token, body: {} });
+  assert.equal(unconfirmed.data.code, 'RECONCILIATION_REQUIRED');
+  assert.equal(h2.api.state.orders[0].status, 'pending');
+  assert.equal(h2.sales.get(other.id, { role: 'owner' }).status, 'needs_reconciliation', 'A plugin-vetoed cancellation cannot be recorded as completed.');
+
+  const h3 = await harness(t);
+  const ambiguous = (await h3.request('/sales/prepare', { method: 'POST', token: h3.token, body: cart() })).data.sale;
+  h3.api.state.orders[0].date_paid_gmt = new Date().toISOString();
+  const blocked = await h3.request(`/sales/${ambiguous.id}/cancel`, { method: 'POST', token: h3.token, body: {} });
+  assert.equal(blocked.data.code, 'ORDER_NOT_CANCELLABLE');
+  assert.equal(h3.api.state.updates, 0);
+  assert.equal(h3.sales.get(ambiguous.id, { role: 'owner' }).status, 'needs_reconciliation');
 });
 
 test('sold-individually duplicate lines are aggregated and rejected', async t => {

@@ -245,8 +245,14 @@ export class SalesService {
       status = refunded >= total && total > 0 ? 'refunded' : refunded > 0 ? 'partially_refunded' : 'paid';
     } else if (['cancelled', 'trash', 'failed'].includes(order.status)) {
       status = 'cancelled';
-    } else {
+    } else if (order.status === 'pending' && !remotePaidAt(order)) {
       status = 'awaiting_payment';
+    } else {
+      // A REST-created POS order is not automatically protected by Woo's
+      // checkout hold/cancellation hooks. In particular, an unpaid on-hold or
+      // custom status is not permission to collect cash or cancel remotely.
+      status = 'needs_reconciliation';
+      error = 'WooCommerce did not return an unpaid pending order or a confirmed paid order. Review its status before collecting payment or releasing goods.';
     }
     let verified = row.trade_verified_json;
     if (row.sale_type === 'trade') {
@@ -435,6 +441,10 @@ export class SalesService {
           this.saveRemote(row, current);
           throw new AppError('WooCommerce shows this order as cancelled or failed. Do not record payment against it.', 409, 'ORDER_CANCELLED');
         }
+        if (!remotePaid(current) && (current.status !== 'pending' || remotePaidAt(current))) {
+          this.saveRemote(row, current);
+          throw new AppError('WooCommerce does not show an unpaid pending order. Do not collect cash or release goods; review this order in WooCommerce.', 409, 'ORDER_NOT_PAYABLE');
+        }
         const currentTotal = money(current.total);
         if (currentTotal !== total) {
           this.saveRemote(row, current);
@@ -535,15 +545,20 @@ export class SalesService {
             this.saveRemote(row, current);
             throw new AppError('WooCommerce shows this order as paid. Handle refunds in WooCommerce instead of cancelling.', 409, 'ORDER_ALREADY_PAID');
           }
-          if (current.status !== 'cancelled') {
+          if ((current.status !== 'pending' && current.status !== 'cancelled') || (current.status === 'pending' && remotePaidAt(current))) {
+            this.saveRemote(row, current);
+            throw new AppError('WooCommerce does not show an unpaid pending order. Do not cancel it from the POS; review payment and fulfilment in WooCommerce.', 409, 'ORDER_NOT_CANCELLABLE');
+          }
+          if (current.status === 'pending') {
             const cancelled = await this.api.updateOrder(row.woo_order_id, { status: 'cancelled' });
             assertOrderIdentity(row, cancelled);
             this.saveRemote(row, cancelled);
+            if (cancelled.status !== 'cancelled') throw new AppError('WooCommerce did not confirm cancellation. Review the remote order before retrying.', 409, 'RECONCILIATION_REQUIRED');
           } else {
             this.saveRemote(row, current);
           }
         } catch (error) {
-          if (error instanceof AppError && error.code === 'ORDER_ALREADY_PAID') throw error;
+          if (error instanceof AppError && ['ORDER_ALREADY_PAID', 'ORDER_NOT_CANCELLABLE'].includes(error.code)) throw error;
           this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run('needs_reconciliation', 'Cancellation was interrupted. Reconcile the WooCommerce order before taking payment or creating another order.', now(), id);
           throw new AppError('Cancellation needs reconciliation. Do not record payment against this sale until the remote order is verified.', 502, 'RECONCILIATION_REQUIRED');
         }

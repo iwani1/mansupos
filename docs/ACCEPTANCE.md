@@ -33,6 +33,8 @@ Automated baseline: backend/mocked WooCommerce/restore and deployment-safety reg
 - [ ] Missing/duplicate SKU report reviewed; no unapproved SKU changes.
 - [ ] A staging test sale (or a separately approved **genuine** cash sale without staging) creates exactly one WooCommerce order.
 - [ ] Correct variation stock decreases by the sold quantity.
+- [ ] Record each chosen product/variation's actual Manage stock, quantity and Allow backorders settings. Global Manage stock ON and backorder *notifications* ON do not establish per-option settings or authorize backorders.
+- [ ] Record Woo/plugin versions and any order-stock filters. Determine whether a REST-created `mansu-pos` pending order actually reserves units and whether this store auto-cancels it; a 60-minute checkout Hold stock setting alone is not evidence. Verify real effects only on a separately approved clone or during an owner-supervised **genuine** cash sale, never with an unapproved live test order. If it does not expire, establish owner monitoring and safe resolution before another sale.
 - [ ] Parent-managed options share one stock pool; independently managed options use their own stock. Combined cart quantities are tested against the real staging responses.
 - [ ] Online storefront reflects the updated stock.
 - [ ] On staging, an online test order updates stock seen by the POS after refresh; without staging, observe a genuine online order without manufacturing a test purchase.
