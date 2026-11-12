@@ -13,6 +13,11 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
 COPY --chown=node:node server ./server
+# The authenticated physical-store catalogue verifies the original files and
+# reviewed snapshot at runtime, even when cash checkout is locked. Never copy
+# these source documents into dist (the public web root).
+COPY --chown=node:node products.csv Stock-2026-11-12.pdf ./
+COPY --chown=node:node data/instore-stock-snapshot.json ./data/
 COPY --from=build --chown=node:node /app/dist ./dist
 RUN mkdir -p /var/lib/mansu-pos && chown node:node /var/lib/mansu-pos && chmod 0700 /var/lib/mansu-pos
 USER node

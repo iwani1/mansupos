@@ -40,6 +40,18 @@ Automated baseline: backend/mocked WooCommerce/restore and deployment-safety reg
 - [ ] Cancelled unpaid order and refunded paid order behave as documented.
 - [ ] Backorder (`yes` and `notify`) and untracked-stock behavior reviewed; customers are notified where required.
 
+## Physically separate In-store collection — independent cash acceptance
+
+This is **not** the WooCommerce Retail/Wholesale stock in the preceding checklist. The pilot remains read-only. See [INSTORE-COLLECTION.md](INSTORE-COLLECTION.md) for the approved source files, 41 held exceptions and distinct rollout gate. Nothing here authorizes switching on a deployed service.
+
+- [ ] Review the original PDF/CSV and snapshot hashes: 1,571 report rows, 1,570 matched unique SKUs and one SKU-less row 508. Confirm 28 negative, nine blank/malformed UOM, three fractional-cent prices and the unidentified row are **quarantined**; the other 1,530 eligible goods alone could be imported. Obtain owner-approved two-decimal payable amounts before ever selling SKUs 1469–1471. Do not treat negative stock as zero or round `194.1177` silently.
+- [ ] Explicitly confirm physical stock belongs only to this POS, with no other till or online sales of those units; document first-sale counts and an owner-controlled restock/stock-count procedure. Verify the source SHA-256 pin and one-time import into a **separate trading ledger**, never the pilot. Restart without reseeding after a sale or physical count.
+- [ ] Record a **distinct** written in-store cash acceptance, receipt/tax compliance, owner-approved business details, off-site private-ledger backup/restore and safe cutover/reversal plan. The pilot and the existing uninstalled trading template both force this gate OFF; changing only an env file must not enable it.
+- [ ] On an isolated fixture, missing shift, changed price/total, insufficient cash, zero/negative/quarantined/unknown SKU, attempted browser price/tax/method/Woo override and two cashiers for the last unit are blocked server-side with **no** sale/stock movement.
+- [ ] In a supervised **genuine** cash sale after separate approval, count the cash and verify printed 58/80 mm receipt: final all-in GHS lines/total, tender/change, **no itemized tax or zero-tax claim**. One paid local receipt, stock deduction, movement and audit event commit together; online Woo orders, stock and Paystack remain unchanged. Test lost-response recovery by looking up/retrying the **same** key, without retaking cash.
+- [ ] Confirm only the owner can correct an already eligible SKU's physical count with reason and expected previous balance, and a recount cannot unlock a quarantined item. Cashiers see only their own in-store receipts; owner/manager CSV/report is separate from Woo Retail/Wholesale. Shared shift expected cash includes both pools once, with the in-store portion visible.
+- [ ] Agree how to handle returns/refunds and any legally required tax invoice **before** trading; the in-store collection currently has no return/void/refund operation. Do not issue a Woo refund for a POS-only receipt or restore an old ledger over newer sales.
+
 ## Payments
 
 - [ ] Cash sale records amount received and correct change.

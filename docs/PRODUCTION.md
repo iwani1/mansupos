@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-This application includes production-oriented controls. The code blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) have been remediated and regression-tested. **A live-catalogue *read-only* pilot is possible without Woo staging, but it does not authorize checkout.** Trading requires acceptance of the actual store's tax/stock/recovery behavior (preferably on a separate staging clone), hardware verification, tested off-host backups and written owner approval. If the owner declines staging, use the controlled [cash-only live acceptance plan](LIVE-CASH-ROLLOUT.md); it is not a go-live authorization. Do not paste secrets into chat or commit them.
+This application includes production-oriented controls. The code blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) have been remediated and regression-tested. **A live-catalogue *read-only* pilot is possible without Woo staging, but it does not authorize checkout.** Woo-backed trading requires acceptance of the actual store's tax/stock/recovery behavior (preferably on a separate staging clone), hardware verification, tested off-host backups and written owner approval. POS-only physical-store trading instead requires verified separate counts/prices, gross-receipt compliance, local stock/cash recovery and its own approval. If the owner declines staging, use the controlled [Woo Retail/Wholesale cash-only live acceptance plan](LIVE-CASH-ROLLOUT.md); it is not a go-live authorization. The physical [In-store collection](INSTORE-COLLECTION.md) is an independent POS-only pool with its own cash gate, source review and acceptance; no Woo order approval grants it access. Do not paste secrets into chat or commit them.
 
 ## 1. Prerequisites
 
@@ -88,11 +88,11 @@ sudo systemctl status mansu-pos
 6. Exercise the separate wholesale acceptance checklist: no required buyer selection, optional typed name and unnamed sales, plus owner/manager approval; one or multiple individually priced goods; tax-inclusive final unit amounts under the actual Woo tax settings; no extra tax or fee; full externally verified payment and no credit dispatch. A Woo tax/total mismatch must leave the order unpaid and under review.
 7. Record evidence without customer secrets.
 
-## 7. Live approval gate
+## 7. Live WooCommerce order approval gate (not the physical-stock cash gate)
 
-**Not for `mansu-pos-live-pilot.service`.** That unit enforces read-only access in both startup commands and must never be converted to a trading unit or use its pilot ledger for live sales. This section describes a *future separately reviewed deployment* after acceptance and distinct written authorization.
+**Not for `mansu-pos-live-pilot.service`.** That unit enforces read-only access in both startup commands and must never be converted to a trading unit or use its pilot ledger for live sales. This section describes a *future separately reviewed deployment* after acceptance and distinct written authorization. POS-only physical goods instead follow the independent [In-store collection gate and acceptance](INSTORE-COLLECTION.md).
 
-Live writes require all of:
+Woo Retail/Wholesale order writes require all of:
 
 ```dotenv
 POS_MODE=live
@@ -110,6 +110,7 @@ Take fresh WordPress and POS backups. Prefer a separate staging clone for accept
 To stop new sales quickly, set the relevant write gate to `false` and restart:
 
 - Staging: `POS_STAGING_APPROVED=false` (all writes) or `POS_STAGING_WHOLESALE_APPROVED=false` (wholesale only)
-- Live: `POS_ALLOW_LIVE_WRITES=false` (all writes) or `POS_LIVE_WHOLESALE_APPROVED=false` (wholesale only)
+- Live Woo Retail/Wholesale: `POS_ALLOW_LIVE_WRITES=false` (Woo writes) or `POS_LIVE_WHOLESALE_APPROVED=false` (Wholesale only)
+- Independent physical-store cash: `POS_INSTORE_CASH_APPROVED=false` (new POS-only cash sales, owner counts and imports). It does not unlock or relock Woo orders.
 
-Keep the POS ledger and WooCommerce orders for reconciliation. With either write gate revoked, POS payment **and remote cancellation** are blocked; the owner must review an unpaid order directly in WooCommerce rather than bypassing the gate. Do not delete orders or restore an old database over new trading data.
+Keep the POS ledger and any WooCommerce orders for reconciliation. With the Woo write gate revoked, Woo-backed POS payment **and remote cancellation** are blocked; the owner must review an unpaid order directly in WooCommerce rather than bypassing the gate. Locking In-store cash separately stops new POS-only sales/counts but preserves paid receipts and last balances. Do not delete orders or restore an old database over new trading data.

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 
-export const APP_VERSION = '1.1.6';
+export const APP_VERSION = '1.2.0';
 const PRODUCTION_HOSTS = ['mansutrendzgh.com', 'www.mansutrendzgh.com'];
 
 function httpsOrigin(value, label) {
@@ -48,6 +48,20 @@ export function readConfig(env = process.env) {
   const wholesaleWritesEnabled = mode === 'demo' || (writesEnabled && (mode === 'staging'
     ? env.POS_STAGING_WHOLESALE_APPROVED === 'true'
     : env.POS_LIVE_WHOLESALE_APPROVED === 'true' && liveWholesaleAcceptance.length >= 8));
+  // Physical goods have their own till, ledger and cash-only gate. Retail and
+  // Wholesale Woo approvals DO NOT authorize selling this separate stock pool.
+  if (env.POS_INSTORE_CASH_APPROVED && !['true', 'false'].includes(env.POS_INSTORE_CASH_APPROVED)) {
+    throw new Error('POS_INSTORE_CASH_APPROVED must be true or false.');
+  }
+  const inStoreRequested = env.POS_INSTORE_CASH_APPROVED === 'true';
+  const inStoreAcceptanceReference = (env.POS_INSTORE_ACCEPTANCE_REFERENCE || '').trim();
+  const inStoreSourceHash = (env.POS_INSTORE_SOURCE_SHA256 || '').trim().toLowerCase();
+  if (inStoreRequested && (mode !== 'live' || liveReadOnly || inStoreAcceptanceReference.length < 8 ||
+      inStoreAcceptanceReference === approvalReference || !/^[a-f0-9]{64}$/.test(inStoreSourceHash) ||
+      (env.POS_REQUIRE_SHIFT && env.POS_REQUIRE_SHIFT !== 'true'))) {
+    throw new Error('In-store cash requires a separate reviewed live trading service, a distinct acceptance reference, a pinned stock source SHA-256, and mandatory shifts; never enable it on the read-only pilot.');
+  }
+  const inStoreCashEnabled = inStoreRequested && mode === 'live' && !liveReadOnly;
   if (env.POS_STAGING_APPROVED === 'true' && mode === 'staging' && !configured) throw new Error('Staging approval requires WooCommerce credentials.');
   if (env.POS_ALLOW_LIVE_WRITES === 'true' && mode === 'live' && !configured) throw new Error('Live writes require WooCommerce credentials.');
 
@@ -64,6 +78,7 @@ export function readConfig(env = process.env) {
 
   return {
     mode, storeUrl, configured, liveReadOnly, writesEnabled, wholesaleWritesEnabled, approvalReference,
+    inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     consumerKey: env.WOO_CONSUMER_KEY || '', consumerSecret: env.WOO_CONSUMER_SECRET || '',
     dataDir: env.POS_DATA_DIR || path.resolve('.data'),
     port, bindHost, production, publicOrigin,
@@ -88,7 +103,8 @@ export function publicConfig(config) {
   return {
     mode: config.mode, storeUrl: config.storeUrl, configured: config.configured,
     liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
-    wholesaleWritesEnabled: config.wholesaleWritesEnabled, currency: config.currency,
+    wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
+    currency: config.currency,
     lowStockThreshold: config.lowStockThreshold, receiptFooter: config.receiptFooter,
     receiptWidth: config.receiptWidth, orderStatus: config.orderStatus,
     paymentMethods: config.paymentMethods, requireShift: config.requireShift, version: APP_VERSION,

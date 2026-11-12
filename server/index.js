@@ -44,7 +44,11 @@ if (config.production) {
 }
 
 let reconciling = false;
-const reconcileTimer = config.mode !== 'demo' && !config.liveReadOnly && config.configured ? setInterval(async () => {
+// A physical-store-only cash service may hold a Woo Read-only catalogue key,
+// but must not poll customer orders in the background when Woo writes are off.
+// Woo order reconciliation after an emergency lock is a deliberate owner action.
+const reconcileTimer = config.mode !== 'demo' && !config.liveReadOnly && config.configured &&
+  (config.mode !== 'live' || config.writesEnabled) ? setInterval(async () => {
   if (reconciling) return;
   reconciling = true;
   try {
@@ -66,7 +70,8 @@ server.on('error', error => {
 });
 server.listen(config.port, config.bindHost, () => logger.info({
   msg: 'server.started', version: APP_VERSION, port: config.port, bindHost: config.bindHost, mode: config.mode,
-  writesEnabled: config.writesEnabled, publicOrigin: config.publicOrigin || undefined,
+  writesEnabled: config.writesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
+  publicOrigin: config.publicOrigin || undefined,
   note: config.mode === 'demo' ? 'isolated demo; no live writes' : undefined,
 }));
 

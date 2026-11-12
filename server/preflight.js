@@ -4,6 +4,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { readConfig, APP_VERSION } from './config.js';
 import { passwordProblem } from './db.js';
+import { loadInStoreSnapshot } from './instore-catalog.js';
 
 const config = readConfig();
 const checks = [];
@@ -23,9 +24,17 @@ add('Data directory', (() => { try { fs.mkdirSync(config.dataDir, { recursive: t
 add('WooCommerce credentials', config.mode === 'demo' || config.configured, config.configured ? 'configured' : 'missing');
 add('Staging approval', config.mode !== 'staging' || !config.writesEnabled || process.env.POS_STAGING_APPROVED === 'true', config.writesEnabled ? 'writes enabled' : 'writes locked');
 add('Live approval', config.mode !== 'live' || !config.writesEnabled || (process.env.POS_ALLOW_LIVE_WRITES === 'true' && config.approvalReference.length >= 8), config.writesEnabled ? 'writes enabled' : 'writes locked');
-add('Live catalogue pilot', !config.liveReadOnly || (!config.writesEnabled && !config.wholesaleWritesEnabled && config.mode === 'live'),
-  config.liveReadOnly ? 'live WooCommerce reads only; retail and wholesale checkout locked' : 'not requested');
+add('Live catalogue pilot', !config.liveReadOnly || (!config.writesEnabled && !config.wholesaleWritesEnabled && !config.inStoreCashEnabled && config.mode === 'live'),
+  config.liveReadOnly ? 'Woo catalogue and verified physical-source reads only; all three checkout gates locked' : 'not requested');
 add('Separate wholesale gate', true, config.mode === 'demo' ? 'isolated demo only' : config.wholesaleWritesEnabled ? 'wholesale writes enabled; verify documented tax/stock/recovery acceptance and written approval' : 'wholesale checkout locked');
+let physicalStock;
+if (config.mode === 'live') {
+  try { physicalStock = loadInStoreSnapshot();
+    add('In-store CSV / PDF source', true, `${physicalStock.summary.items} products; ${physicalStock.summary.needsReview} quarantined; SHA-256 ${physicalStock.manifestHash}`);
+  } catch (error) { add('In-store CSV / PDF source', false, error.message); }
+  add('Separate in-store cash gate', !config.inStoreCashEnabled || physicalStock?.manifestHash === config.inStoreSourceHash,
+    config.inStoreCashEnabled ? 'cash gate approved separately; pinned source must match and shift is mandatory' : 'in-store checkout locked; physical catalogue only');
+}
 add('Live payment scope', config.mode !== 'live' || config.paymentMethods.length === 1 && config.paymentMethods[0] === 'cash',
   config.mode === 'live' ? 'cash only; MoMo/card/Paystack POS recording is disabled' : 'non-live payment methods');
 let existingOwner = false;

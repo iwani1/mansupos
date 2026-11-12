@@ -1,4 +1,6 @@
-# Proposed cash-only, no-staging live rollout — NOT a go-live authorization
+# Proposed cash-only Woo Retail/Wholesale rollout — NOT a go-live authorization
+
+**Scope:** WooCommerce-linked Retail and Wholesale goods only. The client-supplied physical [In-store collection](INSTORE-COLLECTION.md) is a distinct POS-only cash/stock pool with no Woo order or online-stock mutation; it has its own source review and approval gate. Do not apply this Woo write plan to those physical goods or use physical-stock approval to unlock Woo orders.
 
 The owner has **reported** written approval for real Retail and Wholesale sales and a full off-site WordPress backup with a tested restore. The operator chose not to use a separate test store. These reports do not establish tax, stock, payment-recovery or integration acceptance. The GreenGeeks WooCommerce shop continues to take online Paystack payments; the Contabo POS catalogue pilot (`pos.mansutrendzgh.com`) remains **read-only**, with its Read-only Woo key, service, port and ledger untouched. Do not turn it into a trading service or change its Woo key to Read/Write.
 

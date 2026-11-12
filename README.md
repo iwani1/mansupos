@@ -4,7 +4,7 @@ A working, mobile-friendly point-of-sale application for **MansutRENDZGH**, desi
 
 ## Current status
 
-The separately deployed `pos.mansutrendzgh.com` **read-only live catalogue (version 1.1.4)** reads the real WooCommerce products with a Read-only key; it cannot create orders or record payment. Its 115-product catalogue was verified, not checkout/tax acceptance. The public UI does not show demo records, but its older build may still contain unused demo illustration files until upgraded. The isolated demo is retained for local tests only. This repository's **1.1.6** refresh removes sample stock/sign-in/assets from non-demo operation and includes a separate, **write-locked** live trading-service template; neither the refresh nor the template is deployed yet. The owner reports written Retail + Wholesale sales approval and a tested off-host store restore, but has declined staging; **real POS trading is not yet enabled**. The proposed no-staging path is a [supervised cash-only live acceptance plan](docs/LIVE-CASH-ROLLOUT.md), not permission to unlock the catalogue service.
+The separately deployed `pos.mansutrendzgh.com` **read-only live pilot** was last checked locally at **1.1.6** after its own verified backup, demo-free build and restart; the requested public HTTPS readiness result has not yet been reported. It uses a WooCommerce Read-only key, displayed 115 verified online products and **cannot create orders, record payments or open cash shifts**. This branch's **1.2.0** code adds a separate [In-store collection](docs/INSTORE-COLLECTION.md) from the client's physical-stock PDF/CSV. On the pilot it remains a **catalogue only**, while an independently gated POS-only cash, receipt and stock ledger is implemented for a later reviewed trading service. **No new sale has been enabled or deployed.** The existing separate live trading-service template is not installed and forces Woo and in-store writes off. The owner reports written Retail + Wholesale approval and an off-site shop restore, but declined staging; actual-store Woo order acceptance still requires the [supervised cash-only plan](docs/LIVE-CASH-ROLLOUT.md). The physical-stock cash path needs its *own* reviewed acceptance and does not create Woo orders.
 
 The codebase includes production-oriented controls (shifts, audit, lockout, idle sessions, reconciliation sweep, diagnostics, migrations, backup/restore, preflight, Docker/Caddy/systemd/nginx examples, and CI). **A full application audit on 4 November 2026 found release blockers; the code remediation and regression tests are documented in [docs/AUDIT-2026-11-04.md](docs/AUDIT-2026-11-04.md).** Live checkout still needs actual WooCommerce tax/stock/recovery and integration acceptance, physical hardware verification and a separate reviewed trading deployment. Do not enable live writes from the read-only pilot.
 
@@ -17,13 +17,14 @@ The codebase includes production-oriented controls (shifts, audit, lockout, idle
 ## Included
 
 - Product search, category filters, grid/list views, and stock visibility.
+- **In-store collection**: independent client PDF-count/CSV-price stock, searched by name/SKU/group, with 41 quarantined exceptions and no cost fields in the POS API. The live pilot can only view it; a distinct, locked-by-default live cash workflow has atomic POS-only deductions, cash receipts, owner-count movements and separate history/reports. No Woo order, online-stock change or Paystack action occurs on that path.
 - Simple products and size/variation selection.
 - Exact SKU/barcode lookup and keyboard-wedge scanner input (`F2`).
 - Cart quantities, internal notes, and browser-local held **retail** sales.
 - Dedicated **Wholesale** workspace (owner/manager only): start with goods; a buyer name is optional and can be entered directly without selecting or creating a buyer. Enter each negotiated final tax-inclusive unit price, review and explicitly approve the quote, then record full payment before goods leave. Named and unnamed sales appear in history; catalogue prices remain unchanged, with no quantity tiers or unpaid dispatch. The retail register has no negotiated-price controls.
 - Cash received/change calculation.
 - Cash-only live POS payment recording (MoMo/Card recording remains available in demo/staging, not live); online Paystack checkout is separate.
-- WooCommerce order creation and payment-status confirmation in staging/live mode.
+- WooCommerce Retail/Wholesale order creation and payment-status confirmation **only behind their separate staging/live gates**; In-store collection sales never use that adapter.
 - Idempotent checkout preparation and interrupted-order reconciliation.
 - Printable 58 mm, 80 mm, and A4 receipts.
 - Inventory and missing/duplicate SKU visibility.
@@ -52,18 +53,18 @@ Open `http://localhost:3000`. The default configuration is demo mode; no credent
 npm test                 # backend and mocked WooCommerce integration tests
 npm run build            # isolated demo frontend build
 npm run build:live       # live/staging frontend build; excludes demo illustrations
-npm run test:browser     # demo workflow, wholesale quotes, recovery, proxy, motion and design checks; expects port 3000
+npm run test:browser     # isolated demo and intercepted in-store/pilot/cash UI, recovery, motion, design; expects port 3000
 npm run test:design      # counter/mobile layout and mocked visual-state checks
 npm run test:a11y        # axe WCAG A/AA + best-practice scans; expects port 3000
 npm run lint             # ESLint
 npm run backup           # consistent SQLite backup + integrity check
 ```
 
-The browser walkthrough creates demo sales and may close an open demo shift. Run it only against a separate `POS_MODE=demo` server with an isolated `POS_DATA_DIR`—never staging or live. Set `TEST_BASE_URL` if that server is not on port 3000. The browser tests use a development-only Chromium package; set `TEST_CHROMIUM_PATH` to use an existing Chrome/Chromium installation instead.
+The browser walkthrough creates demo sales and may close an open demo shift. Its live/in-store UI cases intercept fixture responses and **never submit a real sale**. Run it only against a separate `POS_MODE=demo` server with an isolated `POS_DATA_DIR`—never staging or live. Set `TEST_BASE_URL` if that server is not on port 3000. The browser tests use a development-only Chromium package; set `TEST_CHROMIUM_PATH` to use an existing Chrome/Chromium installation instead.
 
 ## Connect the store
 
-On the shared Contabo VPS (host Nginx, another Node app on port 3000, no Docker), the isolated **[read-only live pilot](docs/CONTABO-LIVE-PILOT.md)** is already serving `pos.mansutrendzgh.com` over HTTPS on loopback port 3187. It cannot create orders, record payment or open cash shifts. **[docs/CONTABO-NATIVE.md](docs/CONTABO-NATIVE.md)** is a distinct Woo-staging route; it cannot run on the pilot's port. **[docs/CONTABO.md](docs/CONTABO.md)** covers optional POS-only Docker/Compose only if an administrator chooses to install Docker. The owner's no-staging request has a **separate, not-yet-deployed and write-locked** [live trading-service template](docs/CONTABO-LIVE-TRADING.md); real trading requires the checks in **[docs/LIVE-CASH-ROLLOUT.md](docs/LIVE-CASH-ROLLOUT.md)**. See **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for gates, **[docs/SETUP.md](docs/SETUP.md)** for setup, **[docs/OPERATIONS.md](docs/OPERATIONS.md)** for daily use, and **[docs/SECURITY.md](docs/SECURITY.md)** for security.
+On the shared Contabo VPS (host Nginx, another Node app on port 3000, no Docker), the isolated **[read-only live pilot](docs/CONTABO-LIVE-PILOT.md)** is already serving `pos.mansutrendzgh.com` over HTTPS on loopback port 3187. It cannot create orders, record payment or open cash shifts. **[docs/CONTABO-NATIVE.md](docs/CONTABO-NATIVE.md)** is a distinct Woo-staging route; it cannot run on the pilot's port. **[docs/CONTABO.md](docs/CONTABO.md)** covers optional POS-only Docker/Compose only if an administrator chooses to install Docker. The owner's no-staging request has a **separate, not-yet-deployed and write-locked** [live trading-service template](docs/CONTABO-LIVE-TRADING.md). The physical-stock pool has its own [POS-only acceptance boundary](docs/INSTORE-COLLECTION.md), whereas Woo Retail/Wholesale trading needs the checks in **[docs/LIVE-CASH-ROLLOUT.md](docs/LIVE-CASH-ROLLOUT.md)**. See **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for gates, **[docs/SETUP.md](docs/SETUP.md)** for setup, **[docs/OPERATIONS.md](docs/OPERATIONS.md)** for daily use, and **[docs/SECURITY.md](docs/SECURITY.md)** for security.
 
 The deployed read-only catalogue pilot does **not** authorize real Woo test orders. For eventual trading without a staging clone:
 
@@ -77,8 +78,8 @@ The deployed read-only catalogue pilot does **not** authorize real Woo test orde
 
 ## Verification
 
-- `npm test`: backend/mocked WooCommerce/restore and deployment-safety regression tests pass locally, including the live catalogue pilot's forced loopback/write locks, Woo request guard, multi-page catalogue reads, optional-name and unnamed wholesale quotes, exact tax-inclusive amounts, cash-only live payment gate, no-staging Wholesale approval separation, historical-order compatibility, loss/reconciliation recovery, stock checks, single-instance locking and owner preflight.
-- `npm run test:browser`: demo retail/Wholesale quotes, recovery, receipt, proxy session, reduced motion, counter/mobile layout, pilot checkout-lock labels and **isolated mock live-mode cash-only UI**. Run only against an isolated demo database, never the live site.
+- `npm test`: backend/mocked WooCommerce/restore and deployment-safety regression tests, plus physical-source matching, quarantines, separate cash gate, atomic POS-only stock/receipt, last-item race, idempotency, owner counts, distinct reports and pilot locks.
+- `npm run test:browser`: demo Retail/Wholesale, recovery, receipt, mobile layout, pilot lock and **isolated In-store collection** UI/cash receipt/lost-response recovery/accessibility with mocked live responses. Run only against an isolated demo database, never the live site.
 - `npm run test:a11y`: axe WCAG A/AA + best-practice scans and 320px overflow check pass.
 - `npm run lint`: ESLint passes.
 - Receipt PDF was checked for one-page layout and extractable receipt text.
@@ -93,12 +94,12 @@ These checks use isolated fixtures and mocked WooCommerce responses. They do not
 ## Important limitations
 
 - This application **records** payments; it does not process MoMo or card payments. An unpaid or under-review wholesale order **never** authorizes release of goods. The five dispatch-first/pay-later accounts remain unimplemented.
-- Wholesale is restricted to in-store collection at the store tax location **to be verified against actual WooCommerce tax settings** (preferably staging, or under an owner-supervised genuine-sale plan). Different delivery-tax jurisdictions require a separately accepted address/tax workflow; do not assume a buyer name alone supplies a taxable destination.
-- Internet access is required for checkout. There is no offline payment queue.
-- Fresh stock checks and order updates are separate requests, not an atomic reservation. Concurrent online/POS sales can still race; a WooCommerce-side safeguard shared by both channels or an approved operational control must be established and verified before live trading.
+- Woo-backed Wholesale is for **collection at the shop tax location**, to be verified against actual WooCommerce rules; it does **not** sell goods from the distinct **In-store collection** stock pool. Different delivery-tax jurisdictions require another address/tax workflow.
+- Woo Retail/Wholesale checkout requires internet; the independent In-store collection uses only the local POS server but has **no offline payment queue**.
+- Woo stock checks and order updates are separate requests, not an atomic reservation; concurrent online/POS sales can race and need a shared safeguard. POS-exclusive In-store collection stock is deducted atomically with its cash receipt, and must not be sold by another till.
 - Printer/scanner/cash-drawer compatibility must be verified on the actual hardware. Cash-drawer triggering is not implemented.
-- Refunds are initiated in WooCommerce, then reconciled into POS reports. The POS does not issue payment refunds.
-- Reports cover POS transactions recorded by this application, not every online order.
+- Woo Retail/Wholesale refunds are initiated in WooCommerce, then reconciled into their POS reports. **In-store collection returns/refunds are not implemented**; arrange a separate owner procedure before live cash sales. The POS does not issue payment refunds.
+- Woo Retail/Wholesale history/reports and In-store collection cash history/reports are **distinct**. Neither includes every online order. The shared shift drawer includes both cash pools without double-counting.
 - The local ledger is not an accounting/tax system. Verify Ghanaian receipt/tax requirements with the owner’s adviser.
 - The app is designed for one shop and a single Node server instance with persistent private storage. Multi-instance deployment needs a shared database/distributed lock and a revised reconciliation design.
 

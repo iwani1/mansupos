@@ -9,11 +9,12 @@ User=mansu-pos-trading
 Group=mansu-pos-trading
 WorkingDirectory=/opt/mansu-pos-live-trading
 EnvironmentFile=/etc/mansu-pos-live-trading/pos.env
-# The separate listener/ledger and BOTH write locks are imposed even if an
-# env file is copied from another service. A later trading cutover requires a
+# The separate listener/ledger and ALL THREE write locks (Woo Retail,
+# Woo Wholesale, POS-only In-store cash) are imposed even if an env file is
+# copied from another service. A later trading cutover requires a
 # reviewed change to this unit AND its tests; do not enable via env alone.
-ExecStartPre=/usr/bin/env NODE_ENV=production POS_MODE=live POS_LIVE_READ_ONLY=false POS_ALLOW_LIVE_WRITES=false POS_LIVE_WHOLESALE_APPROVED=false POS_OWNER_APPROVAL_REFERENCE= POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE= POS_STAGING_APPROVED=false POS_STAGING_WHOLESALE_APPROVED=false POS_BIND_HOST=127.0.0.1 PORT=3188 POS_DATA_DIR=/var/lib/mansu-pos-live-trading POS_TRUST_PROXY=loopback POS_REQUIRE_SHIFT=true POS_PUBLIC_ORIGIN=https://pos.mansutrendzgh.com /usr/bin/node server/preflight.js
-ExecStart=/usr/bin/env NODE_ENV=production POS_MODE=live POS_LIVE_READ_ONLY=false POS_ALLOW_LIVE_WRITES=false POS_LIVE_WHOLESALE_APPROVED=false POS_OWNER_APPROVAL_REFERENCE= POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE= POS_STAGING_APPROVED=false POS_STAGING_WHOLESALE_APPROVED=false POS_BIND_HOST=127.0.0.1 PORT=3188 POS_DATA_DIR=/var/lib/mansu-pos-live-trading POS_TRUST_PROXY=loopback POS_REQUIRE_SHIFT=true POS_PUBLIC_ORIGIN=https://pos.mansutrendzgh.com /usr/bin/node server/index.js
+ExecStartPre=/usr/bin/env NODE_ENV=production POS_MODE=live POS_LIVE_READ_ONLY=false POS_ALLOW_LIVE_WRITES=false POS_LIVE_WHOLESALE_APPROVED=false POS_OWNER_APPROVAL_REFERENCE= POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE= POS_INSTORE_CASH_APPROVED=false POS_INSTORE_ACCEPTANCE_REFERENCE= POS_INSTORE_SOURCE_SHA256= POS_STAGING_APPROVED=false POS_STAGING_WHOLESALE_APPROVED=false POS_BIND_HOST=127.0.0.1 PORT=3188 POS_DATA_DIR=/var/lib/mansu-pos-live-trading POS_TRUST_PROXY=loopback POS_REQUIRE_SHIFT=true POS_PUBLIC_ORIGIN=https://pos.mansutrendzgh.com /usr/bin/node server/preflight.js
+ExecStart=/usr/bin/env NODE_ENV=production POS_MODE=live POS_LIVE_READ_ONLY=false POS_ALLOW_LIVE_WRITES=false POS_LIVE_WHOLESALE_APPROVED=false POS_OWNER_APPROVAL_REFERENCE= POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE= POS_INSTORE_CASH_APPROVED=false POS_INSTORE_ACCEPTANCE_REFERENCE= POS_INSTORE_SOURCE_SHA256= POS_STAGING_APPROVED=false POS_STAGING_WHOLESALE_APPROVED=false POS_BIND_HOST=127.0.0.1 PORT=3188 POS_DATA_DIR=/var/lib/mansu-pos-live-trading POS_TRUST_PROXY=loopback POS_REQUIRE_SHIFT=true POS_PUBLIC_ORIGIN=https://pos.mansutrendzgh.com /usr/bin/node server/index.js
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15

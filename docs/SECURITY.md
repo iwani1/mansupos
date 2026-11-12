@@ -23,7 +23,7 @@
 
 - Owner: staff, connection, audit, all sales/reports/shifts; can enter an optional wholesale buyer name and approve negotiated prices.
 - Manager: all POS sales/reports/shifts and optional name/price approval; no staff/connection management.
-- Cashier: own sales and own shifts; no wholesale preparation/approval, historical buyer directory, reports/staff/connection/audit.
+- Cashier: own sales and own shifts; no wholesale preparation/approval, historical buyer directory, reports/staff/connection/audit. For the separate physical In-store collection, owner/manager can inspect stock movements and cash reports, and only owner can make reason-bearing physical counts on eligible goods. All approved roles can record cash-only POS sales; cashier sees only their own in-store receipts.
 - Permissions are enforced by the API, not only hidden in the UI.
 
 ## Request protection
@@ -37,7 +37,7 @@
 
 ## Payment boundary
 
-The POS records externally collected payments. It does not process MoMo or card payments, store PAN/PIN/CVV, or connect to a payment gateway. MoMo/Card references must be merchant/terminal references, not customer card data. Wholesale orders also require a separately authorized write gate, an approved tax-inclusive quote, an exact WooCommerce tax/total match and a matching full POS payment record before they can be marked paid. Neither **Leave unpaid** nor the unimplemented five-account dispatch-on-credit exception permits unpaid wholesale goods to be released.
+The POS records externally collected payments. It does not process MoMo or card payments, store PAN/PIN/CVV, or connect to a payment gateway. The separate physical In-store collection accepts cash only: one local ledger transaction debits verified in-store stock and records a gross-only POS receipt. It does not call WooCommerce or Paystack, adjust online inventory, or rely on Woo checkout approvals. MoMo/Card references must be merchant/terminal references, not customer card data. Wholesale orders also require a separately authorized write gate, an approved tax-inclusive quote, an exact WooCommerce tax/total match and a matching full POS payment record before they can be marked paid. Neither **Leave unpaid** nor the unimplemented five-account dispatch-on-credit exception permits unpaid wholesale goods to be released.
 
 ## Data protection
 
@@ -45,7 +45,7 @@ The POS records externally collected payments. It does not process MoMo or card 
 - A SQLite exclusive-transaction lease prevents a second POS process or a restore operation from using the same ledger concurrently, even if both containers report PID 1. Abrupt exit releases the lease; it is not multi-server replication.
 - Preflight requires a valid first-owner bootstrap credential or an active owner already in the ledger. Remove the bootstrap secret from the server environment after the first owner changes the password.
 - Backups must be encrypted/access-controlled and stored off-host. Use the app's integrity-checked online SQLite backup, not a copy of a live WAL database, and test restore on an isolated volume.
-- Audit logs record security, staff, shift, and sale events.
+- Audit logs record security, staff, shift, and sale events. The separate in-store import, cash sales and counted adjustments retain source hashes, idempotency keys and movement records in the private ledger. The user approved publishing the source product CSV and physical-stock PDF (including supplier costs and quantities); the private POS ledger and customer/cashier data are not approved for publication.
 - Optional wholesale buyer names (when provided), negotiated unit prices and approving staff are restricted business records in the private POS ledger, Woo order metadata, receipts and reports; do not publish them in screenshots, issues or public test fixtures. Unnamed orders never invent a buyer identity.
 - Reports/exports contain cashier names, optional wholesale buyer names and external references; treat them as restricted business records.
 

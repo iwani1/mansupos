@@ -30,18 +30,27 @@ export class ShiftService {
     if (shift.status !== 'open') return shift.expected_cash ?? 0;
     const sales = this.db.prepare("SELECT COALESCE(SUM(total - refunded),0) AS total FROM sales WHERE shift_id=? AND status IN ('paid','partially_refunded','refunded') AND payment_method='cash'").get(shiftId).total;
     const movements = this.db.prepare("SELECT COALESCE(SUM(CASE WHEN type='in' THEN amount ELSE -amount END),0) AS total FROM cash_movements WHERE shift_id=?").get(shiftId).total;
-    return shift.opening_float + sales + movements;
+    // The physical-store collection shares the counted POS cash drawer, but
+    // never shares WooCommerce sales, inventory, or the online reports.
+    const inStore = this.db.prepare('SELECT COALESCE(SUM(total),0) AS total FROM instore_sales WHERE shift_id=?').get(shiftId).total;
+    return shift.opening_float + sales + inStore + movements;
   }
   summary(shiftId) {
-    return this.db.prepare(`SELECT COUNT(*) AS orders, COALESCE(SUM(total - refunded),0) AS net,
+    const online = this.db.prepare(`SELECT COUNT(*) AS orders, COALESCE(SUM(total - refunded),0) AS net,
       COALESCE(SUM(CASE WHEN payment_method='cash' THEN total - refunded ELSE 0 END),0) AS cash,
       COALESCE(SUM(CASE WHEN payment_method='momo' THEN total - refunded ELSE 0 END),0) AS momo,
       COALESCE(SUM(CASE WHEN payment_method='card' THEN total - refunded ELSE 0 END),0) AS card
       FROM sales WHERE shift_id=? AND status IN ('paid','partially_refunded','refunded')`).get(shiftId);
+    const inStore = this.db.prepare('SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS cash FROM instore_sales WHERE shift_id=?').get(shiftId);
+    return { orders: online.orders + inStore.orders, net: online.net + inStore.cash,
+      cash: online.cash + inStore.cash, momo: online.momo, card: online.card,
+      inStoreOrders: inStore.orders, inStoreCash: inStore.cash };
   }
   view(row) {
     const expected = this.expectedCash(row.id);
-    const summary = row.status === 'closed' && row.summary_json ? JSON.parse(row.summary_json) : this.summary(row.id);
+    const summary = row.status === 'closed' && row.summary_json
+      ? { inStoreOrders: 0, inStoreCash: 0, ...JSON.parse(row.summary_json) }
+      : this.summary(row.id);
     const movements = this.db.prepare('SELECT * FROM cash_movements WHERE shift_id=? ORDER BY created_at').all(row.id);
     return {
       id: row.id, userId: row.user_id, userName: row.user_name, status: row.status,

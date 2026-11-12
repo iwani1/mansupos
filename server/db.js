@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { demoProducts } from './demo-catalog.js';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
@@ -85,7 +85,53 @@ function migrate(db) {
       ALTER TABLE sales ADD COLUMN trade_approved_at TEXT;
       CREATE INDEX idx_sales_trade_buyer ON sales(buyer_id, created_at);
     `),
+    // Physical-store goods have NO WooCommerce product/order IDs. The source
+    // snapshot is imported only into a separately approved live trading ledger.
+    // Ledger movements and paid sales commit atomically with stock deductions.
+    () => db.exec(`
+      CREATE TABLE instore_imports (
+        id INTEGER PRIMARY KEY CHECK(id=1), source_hash TEXT NOT NULL,
+        csv_hash TEXT NOT NULL, pdf_hash TEXT NOT NULL, imported_at TEXT NOT NULL,
+        listed INTEGER NOT NULL, eligible INTEGER NOT NULL, quarantined INTEGER NOT NULL
+      );
+      CREATE TABLE instore_inventory (
+        sku TEXT PRIMARY KEY, name TEXT NOT NULL, group_name TEXT NOT NULL,
+        barcode TEXT NOT NULL DEFAULT '', price_cents INTEGER NOT NULL CHECK(price_cents > 0),
+        initial_quantity INTEGER NOT NULL CHECK(initial_quantity >= 0),
+        on_hand INTEGER NOT NULL CHECK(on_hand >= 0)
+      );
+      CREATE TABLE instore_sales (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE, idempotency_key TEXT NOT NULL UNIQUE,
+        fingerprint TEXT NOT NULL, number TEXT NOT NULL UNIQUE,
+        total INTEGER NOT NULL CHECK(total > 0),
+        tendered INTEGER NOT NULL CHECK(tendered >= total),
+        change_due INTEGER NOT NULL CHECK(change_due = tendered - total),
+        cashier_id TEXT NOT NULL REFERENCES users(id), cashier_name TEXT NOT NULL,
+        shift_id TEXT NOT NULL REFERENCES shifts(id),
+        items_json TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+        source_hash TEXT NOT NULL, paid_at TEXT NOT NULL
+      );
+      CREATE TABLE instore_stock_movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT NOT NULL REFERENCES instore_inventory(sku),
+        delta INTEGER NOT NULL CHECK(delta <> 0), balance_after INTEGER NOT NULL CHECK(balance_after >= 0),
+        kind TEXT NOT NULL CHECK(kind IN ('import','sale','count')),
+        reason TEXT NOT NULL DEFAULT '', sale_id TEXT REFERENCES instore_sales(id), actor_id TEXT,
+        occurred_at TEXT NOT NULL, UNIQUE(sale_id, sku)
+      );
+      CREATE TABLE instore_stock_counts (
+        idempotency_key TEXT PRIMARY KEY, sku TEXT NOT NULL REFERENCES instore_inventory(sku),
+        fingerprint TEXT NOT NULL, expected_quantity INTEGER NOT NULL CHECK(expected_quantity >= 0),
+        counted_quantity INTEGER NOT NULL CHECK(counted_quantity >= 0),
+        reason TEXT NOT NULL, actor_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_instore_sales_date ON instore_sales(paid_at DESC, seq DESC);
+      CREATE INDEX idx_instore_sales_cashier_date ON instore_sales(cashier_id, paid_at DESC, seq DESC);
+      CREATE INDEX idx_instore_movements_sku ON instore_stock_movements(sku, id);
+      CREATE INDEX idx_instore_sales_shift ON instore_sales(shift_id);
+    `),
   ];
+  if (current > migrations.length) throw new Error('POS ledger schema is newer than this application. Do not downgrade a trading ledger.');
   for (let version = current + 1; version <= migrations.length; version++) {
     db.exec('BEGIN IMMEDIATE');
     try {

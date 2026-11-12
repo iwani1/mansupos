@@ -18,7 +18,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build:live
-      - run: test -f dist/index.html && test -f dist/favicon.svg && test ! -e dist/demo
+      - run: test -f dist/index.html && test -f dist/favicon.svg && test ! -e dist/demo && test ! -e dist/products.csv && test ! -e dist/Stock-2026-11-12.pdf && test ! -e dist/data/instore-stock-snapshot.json
       - run: npm audit --audit-level=high
       - run: npm run preflight
       - name: Validate isolated native systemd units
@@ -74,6 +74,14 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build production image
         run: docker build -t mansu-pos:ci .
+      - name: Verify packaged physical-store sources
+        run: |
+          docker run --rm mansu-pos:ci node --input-type=module -e '
+            import { loadInStoreSnapshot } from "./server/instore-catalog.js";
+            const snapshot = loadInStoreSnapshot();
+            if (snapshot.summary.items !== 1571 || snapshot.summary.needsReview !== 41) process.exit(1);
+            console.log("In-store source hashes and quarantine verified in the production image.");
+          '
       - name: Smoke test container
         run: |
           trap 'docker rm -f mansu-pos-ci >/dev/null 2>&1 || true' EXIT

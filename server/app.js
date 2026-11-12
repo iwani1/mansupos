@@ -7,6 +7,7 @@ import { readConfig, publicConfig, APP_VERSION } from './config.js';
 import { openDatabase, hashPassword, verifyPassword, passwordProblem, userView, audit, saleView } from './db.js';
 import { WooCommerce } from './woocommerce.js';
 import { Catalog } from './catalog.js';
+import { InStoreService, inStoreSaleSchema, inStoreCountSchema } from './instore.js';
 import { SalesService, prepareSchema, paymentSchema } from './sales.js';
 import { ShiftService, openShiftSchema, closeShiftSchema, cashMovementSchema } from './shifts.js';
 import { AppError, now } from './errors.js';
@@ -54,6 +55,9 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   const catalog = new Catalog(db, api, config);
   const sales = new SalesService(db, catalog, api, config);
   const shifts = new ShiftService(db, config);
+  let inStore;
+  try { inStore = new InStoreService(db, config); }
+  catch (error) { db.close(); throw error; }
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
@@ -113,7 +117,7 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
       db.prepare('SELECT 1').get();
       const issues = [];
       if (config.mode !== 'demo' && !config.configured) issues.push('WooCommerce credentials are not configured.');
-      if (config.mode === 'live' && !config.liveReadOnly && !config.writesEnabled) issues.push('Live write gate is disabled.');
+      if (config.mode === 'live' && !config.liveReadOnly && !config.writesEnabled && !config.inStoreCashEnabled) issues.push('Live write gates are disabled.');
       res.status(issues.length ? 503 : 200).json({ ok: issues.length === 0, mode: config.mode, liveReadOnly: config.liveReadOnly, version: APP_VERSION, issues });
     } catch { res.status(503).json({ ok: false, error: 'Database is not ready.' }); }
   });
@@ -165,6 +169,42 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   });
 
   app.get('/api/catalog', auth, async (req, res) => res.json(await catalog.get(req.query.refresh === '1')));
+  // A completely separate cash/stock ledger: no WooCommerce IDs, order
+  // creation or Paystack call is reachable through these routes. The live
+  // catalogue pilot forces its own gate OFF even if its env file is copied.
+  if (config.mode === 'live') {
+    app.get('/api/instore/catalog', auth, (_req, res) => res.json(inStore.catalog()));
+    app.get('/api/instore/sales', auth, (req, res) => {
+      const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit || 50);
+      const before = req.query.before ? z.coerce.number().int().positive().parse(req.query.before) : null;
+      res.json(inStore.list(req.user, limit, before));
+    });
+    app.get('/api/instore/sales/by-key/:key', auth, (req, res) => res.json({ sale: inStore.byKey(req.user, z.string().uuid().parse(req.params.key)) }));
+    app.get('/api/instore/sales/:id', auth, (req, res) => res.json({ sale: inStore.sale(req.user, z.string().uuid().parse(req.params.id)) }));
+    app.post('/api/instore/sales', auth, sensitiveLimit, (req, res) => {
+      if (!config.inStoreCashEnabled) inStore.locked();
+      res.status(201).json({ sale: inStore.recordSale(req.user, inStoreSaleSchema.parse(req.body)) });
+    });
+    app.get('/api/instore/reports', auth, role('owner', 'manager'), (req, res) => {
+      const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
+      res.json(inStore.report(days));
+    });
+    app.get('/api/instore/reports/export', auth, role('owner', 'manager'), (req, res) => {
+      const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
+      const { csv, count } = inStore.exportCsv(days);
+      audit(db, req.user.id, 'instore.reports_export', `${count} sales`);
+      res.type('text/csv').attachment(`mansu-pos-instore-${now().slice(0, 10)}.csv`).send(csv);
+    });
+    app.get('/api/instore/stock/:sku/movements', auth, role('owner', 'manager'), (req, res) => {
+      const limit = z.coerce.number().int().min(1).max(200).parse(req.query.limit || 100);
+      const before = req.query.before ? z.coerce.number().int().positive().parse(req.query.before) : null;
+      res.json(inStore.movements(z.string().regex(/^\d{1,8}$/).parse(req.params.sku), limit, before));
+    });
+    app.post('/api/instore/stock/:sku/count', auth, role('owner'), sensitiveLimit, (req, res) => {
+      inStore.locked();
+      res.json(inStore.recordCount(req.user, z.string().regex(/^\d{1,8}$/).parse(req.params.sku), inStoreCountSchema.parse(req.body)));
+    });
+  }
   // Retain the v4 table name to preserve existing named buyers and sale FKs.
   app.get('/api/wholesale-buyers', auth, role('owner', 'manager'), (req, res) => {
     res.json({ buyers: db.prepare('SELECT id,name,created_at FROM trade_buyers ORDER BY name COLLATE NOCASE, id').all()
@@ -226,7 +266,7 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
     const daily = Array.from({ length: days }, (_, i) => { const date = new Date(since); date.setUTCDate(date.getUTCDate() + i); const key = date.toISOString().slice(0,10); const matches = rows.filter(s => s.paidAt?.startsWith(key)); return { date: key, total: matches.reduce((sum,s) => sum + net(s), 0), count: matches.length }; });
     const products = new Map();
     for (const sale of active) for (const item of sale.items) { const key = `${item.productId}:${item.variationId}`; const p = products.get(key) || { name: item.name, label: item.label, quantity: 0, total: 0 }; p.quantity += item.quantity; p.total += item.total; products.set(key,p); }
-    res.json({ days, since: since.toISOString(), total, gross, refunded, orders: rows.length, activeOrders: active.length, refundedOrders: rows.length - active.length, items: active.reduce((sum,s) => sum + s.items.reduce((n,i) => n + i.quantity,0),0), average: rows.length ? Math.round(total / rows.length) : 0, methods, saleTypes, daily, topProducts: [...products.values()].sort((a,b) => b.quantity - a.quantity).slice(0,8), sales: rows, scope: 'POS sales recorded by this app; not all online-store orders.' });
+    res.json({ days, since: since.toISOString(), total, gross, refunded, orders: rows.length, activeOrders: active.length, refundedOrders: rows.length - active.length, items: active.reduce((sum,s) => sum + s.items.reduce((n,i) => n + i.quantity,0),0), average: rows.length ? Math.round(total / rows.length) : 0, methods, saleTypes, daily, topProducts: [...products.values()].sort((a,b) => b.quantity - a.quantity).slice(0,8), sales: rows, scope: 'WooCommerce-linked Retail and Wholesale POS orders only; excludes the separate In-store collection and online website orders.' });
   });
   app.get('/api/reports/export', auth, role('owner', 'manager'), (req, res) => {
     const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
@@ -290,14 +330,19 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
       { name: 'HTTPS store URL', ok: config.storeUrl.startsWith('https://') },
       { name: 'Server-side credentials', ok: config.mode === 'demo' || config.configured, detail: config.mode === 'demo' ? 'Not needed for demo' : config.configured ? 'Configured' : 'Missing' },
       { name: 'Public origin configured', ok: !config.production || Boolean(config.publicOrigin) || config.mode === 'demo' },
-      { name: config.liveReadOnly ? 'Live catalogue (read-only)' : 'Write gate',
-        ok: config.liveReadOnly ? !config.writesEnabled && !config.wholesaleWritesEnabled : config.mode === 'demo' || config.writesEnabled,
-        detail: config.liveReadOnly ? 'Checkout locked; only catalogue reads are tested' : config.mode === 'demo' ? 'Demo only' : config.writesEnabled ? 'Enabled' : 'Locked' },
+      { name: config.liveReadOnly ? 'Live catalogue (read-only)' : 'Checkout availability',
+        ok: config.liveReadOnly ? !config.writesEnabled && !config.wholesaleWritesEnabled && !config.inStoreCashEnabled
+          : config.mode === 'demo' || config.writesEnabled || config.inStoreCashEnabled,
+        detail: config.liveReadOnly ? 'All checkout locked; only catalogue reads are tested'
+          : config.mode === 'demo' ? 'Demo only' : config.writesEnabled ? 'Woo orders enabled'
+          : config.inStoreCashEnabled ? 'Woo orders locked; only separate physical-store cash is enabled' : 'All checkout locked' },
+      ...(config.mode === 'live' ? [{ name: 'In-store collection cash gate', ok: !config.liveReadOnly || !config.inStoreCashEnabled,
+        detail: config.inStoreCashEnabled ? 'Separately approved source and POS-only ledger' : 'Physical-store checkout locked' }] : []),
     ];
     if (config.mode !== 'demo' && config.configured) {
       try { const products = await api.request('products', { query: { per_page: 1, status: 'publish' } }); checks.push({ name: 'WooCommerce catalogue read', ok: true, detail: `${products.total} published products` }); }
       catch (error) { checks.push({ name: 'WooCommerce catalogue read', ok: false, detail: error.message }); }
-      if (!config.liveReadOnly) {
+      if (!config.liveReadOnly && config.writesEnabled) {
         try { await api.request('orders', { query: { per_page: 1 } }); checks.push({ name: 'WooCommerce orders read', ok: true }); }
         catch (error) { checks.push({ name: 'WooCommerce orders read', ok: false, detail: error.message }); }
       }
@@ -314,5 +359,5 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
     if (status >= 500) logger.error({ reqId: req.id, method: req.method, path: req.path, code: error.code || 'SERVER_ERROR', name: error.name || 'Error' });
     res.status(status).json({ error: error instanceof AppError ? error.message : 'An unexpected server error occurred. Check the sale history before retrying.', code: error.code || 'SERVER_ERROR', reqId: req.id });
   });
-  return { app, config, db, api, catalog, sales, shifts, logger };
+  return { app, config, db, api, catalog, sales, inStore, shifts, logger };
 }

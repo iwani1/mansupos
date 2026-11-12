@@ -23,6 +23,8 @@ test('separate live service pins its identity, listener, ledger path and write l
     POS_STAGING_WHOLESALE_APPROVED: 'true', POS_ALLOW_LIVE_WRITES: 'true',
     POS_OWNER_APPROVAL_REFERENCE: 'copied-owner-approval', POS_LIVE_WHOLESALE_APPROVED: 'true',
     POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'copied-wholesale-approval',
+    POS_INSTORE_CASH_APPROVED: 'true', POS_INSTORE_ACCEPTANCE_REFERENCE: 'copied-instore-approval',
+    POS_INSTORE_SOURCE_SHA256: 'a'.repeat(64),
   };
   for (const line of startLines) {
     assert.match(line, /\/usr\/bin\/env .* \/usr\/bin\/node server\/(preflight|index)\.js$/);
@@ -38,6 +40,7 @@ test('separate live service pins its identity, listener, ledger path and write l
     assert.equal(config.liveReadOnly, false);
     assert.equal(config.writesEnabled, false, 'Locked template cannot create any real orders');
     assert.equal(config.wholesaleWritesEnabled, false);
+    assert.equal(config.inStoreCashEnabled, false, 'Trading template must not import or sell the physical collection');
     assert.deepEqual(config.paymentMethods, ['cash']);
     assert.equal(config.bindHost, '127.0.0.1');
     assert.equal(config.port, 3188);
@@ -51,6 +54,9 @@ test('separate live service pins its identity, listener, ledger path and write l
     assert.equal(effective.POS_OWNER_APPROVAL_REFERENCE, '');
     assert.equal(effective.POS_LIVE_WHOLESALE_APPROVED, 'false');
     assert.equal(effective.POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE, '');
+    assert.equal(effective.POS_INSTORE_CASH_APPROVED, 'false');
+    assert.equal(effective.POS_INSTORE_ACCEPTANCE_REFERENCE, '');
+    assert.equal(effective.POS_INSTORE_SOURCE_SHA256, '');
   }
   const pilot = fs.readFileSync('deploy/mansu-pos-live-pilot.service', 'utf8');
   assert.match(pilot, /POS_LIVE_READ_ONLY=true POS_ALLOW_LIVE_WRITES=false/);
@@ -62,6 +68,9 @@ test('live trading template starts locked, has no secrets and requires a separat
   assert.equal(env.POS_MODE, 'live');
   assert.equal(env.POS_ALLOW_LIVE_WRITES, 'false');
   assert.equal(env.POS_LIVE_WHOLESALE_APPROVED, 'false');
+  assert.equal(env.POS_INSTORE_CASH_APPROVED, 'false');
+  assert.equal(env.POS_INSTORE_ACCEPTANCE_REFERENCE, '');
+  assert.equal(env.POS_INSTORE_SOURCE_SHA256, '');
   assert.equal(env.POS_STAGING_APPROVED, 'false');
   assert.equal(env.WOO_CONSUMER_KEY, '');
   assert.equal(env.WOO_CONSUMER_SECRET, '');
