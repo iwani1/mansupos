@@ -2,7 +2,7 @@
 
 **The client's target has changed:** all eligible physical goods should eventually share WooCommerce stock with the website; shop sales should use the Woo-backed Wholesale flow with negotiated per-sale prices. See [SHARED-WOO-STOCK.md](SHARED-WOO-STOCK.md). The POS-only import, cash and count procedures below document the existing **locked legacy implementation**, not an approved path for these goods. **Do not enable `POS_INSTORE_CASH_APPROVED` or follow the POS-only go-live steps below.** A POS-only deduction would diverge from Woo stock. The pilot still shows the historical PDF/CSV for review, not live shared availability.
 
-**Deployment status:** the installed Contabo pilot reported version 1.2.0 and `liveReadOnly:true` with HTTPS readiness OK when checked from the VPS. External-browser inspection and an off-VPS pilot-backup copy are unconfirmed. The standalone live-trading service template is **not installed** and pins all checkout gates off. Do not repurpose the pilot ledger, service, Woo key or port. A green catalogue/readiness check is not cash-sale acceptance.
+**Deployment status:** the owner reports the installed Contabo pilot is now 1.2.2 with `liveReadOnly:true` and an encrypted matching-hash off-host pilot backup; the owner also verified sign-in and a Woo product view. The standalone live-trading service template is **not installed** and pins all checkout gates off. Do not repurpose the pilot ledger, service, Woo key or port. A green catalogue/readiness check is not cash-sale acceptance.
 
 ## Which stock and prices?
 

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { demoProducts } from './demo-catalog.js';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 7;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
@@ -85,9 +85,10 @@ function migrate(db) {
       ALTER TABLE sales ADD COLUMN trade_approved_at TEXT;
       CREATE INDEX idx_sales_trade_buyer ON sales(buyer_id, created_at);
     `),
-    // Physical-store goods have NO WooCommerce product/order IDs. The source
-    // snapshot is imported only into a separately approved live trading ledger.
-    // Ledger movements and paid sales commit atomically with stock deductions.
+    // Historical v5 POS-only physical-store schema. Preserve any existing
+    // records, but its cash gate is retired outside isolated tests: newly
+    // shared physical goods require Woo IDs and Woo-owned stock instead.
+    // Legacy ledger movements and paid sales committed atomically.
     () => db.exec(`
       CREATE TABLE instore_imports (
         id INTEGER PRIMARY KEY CHECK(id=1), source_hash TEXT NOT NULL,
@@ -129,6 +130,33 @@ function migrate(db) {
       CREATE INDEX idx_instore_sales_cashier_date ON instore_sales(cashier_id, paid_at DESC, seq DESC);
       CREATE INDEX idx_instore_movements_sku ON instore_stock_movements(sku, id);
       CREATE INDEX idx_instore_sales_shift ON instore_sales(shift_id);
+    `),
+    // Wholesale defaults are private POS pricing for existing Woo identities,
+    // never WooCommerce product metadata or a second product/stock catalogue.
+    // A saved identity snapshot prevents applying a price to an edited option.
+    () => db.exec(`
+      CREATE TABLE wholesale_prices (
+        product_id INTEGER NOT NULL CHECK(product_id > 0),
+        variation_id INTEGER NOT NULL CHECK(variation_id >= 0),
+        parent_sku TEXT NOT NULL, option_sku TEXT NOT NULL, option_label TEXT NOT NULL,
+        unit_price_cents INTEGER NOT NULL CHECK(unit_price_cents BETWEEN 1 AND 100000000),
+        revision INTEGER NOT NULL CHECK(revision > 0),
+        updated_by TEXT NOT NULL REFERENCES users(id), updated_at TEXT NOT NULL,
+        PRIMARY KEY(product_id, variation_id)
+      );
+    `),
+    // Add an identity snapshot beyond the label (e.g. Size:S must not become
+    // Colour:S). Previously stored v6 defaults remain present but deliberately
+    // require re-review: blank identity fields can never match a real product.
+    // A global monotonic version prevents stale edits from passing after a
+    // delete/recreate cycle, even if the same product/variation ID is reused.
+    () => db.exec(`
+      ALTER TABLE wholesale_prices ADD COLUMN product_name TEXT NOT NULL DEFAULT '';
+      ALTER TABLE wholesale_prices ADD COLUMN option_attributes TEXT NOT NULL DEFAULT '';
+      ALTER TABLE wholesale_prices ADD COLUMN retail_price_cents INTEGER NOT NULL DEFAULT -1;
+      CREATE TABLE wholesale_price_revisions (id INTEGER PRIMARY KEY AUTOINCREMENT);
+      INSERT INTO wholesale_price_revisions (id)
+        SELECT MAX(revision) FROM wholesale_prices HAVING COUNT(*) > 0;
     `),
   ];
   if (current > migrations.length) throw new Error('POS ledger schema is newer than this application. Do not downgrade a trading ledger.');

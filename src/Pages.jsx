@@ -3,6 +3,7 @@ import { Search, Download, RefreshCw, ReceiptText, ShoppingBag, Banknote, Trendi
 import { api, money, dateTime, methodLabel, authHeaders } from './api.js';
 import { PageHeading, Stat, Empty, Badge, MethodBadge, StatusBadge, ProductImage, Modal, Notice, Spinner, IconButton, PaymentIcon, TableRegion } from './components.jsx';
 import { hasKnownStock, stockUnknown, onBackorder } from './stock.js';
+import { wholesaleCents, wholesaleIdentity, matchingWholesalePrice } from './wholesale-pricing.js';
 import { WholesaleQuoteDetails } from './Checkout.jsx';
 
 export function Sales({ sales, config, refresh, onReceipt, onPay, notify, hasMore = false, loadingMore = false, onLoadMore }) {
@@ -24,10 +25,28 @@ export function Sales({ sales, config, refresh, onReceipt, onPay, notify, hasMor
   </>;
 }
 
-export function Inventory({ catalog, config, refresh, notify }) {
+export function Inventory({ catalog, config, user, active, refresh, notify }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [privatePrices, setPrivatePrices] = useState([]);
+  const [priceError, setPriceError] = useState('');
+  const [priceLoading, setPriceLoading] = useState(false);
+  const [priceReload, setPriceReload] = useState(0);
+  const [priceEditor, setPriceEditor] = useState(null);
+  const [priceInput, setPriceInput] = useState('');
+  const [priceBusy, setPriceBusy] = useState(false);
+  const canViewPrices = !config.liveReadOnly && ['owner', 'manager'].includes(user.role);
+  const canEditPrices = canViewPrices && user.role === 'owner';
+  useEffect(() => {
+    if (!active || !canViewPrices) return;
+    let current = true;
+    setPrivatePrices([]); setPriceError(''); setPriceLoading(true);
+    api('/wholesale-prices').then(result => { if (current) setPrivatePrices(result.prices); })
+      .catch(error => { if (current) setPriceError(error.message); })
+      .finally(() => { if (current) setPriceLoading(false); });
+    return () => { current = false; };
+  }, [active, canViewPrices, catalog?.fetchedAt, priceReload]);
   const lines = (catalog?.products || []).flatMap(p => p.type === 'variable'
     ? p.variations.map(v => ({ ...v, name: p.name, image: v.image || p.image, category: p.category, productId: p.id, variationId: v.id }))
     : [{ ...p, productId: p.id, variationId: 0, label: 'Standard' }]);
@@ -59,6 +78,41 @@ export function Inventory({ catalog, config, refresh, notify }) {
     return { label: 'In stock', tone: 'green' };
   }
   async function sync() { setRefreshing(true); await refresh(true); setRefreshing(false); notify(config.mode === 'demo' ? 'Demo catalogue refreshed. Live store was not contacted.' : 'Catalogue refresh requested.'); }
+  function editPrice(line) {
+    const record = privatePrices.find(item => item.productId === line.productId && item.variationId === line.variationId);
+    const product = catalog?.products.find(item => item.id === line.productId);
+    const option = line.variationId ? product?.variations.find(item => item.id === line.variationId) : null;
+    if (!product || line.variationId && !option) return;
+    setPriceEditor({ line, record, expectedIdentity: wholesaleIdentity(product, option) });
+    setPriceInput(record ? (record.priceCents / 100).toFixed(2) : ''); setPriceError('');
+  }
+  async function savePrice(event) {
+    event.preventDefault();
+    if (!priceEditor || priceBusy) return;
+    const cents = wholesaleCents(priceInput);
+    if (cents == null) { setPriceError('Enter a positive GHS amount with at most two decimals.'); return; }
+    setPriceBusy(true); setPriceError('');
+    try {
+      const { line, record, expectedIdentity } = priceEditor;
+      const result = await api(`/wholesale-prices/${line.productId}/${line.variationId}`, {
+        method: 'PUT', body: { priceCents: cents, expectedRevision: record?.revision || 0, expectedIdentity },
+      });
+      setPrivatePrices(previous => [...previous.filter(item => item.productId !== line.productId || item.variationId !== line.variationId), { ...result.price, valid: true }]);
+      setPriceEditor(null); notify('Private wholesale price saved. WooCommerce retail price and stock were not changed.');
+    } catch (error) { setPriceError(error.message); }
+    finally { setPriceBusy(false); }
+  }
+  async function removePrice() {
+    if (!priceEditor?.record || priceBusy || !window.confirm('Remove this private wholesale default? Existing approved sales will not change.')) return;
+    setPriceBusy(true); setPriceError('');
+    try {
+      const { line, record } = priceEditor;
+      await api(`/wholesale-prices/${line.productId}/${line.variationId}`, { method: 'DELETE', body: { expectedRevision: record.revision } });
+      setPrivatePrices(previous => previous.filter(item => item.productId !== line.productId || item.variationId !== line.variationId));
+      setPriceEditor(null); notify('Private wholesale default removed. WooCommerce was not changed.');
+    } catch (error) { setPriceError(error.message); }
+    finally { setPriceBusy(false); }
+  }
   return <>
     <PageHeading eyebrow="Stock overview" title="Inventory" description={config.mode === 'demo' ? 'Sample quantities for the real product catalogue. Your website is unchanged.' : 'Read-only stock visibility. WooCommerce remains the source of truth.'}>
       <button className="button secondary" onClick={sync} disabled={refreshing}><RefreshCw size={16} className={refreshing ? 'spin' : ''}/>Refresh catalogue</button>
@@ -70,14 +124,33 @@ export function Inventory({ catalog, config, refresh, notify }) {
       <Stat label="Missing SKUs" value={missing.length} detail="Product / variation records"/>
     </div>
     {catalog?.stale && <Notice tone="warning">Showing cached catalogue data. Refresh before relying on stock availability.</Notice>}
+    {canViewPrices && <Notice>Private wholesale prices are POS-only defaults for owner/manager quotes. They never change or appear on the public WooCommerce product page. WooCommerce stock remains read-only here.</Notice>}
+    {priceError && !priceEditor && <Notice tone="warning">Private wholesale prices are unavailable: {priceError} <button type="button" className="text-button" onClick={() => setPriceReload(value => value + 1)}>Retry private prices</button></Notice>}
     <div className="surface">
       <div className="table-toolbar"><div className="search-field compact"><Search size={18}/><input placeholder="Search product or SKU…" aria-label="Search inventory" value={query} onChange={e => setQuery(e.target.value)}/></div><select className="select" aria-label="Filter inventory" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All stock ({lines.length})</option><option value="low">Low stock ({low.length})</option><option value="out">No physical stock ({out.length})</option><option value="missing">Missing SKU ({missing.length})</option></select></div>
-      <TableRegion label="Inventory stock records"><table className="responsive-table records-inventory inventory-table"><thead><tr><th>Product</th><th>Size / variant</th><th>SKU / barcode</th><th>Price</th><th>Available</th><th>Stock status</th></tr></thead><tbody>{filtered.map(l => {
+      <TableRegion label="Inventory stock records"><table className="responsive-table records-inventory inventory-table"><thead><tr><th>Product</th><th>Size / variant</th><th>SKU / barcode</th><th>Retail price</th>{canViewPrices && <th>Private wholesale</th>}<th>Available</th><th>Stock status</th></tr></thead><tbody>{filtered.map(l => {
         const state = status(l);
-        return <tr key={`${l.productId}:${l.variationId}`}><td data-label="Product"><div className="table-product"><ProductImage src={l.image} name={l.name}/><div><strong className="table-primary">{l.name}</strong><small>{l.category}</small></div></div></td><td data-label="Size / variant"><Badge>{l.label}</Badge></td><td data-label="SKU / barcode"><span className="sku-cell" title={l.sku}>{l.sku || 'Missing SKU'}</span>{skuCounts[l.sku] > 1 && <small className="error-text">Duplicate SKU</small>}</td><td data-label="Price" className="tabular">{money(l.price)}</td><td data-label="Available"><strong>{stockUnknown(l, requireStockSource) ? '—' : l.manageStock ? l.stock : 'Not tracked'}</strong>{l.stockSource === 'parent' && <small>Shared across options</small>}</td><td data-label="Stock status"><Badge dot tone={state.tone}>{state.label}</Badge></td></tr>;
+        const product = catalog?.products.find(p => p.id === l.productId);
+        const option = l.variationId ? product?.variations.find(v => v.id === l.variationId) : null;
+        const saved = privatePrices.find(item => item.productId === l.productId && item.variationId === l.variationId);
+        const wholesale = matchingWholesalePrice(product, option, privatePrices, config.mode === 'demo' || Boolean(catalog?.complete && !catalog?.stale && !catalog?.error));
+        return <tr key={`${l.productId}:${l.variationId}`}><td data-label="Product"><div className="table-product"><ProductImage src={l.image} name={l.name}/><div><strong className="table-primary">{l.name}</strong><small>{l.category}</small></div></div></td><td data-label="Size / variant"><Badge>{l.label}</Badge></td><td data-label="SKU / barcode"><span className="sku-cell" title={l.sku}>{l.sku || 'Missing SKU'}</span>{skuCounts[l.sku] > 1 && <small className="error-text">Duplicate SKU</small>}</td><td data-label="Retail price" className="tabular">{money(l.price)}</td>{canViewPrices && <td data-label="Private wholesale"><strong>{priceError ? 'Unavailable' : priceLoading ? 'Checking…' : wholesale != null ? money(wholesale) : saved ? 'Needs review' : 'Not set'}</strong>{canEditPrices && <button type="button" className="text-button" disabled={priceLoading || Boolean(priceError)} onClick={() => editPrice(l)}>{saved ? 'Edit private price' : 'Set private price'}</button>}</td>}<td data-label="Available"><strong>{stockUnknown(l, requireStockSource) ? '—' : l.manageStock ? l.stock : 'Not tracked'}</strong>{l.stockSource === 'parent' && <small>Shared across options</small>}</td><td data-label="Stock status"><Badge dot tone={state.tone}>{state.label}</Badge></td></tr>;
       })}</tbody></table>{!filtered.length && <Empty icon={Package} title={lines.length?'No matching stock records':'No stock records yet'} action={(query.trim()||filter!=='all')&&<button className="button secondary" onClick={()=>{setQuery('');setFilter('all');}}>Clear filters</button>}>{lines.length?'Try a different search or filter.':'Refresh the catalogue to see stock records.'}</Empty>}</TableRegion>
-      <div className="table-footer">{filtered.length} stock records<span>No stock edits are made from this screen.</span></div>
+      <div className="table-footer">{filtered.length} stock records<span>WooCommerce retail prices and stock are not edited here.</span></div>
     </div>
+    {priceEditor && <Modal title="Private wholesale price" subtitle={`${priceEditor.line.name} · ${priceEditor.line.label || 'Standard'}`} onClose={() => { setPriceEditor(null); setPriceError(''); }} busy={priceBusy}>
+      <form onSubmit={savePrice}><div className="modal-body form-stack">
+        <Notice>Only authorised POS staff can see this default. It does not change the website retail price or stock. A manager still approves each wholesale quote before payment.</Notice>
+        <div className="connection-rows"><div><span>Website retail price</span><strong>{money(priceEditor.line.price)}</strong></div><div><span>Product / option</span><strong>{priceEditor.line.sku || 'No option SKU · linked by Woo ID'}</strong></div></div>
+        {priceEditor.record && !priceEditor.record.valid && <Notice tone="warning">Woo product or option details changed, or the catalogue is stale. Check the physical goods before approving this price again.</Notice>}
+        <label>Wholesale unit price (GH₵, tax included)<input className="input" type="text" inputMode="decimal" maxLength={10} placeholder="e.g. 75.00" required value={priceInput} onChange={event => setPriceInput(event.target.value)} disabled={priceBusy}/></label>
+        {priceError && <Notice tone="error">{priceError}</Notice>}
+      </div><div className="modal-footer" role="group" aria-label="Private price actions">
+        {priceEditor.record && <button type="button" className="button secondary" onClick={removePrice} disabled={priceBusy}>Remove default</button>}
+        <button type="button" className="button secondary" onClick={() => { setPriceEditor(null); setPriceError(''); }} disabled={priceBusy}>Cancel</button>
+        <button className="button primary" disabled={priceBusy || wholesaleCents(priceInput) == null}>{priceBusy ? 'Saving…' : 'Save private price'}</button>
+      </div></form>
+    </Modal>}
   </>;
 }
 

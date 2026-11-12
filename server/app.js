@@ -7,6 +7,7 @@ import { readConfig, publicConfig, APP_VERSION } from './config.js';
 import { openDatabase, hashPassword, verifyPassword, passwordProblem, userView, audit, saleView } from './db.js';
 import { WooCommerce } from './woocommerce.js';
 import { Catalog } from './catalog.js';
+import { WholesalePrices, priceInputSchema, priceRemovalSchema } from './wholesale-prices.js';
 import { InStoreService, inStoreSaleSchema, inStoreCountSchema } from './instore.js';
 import { SalesService, prepareSchema, paymentSchema } from './sales.js';
 import { ShiftService, openShiftSchema, closeShiftSchema, cashMovementSchema } from './shifts.js';
@@ -53,6 +54,7 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   const db = openDatabase(config);
   const api = injectedApi || new WooCommerce(config, fetch, logger);
   const catalog = new Catalog(db, api, config);
+  const wholesalePrices = new WholesalePrices(db, catalog, api, config);
   const sales = new SalesService(db, catalog, api, config);
   const shifts = new ShiftService(db, config);
   let inStore;
@@ -169,6 +171,22 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   });
 
   app.get('/api/catalog', auth, async (req, res) => res.json(await catalog.get(req.query.refresh === '1')));
+  // Private wholesale defaults belong to the POS ledger, not Woo product
+  // metadata. Cashiers/public catalogue callers never receive these prices.
+  // The live catalogue pilot cannot manage or read them.
+  const priceIds = params => ({
+    productId: z.coerce.number().int().positive().parse(params.productId),
+    variationId: z.coerce.number().int().min(0).parse(params.variationId),
+  });
+  app.get('/api/wholesale-prices', auth, role('owner', 'manager'), async (_req, res) => res.json(await wholesalePrices.list()));
+  app.put('/api/wholesale-prices/:productId/:variationId', auth, role('owner'), sensitiveLimit, async (req, res) => {
+    const { productId, variationId } = priceIds(req.params);
+    res.json({ price: await wholesalePrices.save(req.user, productId, variationId, priceInputSchema.parse(req.body)) });
+  });
+  app.delete('/api/wholesale-prices/:productId/:variationId', auth, role('owner'), sensitiveLimit, (req, res) => {
+    const { productId, variationId } = priceIds(req.params);
+    res.json(wholesalePrices.remove(req.user, productId, variationId, priceRemovalSchema.parse(req.body)));
+  });
   // A completely separate cash/stock ledger: no WooCommerce IDs, order
   // creation or Paystack call is reachable through these routes. The live
   // catalogue pilot forces its own gate OFF even if its env file is copied.

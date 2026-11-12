@@ -1,6 +1,6 @@
 {
   "name": "mansu-pos",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "type": "module",
   "description": "A WooCommerce-connected point of sale for MansutRENDZGH, with an isolated demo workspace.",
@@ -13,7 +13,7 @@
     "build": "vite build",
     "build:live": "vite build && node scripts/prepare-live-build.mjs",
     "test": "node --test tests/*.test.js",
-    "test:browser": "node tests/browser.mjs && node tests/browser-recovery.mjs && node tests/browser-preview.mjs && node tests/browser-motion.mjs && node tests/browser-design.mjs && node tests/browser-wholesale.mjs && node tests/browser-live-pilot.mjs && node tests/browser-live-cash.mjs && node tests/browser-instore.mjs && node tests/browser-shared-woo-colours.mjs && node tests/browser-pwa.mjs",
+    "test:browser": "node tests/browser.mjs && node tests/browser-recovery.mjs && node tests/browser-preview.mjs && node tests/browser-motion.mjs && node tests/browser-design.mjs && node tests/browser-wholesale.mjs && node tests/browser-wholesale-prices.mjs && node tests/browser-live-pilot.mjs && node tests/browser-live-cash.mjs && node tests/browser-instore.mjs && node tests/browser-shared-woo-colours.mjs && node tests/browser-pwa.mjs",
     "test:pwa": "node tests/browser-pwa.mjs",
     "test:design": "node tests/browser-design.mjs",
     "test:a11y": "node tests/browser-a11y.mjs",

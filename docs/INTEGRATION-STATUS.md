@@ -1,0 +1,29 @@
+# Existing Mansu POS ↔ WooCommerce integration: implementation status
+
+This is the **existing** React/Vite + Node/Express + SQLite Mansu POS, not a new POS or a replacement for WordPress/WooCommerce. WooCommerce remains the website, authoritative product catalogue, retail prices, variations and shared inventory. The POS uses server-side WooCommerce REST API access; no browser or public Woo response receives private POS wholesale defaults.
+
+## Verified boundary
+
+- Public Woo Store API read-only inspection of the owner-selected Mansu Shirt Top (Pink) shows a published variable GHS product with size choices. This does **not** prove Woo admin tax configuration, per-variation stock, order hooks or last-unit safety. The shop's private WordPress administration and actual POS-vs-online order side effects have **not** been inspected or accepted here.
+- The owner reports that the Contabo **1.2.2 read-only pilot** and matching-hash encrypted off-host pilot backup are in place; public HTTPS `/api/health` and `/api/ready` also reported `1.2.2`, `mode: live`, `liveReadOnly: true`. No trading service, live POS order or shared physical-source stock cutover is confirmed. The pilot stays locked and keeps its Read-only Woo key and ledger.
+- The separate live-trading service template is **not installed**. It pins all checkout gates off in its systemd unit; an environment-file-only edit cannot permit sales. Branch 1.2.3 is a code change, **not deployed to Contabo**.
+
+## What already works in code
+
+| Requirement | Present implementation | Limitation before real sales |
+| --- | --- | --- |
+| Woo → POS catalogue | Reads published Woo products, retail GHS price, images, categories, variations and stock through authenticated REST API; refreshes and checks Woo again before checkout. | Private shop credentials are not inspected here; new physical goods need reviewed Woo identities and fresh counts. |
+| POS Retail and Wholesale cash | Cash Retail uses Woo retail price; owner/manager Wholesale approves a tax-inclusive per-sale amount. Both create Woo orders and use Woo's stock only **behind separate live gates**. | Actual Woo tax/order/status/stock side effects and concurrency have not passed live acceptance; pilot cannot sell. |
+| Private per-option Wholesale defaults (1.2.3 code only) | Owner can store a GHS price against an existing Woo product/variation in a private POS ledger with fresh identity/retail-price preconditions and conflict-safe edit revisions. Owner/manager sees it in Inventory and it prefills a new Wholesale quote; the quote still requires approval and exact Woo total. Retail and Woo product prices do not change. | Not deployed; no prices have been set for the store. No automatic cashier Wholesale permission or price list is public. |
+| POS security/operations | Named owner/manager/cashier roles, sessions, shifts, cash drawer tracking, receipts, reports, reconciliation, backup/restore and deployment gates. A denied Woo API key now reports an upstream error instead of falsely signing out POS staff. | Reports include only Woo-backed **POS** sales, not all online orders. Hardware acceptance is partial; scanner was deferred by owner. |
+
+## Missing integration work (do not claim operational yet)
+
+1. **POS → Woo product management:** design owner/inventory-manager forms to create/update Woo products, variations, images, categories, retail prices and draft/publish status in the **one Woo catalogue**, not a second POS stock table. Require unique reviewed SKU/product-ID crosswalk; many existing variation SKUs are blank. Preview changes and guard every Woo product write independently of cash checkout. Do not bulk-import the historical CSV or guess fuzzy matches.
+2. **Physical-source cutover:** approve each identity/layout, website retail price, tax treatment and fresh physical count; quarantine the 41 held records. Draft/import/publish only after owner review and backup. The retired POS-only In-store cash/stock gate stays off.
+3. **Shared stock correctness:** verify real Woo pending/paid/cancel/refund behaviour and implement an effective Woo-side/operational control for concurrent online vs counter **last-unit** sales. A POS read followed by a Woo write is not atomic. Inventory adjustment history must come from audited Woo movements/approved counts, not a separate balance in SQLite; only physically received returns may be restocked.
+4. **Consolidated reporting:** read Woo online sales with a separately approved credential in the distinct trading service, distinguish them from POS Retail/Wholesale by verified order metadata, reconcile refunds and payments, and implement channel totals/unit sales and stock-movement history. The read-only pilot must remain product-only and never read customer orders.
+5. **Authorised staff:** design a limited inventory-manager role and an explicitly approved Wholesale cashier permission without granting full owner/manager controls. Until that is implemented, owner/manager alone can approve Wholesale quotes; cashiers cannot alter private prices.
+6. **Operational acceptance:** review real tax/rounding, order notifications/integrations, off-host full WordPress and **separate trading-ledger** restore evidence, genuine supervised cash transactions (no staging clone was chosen), and hardware/recovery before permitting a first Woo order, then before opening to staff. Never enable writes on the pilot.
+
+This roadmap is implementation work, **not** permission to install a Read/Write Woo key, change website stock or place a test order on the production store.

@@ -143,6 +143,7 @@ html{scrollbar-color:var(--line-dark) var(--paper)}
 .table-scroll:focus-visible,.chart-values:focus-visible,.cart-items:focus-visible,.cart-details:focus-visible{outline:2px solid var(--brass);outline-offset:-3px}
 .table-scroll{scrollbar-color:var(--line-dark) var(--paper);scrollbar-width:thin}
 .table-primary,.sku-cell,.audit-subject{overflow-wrap:anywhere}
+.inventory-table td[data-label="Private wholesale"] .text-button{display:block;min-height:44px;margin-top:2px;text-align:left}
 .chart-details summary{min-height:44px;padding:13px 0}
 .chart-details summary:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
 .shift-grid>.surface>.form-stack:not(.cash-movement-form){padding:22px 26px 26px}
@@ -199,12 +200,13 @@ html{scrollbar-color:var(--line-dark) var(--paper)}
   .records-sales td:nth-child(4){grid-area:2 / 2}
   .records-sales td:nth-child(2){grid-column:1 / -1;grid-row:3}
   .records-sales td:nth-child(6){grid-column:1 / -1;grid-row:4;border-top:1px solid var(--line);padding-top:10px}
-  .records-inventory td:nth-child(1){grid-column:1 / -1;grid-row:1}
-  .records-inventory td:nth-child(5){grid-area:2 / 1}
-  .records-inventory td:nth-child(6){grid-area:2 / 2}
-  .records-inventory td:nth-child(2){grid-area:3 / 1}
-  .records-inventory td:nth-child(4){grid-area:3 / 2}
-  .records-inventory td:nth-child(3){grid-column:1 / -1;grid-row:4;border-top:1px solid var(--line);padding-top:8px}
+  .records-inventory td[data-label="Product"]{grid-column:1 / -1;grid-row:1}
+  .records-inventory td[data-label="Available"]{grid-area:2 / 1}
+  .records-inventory td[data-label="Stock status"]{grid-area:2 / 2}
+  .records-inventory td[data-label="Size / variant"]{grid-area:3 / 1}
+  .records-inventory td[data-label="Retail price"]{grid-area:3 / 2}
+  .records-inventory td[data-label="SKU / barcode"]{grid-column:1 / -1;grid-row:4;border-top:1px solid var(--line);padding-top:8px}
+  .records-inventory td[data-label="Private wholesale"]{grid-column:1 / -1;grid-row:5;border-top:1px solid var(--line);padding-top:8px}
   .records-products td:nth-child(1){grid-area:1 / 1}
   .records-products td:nth-child(4){grid-area:1 / 2;text-align:right!important}
   .records-products td:nth-child(2){grid-area:2 / 1}

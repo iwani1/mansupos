@@ -65,7 +65,9 @@ export class WooCommerce {
       throw error;
     }
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) throw new RemoteError('WooCommerce denied access. Check the API key permissions and server configuration.', response.status);
+      // An upstream 401/403 is not a POS session failure. Return a gateway
+      // error so the browser does not sign out an otherwise valid staff user.
+      if (response.status === 401 || response.status === 403) throw new RemoteError('WooCommerce denied access. Check the API key permissions and server configuration.', 502);
       if (response.status === 404) throw new RemoteError('The WooCommerce REST endpoint was not found. Check the store URL and permalink settings.', 502);
       const error = new RemoteError(`WooCommerce rejected the request (HTTP ${response.status}). Review the order in WooCommerce before retrying.`, 502, method !== 'GET' && response.status >= 500);
       error.retryable = method === 'GET' && SAFE_RETRY_STATUS.has(response.status);
@@ -185,6 +187,9 @@ export async function freshLine(api, productId, variationId) {
   return {
     key: `${productId}:${variationId || 0}`, stockKey: variant?.stockSource === 'parent' ? `${productId}:0` : `${productId}:${variationId || 0}`,
     productId, variationId: variationId || 0, name: p.name, label: variant?.label || '',
+    // These identifiers are used only by private POS pricing. A Woo variation
+    // can have a blank SKU; never use a name/SKU guess to remap its price.
+    parentSku: mapped.sku, optionSku: variant?.sku || '', optionAttributes: variant?.attributes || [],
     sku: source.sku, barcode: source.barcode, image: source.image, price: source.price,
     stockSource: source.stockSource, manageStock: source.manageStock, stock: source.stock, stockStatus: source.stockStatus,
     parentStockStatus: variant ? mapped.stockStatus : undefined,

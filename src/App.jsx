@@ -143,9 +143,9 @@ export default function App() {
         {page==='instore'&&config.mode==='live'&&<InStore config={config} user={user} shift={shift} onOpenShift={()=>navigate('shifts')} notify={notify}/>}
         {page!=='instore'&&(!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>
           <div style={{display:page==='register'?'block':'none'}}><Register key={`${config.mode}-${user.id}`} active={page==='register'} catalog={catalog} config={config} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} savedCarts={savedCarts} setSavedCarts={setSavedCarts} setHelp={()=>setHelp(true)} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>
-          {user.role!=='cashier'&&<div style={{display:page==='wholesale'?'block':'none'}}><Wholesale key={`${config.mode}-${user.id}`} catalog={catalog} config={config} user={user} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>}
+          {user.role!=='cashier'&&<div style={{display:page==='wholesale'?'block':'none'}}><Wholesale key={`${config.mode}-${user.id}`} catalog={catalog} config={config} user={user} active={page==='wholesale'} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>}
           {page==='sales'&&<Sales sales={sales} config={config} refresh={refresh} onReceipt={setReceipt} onPay={setPending} notify={notify} hasMore={salesHasMore} loadingMore={salesLoadingMore} onLoadMore={loadMoreSales}/>}
-          {page==='inventory'&&<Inventory catalog={catalog} config={config} refresh={refresh} notify={notify}/>}
+          {page==='inventory'&&<Inventory catalog={catalog} config={config} user={user} active={page==='inventory'} refresh={refresh} notify={notify}/>}
           {page==='shifts'&&<Shifts config={config} user={user} shift={shift} refresh={refresh} notify={notify}/>}
           {page==='reports'&&user.role!=='cashier'&&<Reports config={config} notify={notify} refreshKey={refreshKey}/>}
           {page==='staff'&&user.role==='owner'&&<Staff config={config} user={user} notify={notify}/>}

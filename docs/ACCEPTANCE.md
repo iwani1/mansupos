@@ -40,9 +40,9 @@ Automated baseline: backend/mocked WooCommerce/restore and deployment-safety reg
 - [ ] Cancelled unpaid order and refunded paid order behave as documented.
 - [ ] Backorder (`yes` and `notify`) and untracked-stock behavior reviewed; customers are notified where required.
 
-## Physically separate In-store collection — independent cash acceptance
+## Archived POS-only In-store collection — NOT the new shared-stock rollout
 
-This is **not** the WooCommerce Retail/Wholesale stock in the preceding checklist. The pilot remains read-only. See [INSTORE-COLLECTION.md](INSTORE-COLLECTION.md) for the approved source files, 41 held exceptions and distinct rollout gate. Nothing here authorizes switching on a deployed service.
+**Do not execute these historical POS-only acceptance steps for the current business target.** The owner now wants physical goods to share Woo product IDs and stock with online retail; the POS-only In-store cash/count gate is retired outside isolated tests. See [SHARED-WOO-STOCK.md](SHARED-WOO-STOCK.md) for the Woo-backed physical-goods cutover. The archival checklist below does not authorize an import or switching on a deployed service.
 
 - [ ] Review the original PDF/CSV and snapshot hashes: 1,571 report rows, 1,570 matched unique SKUs and one SKU-less row 508. Confirm 28 negative, nine blank/malformed UOM, three fractional-cent prices and the unidentified row are **quarantined**; the other 1,530 eligible goods alone could be imported. Obtain owner-approved two-decimal payable amounts before ever selling SKUs 1469–1471. Do not treat negative stock as zero or round `194.1177` silently.
 - [ ] Explicitly confirm physical stock belongs only to this POS, with no other till or online sales of those units; document first-sale counts and an owner-controlled restock/stock-count procedure. Verify the source SHA-256 pin and one-time import into a **separate trading ledger**, never the pilot. Restart without reseeding after a sale or physical count.
@@ -64,6 +64,8 @@ This is **not** the WooCommerce Retail/Wholesale stock in the preceding checklis
 - [ ] Staff understand that recording is not processing or proof of settlement.
 
 ## Wholesale checkout — separate acceptance (not dispatch on credit)
+
+- [ ] For branch 1.2.3, owner-only private defaults are stored in the separate POS ledger: view/edit/remove from Inventory, mark changed/missing Woo identities for review, confirm staff/cashiers cannot access the private price API and no retail catalogue, public Woo price or order is modified. Owner/manager can review a suggested per-option default and can still negotiate a different final price for that sale; edits require fresh approval. Do not interpret a saved default as authority to turn on Checkout. See [PRIVATE-WHOLESALE-PRICES.md](PRIVATE-WHOLESALE-PRICES.md).
 
 - [ ] On staging, owner explicitly authorized isolated Wholesale tests (`POS_STAGING_WHOLESALE_APPROVED=true` only on that clone). If staging is declined, the owner documents a controlled **real** Wholesale cash-sale plan after Retail checks; the distinct live approval and acceptance-plan reference are needed before any live Wholesale write. A flag is not evidence that testing passed.
 - [ ] **Wholesale** is a separate owner/manager navigation page; no negotiated-price controls are in the retail register. Goods are available immediately without choosing or creating a buyer. Type an optional name or leave it blank. A cashier cannot open the wholesale workspace or enter/approve a negotiated price; the API also rejects these actions.

@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-This application includes production-oriented controls. The code blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) have been remediated and regression-tested. **A live-catalogue *read-only* pilot is possible without Woo staging, but it does not authorize checkout.** Woo-backed trading requires acceptance of the actual store's tax/stock/recovery behavior (preferably on a separate staging clone), hardware verification, tested off-host backups and written owner approval. POS-only physical-store trading instead requires verified separate counts/prices, gross-receipt compliance, local stock/cash recovery and its own approval. If the owner declines staging, use the controlled [Woo Retail/Wholesale cash-only live acceptance plan](LIVE-CASH-ROLLOUT.md); it is not a go-live authorization. The physical [In-store collection](INSTORE-COLLECTION.md) is an independent POS-only pool with its own cash gate, source review and acceptance; no Woo order approval grants it access. Do not paste secrets into chat or commit them.
+This application includes production-oriented controls. The code blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) have been remediated and regression-tested. **A live-catalogue *read-only* pilot is possible without Woo staging, but it does not authorize checkout.** Woo-backed trading requires acceptance of the actual store's tax/stock/recovery behavior, hardware verification, tested off-host backups and written owner approval. The owner declined a separate staging clone; use the controlled [Woo Retail/Wholesale cash-only live acceptance plan](LIVE-CASH-ROLLOUT.md), which is not a go-live authorization. Physical [In-store collection](INSTORE-COLLECTION.md) is currently a historical source view only: its former POS-only cash/stock path is retired in non-test services because the owner wants these goods on **the same Woo stock pool**. See the [shared-stock plan](SHARED-WOO-STOCK.md). Do not paste secrets into chat or commit them.
 
 ## 1. Prerequisites
 
@@ -90,7 +90,7 @@ sudo systemctl status mansu-pos
 
 ## 7. Live WooCommerce order approval gate (not the physical-stock cash gate)
 
-**Not for `mansu-pos-live-pilot.service`.** That unit enforces read-only access in both startup commands and must never be converted to a trading unit or use its pilot ledger for live sales. This section describes a *future separately reviewed deployment* after acceptance and distinct written authorization. POS-only physical goods instead follow the independent [In-store collection gate and acceptance](INSTORE-COLLECTION.md).
+**Not for `mansu-pos-live-pilot.service`.** That unit enforces read-only access in both startup commands and must never be converted to a trading unit or use its pilot ledger for live sales. This section describes a *future separately reviewed deployment* after acceptance and distinct written authorization. Physical-source goods first need a separately reviewed [Woo-backed shared-stock cutover](SHARED-WOO-STOCK.md); the archived POS-only In-store gate must stay off.
 
 Woo Retail/Wholesale order writes require all of:
 

@@ -255,7 +255,7 @@ try {
   if ((await page.locator('.stat-card').filter({ hasText: 'Tracked stock' }).locator('strong').innerText()) !== '—') throw new Error('Inventory showed a complete total despite unknown stock ownership.');
   for (const name of ['Test unknown stock', 'Test legacy untracked stock', 'Test legacy option dress']) {
     const row = page.locator('.inventory-table tbody tr').filter({ hasText: name });
-    if (!(await row.innerText()).includes('Stock unavailable') || !(await row.locator('td').nth(4).innerText()).includes('—')) throw new Error(`${name} was presented as known stock in inventory.`);
+    if (!(await row.innerText()).includes('Stock unavailable') || !(await row.locator('td[data-label="Available"]').innerText()).includes('—')) throw new Error(`${name} was presented as known stock in inventory.`);
   }
   if (pageErrors.length) throw new Error(pageErrors.join('\n'));
   console.log('PASS: counter-sized checkout, narrow-screen navigation, readable controls, stock/variation states, and accessible report totals.');
