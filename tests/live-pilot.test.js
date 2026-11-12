@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createApp } from '../server/app.js';
 import { readConfig } from '../server/config.js';
-import { WooCommerce } from '../server/woocommerce.js';
+import { WooCommerce, fetchLiveCatalog } from '../server/woocommerce.js';
 
 const pilotEnvironment = {
   NODE_ENV: 'production', POS_MODE: 'live', POS_LIVE_READ_ONLY: 'true',
@@ -119,6 +119,49 @@ test('WooCommerce adapter never sends remote writes when the pilot or any write 
   const staging = new WooCommerce(readConfig({ POS_MODE: 'staging', WOO_BASE_URL: 'https://staging.example.com', WOO_CONSUMER_KEY: 'ck', WOO_CONSUMER_SECRET: 'cs', POS_STAGING_APPROVED: 'true' }), fakeFetch);
   await staging.createOrder({ status: 'pending' });
   assert.equal(requests.at(-1).method, 'POST', 'Approved staging writes remain available for isolated acceptance tests');
+});
+
+test('standard WooCommerce pagination reads every product and variation page without writes', async () => {
+  const calls = [];
+  const product = id => ({
+    id, name: `Product ${id}`, type: 'simple', status: 'publish', sku: `SKU-${id}`,
+    price: '10.00', manage_stock: true, stock_quantity: 5, stock_status: 'instock',
+    purchasable: true, images: [], categories: [],
+  });
+  const variation = id => ({
+    id, price: '10.00', manage_stock: 'parent', stock_status: 'instock', purchasable: true,
+    attributes: [{ name: 'Size', option: String(id) }],
+  });
+  const firstPage = Array.from({ length: 100 }, (_, i) => product(i + 1));
+  firstPage[0].type = 'variable';
+  const secondPage = Array.from({ length: 15 }, (_, i) => product(i + 101));
+  const api = new WooCommerce(readConfig(pilotEnvironment), async (input, options) => {
+    assert.equal(options.method, 'GET');
+    const url = new URL(input);
+    const page = Number(url.searchParams.get('page'));
+    const products = url.pathname === '/wp-json/wc/v3/products';
+    const variations = url.pathname === '/wp-json/wc/v3/products/1/variations';
+    assert.ok(products || variations, `Unexpected Woo request: ${url.pathname}`);
+    assert.equal(url.searchParams.get('per_page'), '100');
+    calls.push(`${products ? 'products' : 'variations'}:${page}`);
+    const data = products ? page === 1 ? firstPage : secondPage
+      : page === 1 ? Array.from({ length: 100 }, (_, i) => variation(i + 1)) : [variation(101)];
+    return new Response(JSON.stringify(data), { headers: {
+      'Content-Type': 'application/json', 'X-WP-Total': products ? '115' : '101', 'X-WP-TotalPages': '2',
+    } });
+  });
+  const catalogue = await fetchLiveCatalog(api);
+  assert.equal(catalogue.products.length, 115, 'The second product page must not be silently omitted');
+  assert.equal(catalogue.products[0].variations.length, 101, 'The second variation page must not be silently omitted');
+  assert.equal(catalogue.complete, true);
+  assert.deepEqual(calls, ['products:1', 'variations:1', 'variations:2', 'products:2']);
+});
+
+test('WooCommerce infers a second product page when a proxy strips X-WP-TotalPages', async () => {
+  const api = new WooCommerce(readConfig(pilotEnvironment), async () => new Response('[]', {
+    headers: { 'Content-Type': 'application/json', 'X-WP-Total': '115' },
+  }));
+  assert.equal((await api.products(1)).pages, 2);
 });
 
 test('pilot API can read the catalogue but cannot prepare retail/wholesale orders or log cash', async t => {

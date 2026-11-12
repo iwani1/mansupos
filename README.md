@@ -77,7 +77,7 @@ A read-only live catalogue pilot needs the new POS DNS/HTTPS hostname, a private
 
 ## Verification
 
-- `npm test`: 72 backend/mocked WooCommerce/restore and deployment-safety regression tests pass, including the live catalogue pilot's forced loopback/write locks and a Woo request guard, optional-name and unnamed wholesale quotes, exact tax-inclusive amounts, historical-order compatibility, loss/reconciliation recovery, stock checks, single-instance locking and owner preflight.
+- `npm test`: 75 backend/mocked WooCommerce/restore and deployment-safety regression tests pass, including the live catalogue pilot's forced loopback/write locks, Woo request guard and multi-page catalogue reads, optional-name and unnamed wholesale quotes, exact tax-inclusive amounts, historical-order compatibility, loss/reconciliation recovery, stock checks, single-instance locking and owner preflight.
 - `npm run test:browser`: demo retail/Wholesale quotes, recovery, receipt, proxy session, reduced motion, counter/mobile layout and the pilot's checkout-lock labels. Run only against an isolated demo database, never the live site.
 - `npm run test:a11y`: axe WCAG A/AA + best-practice scans and 320px overflow check pass.
 - `npm run lint`: ESLint passes.

@@ -3,7 +3,13 @@ export function setSessionToken(token = '') { sessionToken = token; }
 export function authHeaders() { return sessionToken ? { Authorization: `Bearer ${sessionToken}`, 'X-Mansu-Session': sessionToken } : {}; }
 export async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, { credentials: 'same-origin', ...options, headers: { 'Content-Type': 'application/json', ...authHeaders(), ...options.headers }, ...(options.body ? { body: JSON.stringify(options.body) } : {}) });
-  const data = await response.json();
+  let data;
+  try { data = await response.json(); }
+  catch {
+    const error = new Error(`The POS server returned an unexpected page (HTTP ${response.status}). Try again; contact an administrator if it continues.`);
+    error.code = 'INVALID_API_RESPONSE'; error.status = response.status;
+    throw error;
+  }
   if (!response.ok) { const error = new Error(data.error || 'The request could not be completed.'); error.code = data.code; error.status = response.status; if (response.status === 401 && !path.startsWith('/auth/login')) window.dispatchEvent(new CustomEvent('mansu:session-expired')); throw error; }
   return data;
 }

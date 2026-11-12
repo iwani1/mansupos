@@ -71,7 +71,14 @@ export class WooCommerce {
       error.retryable = method === 'GET' && SAFE_RETRY_STATUS.has(response.status);
       throw error;
     }
-    return { data, total: Number(response.headers.get('x-wp-total') || 0), pages: Number(response.headers.get('x-wp-total-pages') || 1) };
+    const total = Number(response.headers.get('x-wp-total') || 0);
+    // WordPress/WooCommerce uses X-WP-TotalPages (no hyphen before Pages).
+    // Infer a minimum from X-WP-Total if a proxy drops or misreports that header.
+    const reportedPages = Number(response.headers.get('x-wp-totalpages') || response.headers.get('x-wp-total-pages') || 1);
+    const perPage = Number(url.searchParams.get('per_page'));
+    const minimumPages = Number.isSafeInteger(total) && Number.isSafeInteger(perPage) && perPage > 0
+      ? Math.ceil(total / perPage) : 1;
+    return { data, total, pages: Math.max(1, Number.isSafeInteger(reportedPages) ? reportedPages : 1, minimumPages) };
   }
   async products(page = 1) { return this.request('products', { query: { page, per_page: 100, status: 'publish', orderby: 'date', order: 'desc' } }); }
   async variations(productId, page = 1) { return this.request(`products/${productId}/variations`, { query: { page, per_page: 100 } }); }

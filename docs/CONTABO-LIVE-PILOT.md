@@ -2,7 +2,7 @@
 
 **This is a read-only *WooCommerce* pilot, not permission to sell.** The owner chose to connect to the live `mansutrendzgh.com` store without using its `/stagings/` path. The pilot can read actual products, prices, options and stock with a new **Read-only** WooCommerce REST key. It cannot create, reprice, cancel or mark WooCommerce orders paid. Retail and Wholesale checkout, POS payments and cash shifts are disabled. Do not collect money or release goods using this POS. Local owner sign-in, sessions, audit and catalogue cache **do** write to its own private SQLite ledger.
 
-The reported VPS has host Nginx on 80/443, a separate Next.js app on port 3000 and PostgreSQL on localhost:5432, without Docker. `/usr/bin/node` was reported as v22.23.3 (minimum 22.13); port 3187 was free **when checked**. Recheck before installation. The new POS hostname `pos.mansutrendzgh.com` is **not yet configured for DNS or HTTPS**. No action in this guide replaces Node, installs Docker/Caddy, changes the other app or starts a second proxy. [CONTABO-NATIVE.md](CONTABO-NATIVE.md) is for an *independent Woo staging clone* instead; **do not install its staging unit and point it at the live store**.
+The reported VPS has host Nginx on 80/443, a separate Next.js app on port 3000 and PostgreSQL on localhost:5432, without Docker. `/usr/bin/node` was reported as v22.23.3 (minimum 22.13); port 3187 was free **when checked**. Recheck before installation. The new POS hostname `pos.mansutrendzgh.com` needs independently verified DNS and HTTPS before use; the repository does not provision either. No action in this guide replaces Node, installs Docker/Caddy, changes the other app or starts a second proxy. [CONTABO-NATIVE.md](CONTABO-NATIVE.md) is for an *independent Woo staging clone* instead; **do not install its staging unit and point it at the live store**.
 
 The dedicated `mansu-pos-live-pilot.service` forces `POS_MODE=live`, `POS_LIVE_READ_ONLY=true`, all live/staging write flags off, `127.0.0.1:3187`, an isolated data directory and `POS_PUBLIC_ORIGIN=https://pos.mansutrendzgh.com` in both preflight and server startup. The code additionally rejects a conflicting live checkout approval flag and restricts the pilot to WooCommerce **product/variation reads only** (no customer/order reads); non-read requests are blocked whenever writes are locked. This unit has **no env-file-only upgrade path to trading**. Its backup unit targets only the pilot ledger. Neither unit has been installed on the VPS by the repository changes.
 
@@ -48,7 +48,7 @@ install -d -o mansu-pos-pilot -g mansu-pos-pilot -m 0700 /var/lib/mansu-pos-live
 install -d -o mansu-pos-pilot -g mansu-pos-pilot -m 0755 /opt/mansu-pos-live-pilot
 sudo -u mansu-pos-pilot -H git clone --single-branch --branch arena/f5331f1d-mansupos https://github.com/iwani1/mansupos.git /opt/mansu-pos-live-pilot
 sudo -u mansu-pos-pilot -H sh -c 'cd /opt/mansu-pos-live-pilot && npm ci && npm run build && npm prune --omit=dev'
-git -C /opt/mansu-pos-live-pilot rev-parse --short HEAD
+sudo -u mansu-pos-pilot -H git -C /opt/mansu-pos-live-pilot rev-parse --short HEAD
 ```
 
 The repository is public and does not need a GitHub token. Install dependencies/build as the new user, **not root**. Keep this code directory and its ledger distinct from the existing app and from any future staging or live-trading POS. Do not place a real `.env` in Git.
@@ -96,7 +96,7 @@ proxy_set_header X-Forwarded-For $remote_addr;
 proxy_read_timeout 30s;
 ```
 
-Set up an HTTP → HTTPS redirect for **this hostname only** after certificate issuance. Test with `nginx -t` *before* `systemctl reload nginx`. Never use `curl -k` to hide certificate problems. Check `https://pos.mansutrendzgh.com/api/health` for `liveReadOnly:true`, verify owner sign-in and **Store connection → Test connection / Run diagnostics**, and confirm that the existing Next.js site and live Woo storefront still work. The connection test is a Woo **product GET**; pilot diagnostics intentionally skip reading real customer orders. Do not paste diagnostics containing customer data into chat. A missing/incorrect key, WAF response or canonical-host redirect must be resolved before relying on stock data.
+Set up an HTTP → HTTPS redirect for **this hostname only** after certificate issuance. Test with `nginx -t` *before* `systemctl reload nginx`. Never use `curl -k` to hide certificate problems. Check `https://pos.mansutrendzgh.com/api/health` for `liveReadOnly:true`, verify owner sign-in and **Store connection → Test connection / Run diagnostics**, and confirm that the existing Next.js site and live Woo storefront still work. The connection test is a Woo **product GET**; pilot diagnostics intentionally skip reading real customer orders. Do not paste diagnostics containing customer data into chat. A missing/incorrect key, WAF response or canonical-host redirect must be resolved before relying on stock data. A green test counts published Woo products but does **not** prove that every catalogue page/variation was loaded. Check the preview count, unsupported product types, snapshot date, several real prices/stock quantities and any repeated refresh error before showing it to a client. Version 1.1.4 corrects WordPress's `X-WP-TotalPages` pagination header; earlier pilots could silently stop after the first 100 products or variations. If the POS receives an HTML gateway/timeout response during a full refresh, inspect *only the pilot* request timings and its Nginx host; do not change the shared proxy's global settings or turn on checkout.
 
 ## 6. Backups and what this pilot cannot do
 
@@ -112,3 +112,17 @@ journalctl -u mansu-pos-live-pilot-backup -n 30 --no-pager
 Encrypt/copy finished integrity-checked backups off-host and perform an isolated restore drill; the same VPS is not off-host protection. Continue the existing WooCommerce files/database backups separately. Do not restore a production POS ledger into this pilot, run a second POS instance on its data directory, or turn on writes by editing this unit or its env file.
 
 **A green catalogue connection is not approval for checkout.** Real retail/Wholesale writes still need actual WooCommerce tax/total, quantity/overselling, payment recovery and hardware acceptance, verified off-host backups and *distinct written owner approval*. The `/stagings/` path is not a safe substitute for an independent test environment. If a separate clone cannot be arranged, discuss a controlled alternative acceptance plan **before** any test touches real orders or inventory. A future approved trading deployment requires a **new reviewed service and separate ledger**, not a flip of this pilot; Wholesale needs its own written decision. See [ACCEPTANCE.md](ACCEPTANCE.md).
+
+## 7. Updating an existing pilot without replacing its ledger
+
+After a verified pilot backup and a review of any pending maintenance window, update **only** its service-user-owned code directory. The private `/etc/mansu-pos-live-pilot/pos.env`, `/var/lib/mansu-pos-live-pilot` and the other app must stay untouched. Do not use `git reset --hard`, rebuild as root, or repurpose the pilot unit for trading:
+
+```bash
+sudo -u mansu-pos-pilot -H git -C /opt/mansu-pos-live-pilot pull --ff-only origin arena/f5331f1d-mansupos
+sudo -u mansu-pos-pilot -H sh -c 'cd /opt/mansu-pos-live-pilot && npm ci --include=dev && npm run build && npm prune --omit=dev'
+sudo -u mansu-pos-pilot -H git -C /opt/mansu-pos-live-pilot rev-parse --short HEAD
+systemctl restart mansu-pos-live-pilot
+curl --fail --silent http://127.0.0.1:3187/api/health
+```
+
+Confirm `liveReadOnly:true`, the reviewed version/commit, HTTPS, owner sign-in, a working product-only connection test and a *complete* refreshed catalogue before inviting users. Do not enable real sales from this service. If any step fails, stop and inspect only this pilot; never restore an older ledger over newer records while it is running.
