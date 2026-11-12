@@ -10,7 +10,7 @@ process.umask(0o077);
 const startupConfig = readConfig();
 const dist = path.resolve('dist');
 if (startupConfig.production && !fs.existsSync(path.join(dist, 'index.html'))) {
-  throw new Error('Production build missing. Run npm run build before npm start.');
+  throw new Error(`Production build missing. Run npm run ${startupConfig.mode === 'demo' ? 'build' : 'build:live'} before npm start.`);
 }
 // Acquire the lease before opening/migrating the ledger, not after createApp.
 const lease = acquireInstanceLease(startupConfig);
@@ -24,6 +24,9 @@ server.headersTimeout = 35000;
 server.keepAliveTimeout = 5000;
 
 if (config.production) {
+  // A demo build may have copied sample illustrations into dist. Never serve
+  // those assets from a live/staging POS, even if the wrong build was deployed.
+  if (config.mode !== 'demo') app.use('/demo', (_req, res) => res.sendStatus(404));
   app.use(express.static(dist, {
     index: false,
     maxAge: 0,

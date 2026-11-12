@@ -47,7 +47,7 @@ useradd --system --user-group --home-dir /var/lib/mansu-pos-live-pilot --shell /
 install -d -o mansu-pos-pilot -g mansu-pos-pilot -m 0700 /var/lib/mansu-pos-live-pilot
 install -d -o mansu-pos-pilot -g mansu-pos-pilot -m 0755 /opt/mansu-pos-live-pilot
 sudo -u mansu-pos-pilot -H git clone --single-branch --branch arena/f5331f1d-mansupos https://github.com/iwani1/mansupos.git /opt/mansu-pos-live-pilot
-sudo -u mansu-pos-pilot -H sh -c 'cd /opt/mansu-pos-live-pilot && npm ci && npm run build && npm prune --omit=dev'
+sudo -u mansu-pos-pilot -H sh -c 'cd /opt/mansu-pos-live-pilot && npm ci && npm run build:live && test ! -e dist/demo && npm prune --omit=dev'
 sudo -u mansu-pos-pilot -H git -C /opt/mansu-pos-live-pilot rev-parse --short HEAD
 ```
 
@@ -119,7 +119,7 @@ After a verified pilot backup and a review of any pending maintenance window, up
 
 ```bash
 sudo -u mansu-pos-pilot -H git -C /opt/mansu-pos-live-pilot pull --ff-only origin arena/f5331f1d-mansupos
-sudo -u mansu-pos-pilot -H sh -c 'cd /opt/mansu-pos-live-pilot && npm ci --include=dev && npm run build && npm prune --omit=dev'
+sudo -u mansu-pos-pilot -H sh -c 'cd /opt/mansu-pos-live-pilot && npm ci --include=dev && npm run build:live && test ! -e dist/demo && npm prune --omit=dev'
 sudo -u mansu-pos-pilot -H git -C /opt/mansu-pos-live-pilot rev-parse --short HEAD
 systemctl restart mansu-pos-live-pilot
 curl --fail --silent http://127.0.0.1:3187/api/health

@@ -17,11 +17,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - run: npm run build
+      - run: npm run build:live
+      - run: test -f dist/index.html && test -f dist/favicon.svg && test ! -e dist/demo
       - run: npm audit --audit-level=high
       - run: npm run preflight
       - name: Validate isolated native systemd units
-        run: systemd-analyze verify deploy/mansu-pos-staging.service deploy/mansu-pos-staging-backup.service deploy/mansu-pos-live-pilot.service deploy/mansu-pos-live-pilot-backup.service
+        run: systemd-analyze verify deploy/mansu-pos-staging.service deploy/mansu-pos-staging-backup.service deploy/mansu-pos-live-pilot.service deploy/mansu-pos-live-pilot-backup.service deploy/mansu-pos-live-trading.service deploy/mansu-pos-live-trading-backup.service
 
   lint:
     runs-on: ubuntu-24.04

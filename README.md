@@ -4,7 +4,7 @@ A working, mobile-friendly point-of-sale application for **MansutRENDZGH**, desi
 
 ## Current status
 
-The separately deployed `pos.mansutrendzgh.com` **live catalogue pilot (version 1.1.4)** reads the real WooCommerce products with a Read-only key; it cannot create orders or record payment. Its 115-product preview was verified, not checkout/tax acceptance. The isolated demo remains available for safe Wholesale practice. The owner reports written Retail + Wholesale sales approval and a tested off-host store restore, but has declined staging; **real POS trading is not yet enabled**. The proposed no-staging path is a [supervised cash-only live acceptance plan](docs/LIVE-CASH-ROLLOUT.md), not permission to unlock the pilot.
+The separately deployed `pos.mansutrendzgh.com` **read-only live catalogue (version 1.1.4)** reads the real WooCommerce products with a Read-only key; it cannot create orders or record payment. Its 115-product catalogue was verified, not checkout/tax acceptance. The public UI does not show demo records, but its older build may still contain unused demo illustration files until upgraded. The isolated demo is retained for local tests only. This repository's **1.1.6** refresh removes sample stock/sign-in/assets from non-demo operation and includes a separate, **write-locked** live trading-service template; neither the refresh nor the template is deployed yet. The owner reports written Retail + Wholesale sales approval and a tested off-host store restore, but has declined staging; **real POS trading is not yet enabled**. The proposed no-staging path is a [supervised cash-only live acceptance plan](docs/LIVE-CASH-ROLLOUT.md), not permission to unlock the catalogue service.
 
 The codebase includes production-oriented controls (shifts, audit, lockout, idle sessions, reconciliation sweep, diagnostics, migrations, backup/restore, preflight, Docker/Caddy/systemd/nginx examples, and CI). **A full application audit on 4 November 2026 found release blockers; the code remediation and regression tests are documented in [docs/AUDIT-2026-11-04.md](docs/AUDIT-2026-11-04.md).** Live checkout still needs actual WooCommerce tax/stock/recovery and integration acceptance, physical hardware verification and a separate reviewed trading deployment. Do not enable live writes from the read-only pilot.
 
@@ -50,7 +50,8 @@ Open `http://localhost:3000`. The default configuration is demo mode; no credent
 
 ```bash
 npm test                 # backend and mocked WooCommerce integration tests
-npm run build            # production frontend build
+npm run build            # isolated demo frontend build
+npm run build:live       # live/staging frontend build; excludes demo illustrations
 npm run test:browser     # demo workflow, wholesale quotes, recovery, proxy, motion and design checks; expects port 3000
 npm run test:design      # counter/mobile layout and mocked visual-state checks
 npm run test:a11y        # axe WCAG A/AA + best-practice scans; expects port 3000
@@ -62,7 +63,7 @@ The browser walkthrough creates demo sales and may close an open demo shift. Run
 
 ## Connect the store
 
-On the shared Contabo VPS (host Nginx, another Node app on port 3000, no Docker), the isolated **[read-only live pilot](docs/CONTABO-LIVE-PILOT.md)** is already serving `pos.mansutrendzgh.com` over HTTPS on loopback port 3187. It cannot create orders, record payment or open cash shifts. **[docs/CONTABO-NATIVE.md](docs/CONTABO-NATIVE.md)** is a distinct Woo-staging route; it cannot run on the pilot's port. **[docs/CONTABO.md](docs/CONTABO.md)** covers optional POS-only Docker/Compose only if an administrator chooses to install Docker. The owner's no-staging request requires a **separate**, not-yet-deployed trading service and the checks in **[docs/LIVE-CASH-ROLLOUT.md](docs/LIVE-CASH-ROLLOUT.md)**. See **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for gates, **[docs/SETUP.md](docs/SETUP.md)** for setup, **[docs/OPERATIONS.md](docs/OPERATIONS.md)** for daily use, and **[docs/SECURITY.md](docs/SECURITY.md)** for security.
+On the shared Contabo VPS (host Nginx, another Node app on port 3000, no Docker), the isolated **[read-only live pilot](docs/CONTABO-LIVE-PILOT.md)** is already serving `pos.mansutrendzgh.com` over HTTPS on loopback port 3187. It cannot create orders, record payment or open cash shifts. **[docs/CONTABO-NATIVE.md](docs/CONTABO-NATIVE.md)** is a distinct Woo-staging route; it cannot run on the pilot's port. **[docs/CONTABO.md](docs/CONTABO.md)** covers optional POS-only Docker/Compose only if an administrator chooses to install Docker. The owner's no-staging request has a **separate, not-yet-deployed and write-locked** [live trading-service template](docs/CONTABO-LIVE-TRADING.md); real trading requires the checks in **[docs/LIVE-CASH-ROLLOUT.md](docs/LIVE-CASH-ROLLOUT.md)**. See **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for gates, **[docs/SETUP.md](docs/SETUP.md)** for setup, **[docs/OPERATIONS.md](docs/OPERATIONS.md)** for daily use, and **[docs/SECURITY.md](docs/SECURITY.md)** for security.
 
 The deployed read-only catalogue pilot does **not** authorize real Woo test orders. For eventual trading without a staging clone:
 
@@ -76,18 +77,18 @@ The deployed read-only catalogue pilot does **not** authorize real Woo test orde
 
 ## Verification
 
-- `npm test`: 77 backend/mocked WooCommerce/restore and deployment-safety regression tests pass locally, including the live catalogue pilot's forced loopback/write locks, Woo request guard, multi-page catalogue reads, optional-name and unnamed wholesale quotes, exact tax-inclusive amounts, cash-only live payment gate, no-staging Wholesale approval separation, historical-order compatibility, loss/reconciliation recovery, stock checks, single-instance locking and owner preflight.
+- `npm test`: backend/mocked WooCommerce/restore and deployment-safety regression tests pass locally, including the live catalogue pilot's forced loopback/write locks, Woo request guard, multi-page catalogue reads, optional-name and unnamed wholesale quotes, exact tax-inclusive amounts, cash-only live payment gate, no-staging Wholesale approval separation, historical-order compatibility, loss/reconciliation recovery, stock checks, single-instance locking and owner preflight.
 - `npm run test:browser`: demo retail/Wholesale quotes, recovery, receipt, proxy session, reduced motion, counter/mobile layout, pilot checkout-lock labels and **isolated mock live-mode cash-only UI**. Run only against an isolated demo database, never the live site.
 - `npm run test:a11y`: axe WCAG A/AA + best-practice scans and 320px overflow check pass.
 - `npm run lint`: ESLint passes.
 - Receipt PDF was checked for one-page layout and extractable receipt text.
-- `npm run build`: production frontend build passes.
+- `npm run build` (isolated demo) and `npm run build:live` (live package without copied demo illustrations) pass.
 - GitHub Actions: backend, lint, production-browser/recovery/accessibility, and clean Docker build/smoke jobs pass.
 - `npm run preflight`: configuration/build/data-directory/gate checks pass.
 - `npm audit --omit=dev`: no known production dependency vulnerabilities at the time of the build.
 - `npm run backup` and guarded `npm run restore`: SQLite online backup, restore, and integrity check pass in an isolated test directory.
 
-These checks use demo data and mocked WooCommerce responses. They do not prove compatibility with the live WordPress/WooCommerce installation; the read-only pilot verifies only catalogue connectivity, not taxes or safe checkout. An isolated staging clone remains the recommended way to complete trading acceptance.
+These checks use isolated fixtures and mocked WooCommerce responses. They do not prove compatibility with the live WordPress/WooCommerce installation; the read-only service verifies only catalogue connectivity, not taxes or safe checkout. The owner declined staging, so the [controlled no-staging plan](docs/LIVE-CASH-ROLLOUT.md) must be reviewed before any real order write.
 
 ## Important limitations
 

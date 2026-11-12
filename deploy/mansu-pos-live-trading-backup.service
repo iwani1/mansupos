@@ -1,0 +1,17 @@
+[Unit]
+Description=Verified online backup of the separate Mansu POS live trading ledger
+
+[Service]
+Type=oneshot
+User=mansu-pos-trading
+Group=mansu-pos-trading
+WorkingDirectory=/opt/mansu-pos-live-trading
+EnvironmentFile=/etc/mansu-pos-live-trading/pos.env
+# Never point a trading backup at the pilot or a demo/staging ledger.
+ExecStart=/usr/bin/env NODE_ENV=production POS_MODE=live POS_LIVE_READ_ONLY=false POS_DATA_DIR=/var/lib/mansu-pos-live-trading /usr/bin/node server/backup.js /var/lib/mansu-pos-live-trading/backups
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mansu-pos-live-trading
+UMask=0077

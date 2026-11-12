@@ -16,8 +16,8 @@ try {
   });
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
-  await page.getByRole('region', { name: 'Live catalogue pilot notice' }).getByText('Live catalogue · no checkout').waitFor();
-  await page.getByText(/Live catalogue preview only/).waitFor();
+  await page.getByRole('region', { name: 'Live catalogue read-only notice' }).getByText('Live catalogue · no checkout').waitFor();
+  await page.getByText(/Live WooCommerce catalogue\. Cart amounts/).waitFor();
   if (!(await page.locator('.charge-button').isDisabled())) throw new Error('Pilot must not allow retail order preparation.');
   await page.locator('[data-nav="wholesale"]').click();
   await page.getByRole('heading', { name: 'Wholesale', exact: true }).waitFor();
@@ -30,8 +30,8 @@ try {
   await page.getByRole('heading', { name: 'Store connection' }).waitFor();
   await page.getByText('Live catalogue · no checkout').last().waitFor();
   await page.setViewportSize({ width: 375, height: 812 });
-  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('Pilot banner or connection page overflows a phone.');
-  await page.getByRole('region', { name: 'Live catalogue pilot notice' }).getByText('Live catalogue · no checkout').waitFor();
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('Read-only banner or connection page overflows a phone.');
+  await page.getByRole('region', { name: 'Live catalogue read-only notice' }).getByText('Live catalogue · no checkout').waitFor();
   if (pageErrors.length) throw new Error(`Browser errors: ${pageErrors.join('; ')}`);
   console.log('PASS: live catalogue pilot labels, locked checkout/Wholesale/cash and phone layout (isolated demo fixture).');
 } catch (error) {

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 
-export const APP_VERSION = '1.1.5';
+export const APP_VERSION = '1.1.6';
 const PRODUCTION_HOSTS = ['mansutrendzgh.com', 'www.mansutrendzgh.com'];
 
 function httpsOrigin(value, label) {

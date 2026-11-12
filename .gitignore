@@ -6,6 +6,7 @@ dist/
 !.env.example
 !.env.production.example
 !.env.live-pilot.example
+!.env.live-trading.example
 *.log
 test-results/
 playwright-report/

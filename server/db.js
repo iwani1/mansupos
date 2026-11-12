@@ -100,20 +100,37 @@ export function openDatabase(config) {
   fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
   const file = path.join(config.dataDir, `pos-${config.mode}.db`);
   const db = new DatabaseSync(file);
+  // Check the marker before any migrations or demo-stock changes. Older v1/v2
+  // ledgers have no app_meta table and are checked for demo records below.
+  const hasMetadata = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_meta'").get();
+  const ledgerMode = hasMetadata ? db.prepare("SELECT value FROM app_meta WHERE key='mode'").get()?.value : null;
+  if (ledgerMode && ledgerMode !== config.mode) {
+    db.close();
+    throw new Error('POS ledger mode does not match this service. Do not reuse a demo or pilot ledger for trading.');
+  }
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL;`);
   migrate(db);
   try { fs.chmodSync(file, 0o600); } catch {}
-  const insert = db.prepare('INSERT OR IGNORE INTO demo_stock(line_key,stock) VALUES (?,?)');
-  for (const p of demoProducts) {
-    if (p.type === 'simple') insert.run(`${p.id}:0`, p.stock);
-    for (const v of p.variations) insert.run(`${p.id}:${v.id}`, v.stock);
-  }
   if (config.mode === 'demo') {
+    const insert = db.prepare('INSERT OR IGNORE INTO demo_stock(line_key,stock) VALUES (?,?)');
+    for (const p of demoProducts) {
+      if (p.type === 'simple') insert.run(`${p.id}:0`, p.stock);
+      for (const v of p.variations) insert.run(`${p.id}:${v.id}`, v.stock);
+    }
     const add = db.prepare('INSERT OR IGNORE INTO users(id,username,name,role,password_hash,created_at) VALUES (?,?,?,?,?,?)');
     add.run('demo-owner', 'demo.owner', 'Demo Owner', 'owner', hashPassword(randomUUID()), new Date().toISOString());
     if (!db.prepare('SELECT id FROM sales LIMIT 1').get()) seedDemoSales(db);
-  } else if (config.ownerUsername && config.ownerPassword) {
-    if (!db.prepare("SELECT id FROM users WHERE role='owner' LIMIT 1").get()) {
+  } else {
+    // Never reuse a demo ledger for live/staging sales. Older versions inserted
+    // demo_stock rows even in non-demo ledgers; remove only those unused rows,
+    // preserving all owners, sessions, catalogue cache and real sales.
+    if (db.prepare("SELECT 1 FROM users WHERE id='demo-owner' LIMIT 1").get() ||
+        db.prepare("SELECT 1 FROM sales WHERE id LIKE 'demo-seed-%' LIMIT 1").get()) {
+      db.close();
+      throw new Error('Demo records found in a non-demo POS ledger. Stop and use a separate private trading ledger.');
+    }
+    db.prepare('DELETE FROM demo_stock').run();
+    if (config.ownerUsername && config.ownerPassword && !db.prepare("SELECT id FROM users WHERE role='owner' LIMIT 1").get()) {
       const problem = passwordProblem(config.ownerPassword, config.ownerUsername);
       if (problem) throw new Error(`POS_OWNER_PASSWORD: ${problem}`);
       db.prepare('INSERT INTO users(id,username,name,role,password_hash,created_at,must_change_password) VALUES (?,?,?,?,?,?,1)')

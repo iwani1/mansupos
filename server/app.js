@@ -118,8 +118,8 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
     } catch { res.status(503).json({ ok: false, error: 'Database is not ready.' }); }
   });
   app.get('/api/session', (req, res) => res.json({ user: sessionUser(req, db, config), config: publicConfig(config) }));
-  app.post('/api/auth/demo', (req, res, next) => {
-    if (config.mode !== 'demo') return next(new AppError('Demo access is disabled.', 403));
+  // No demo sign-in route exists in live or staging operation.
+  if (config.mode === 'demo') app.post('/api/auth/demo', (req, res) => {
     const token = createSession(res, db, config, 'demo-owner');
     res.json({ user: userView(db.prepare('SELECT * FROM users WHERE id=?').get('demo-owner')), config: publicConfig(config), token });
   });
@@ -201,7 +201,7 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
     res.json({ shifts: shifts.list(req.user, days) });
   });
   const requireTrading = (_req, _res, next) => config.liveReadOnly
-    ? next(new AppError('Shifts and cash movements are disabled in the live catalogue pilot.', 403, 'CHECKOUT_LOCKED')) : next();
+    ? next(new AppError('Shifts and cash movements are disabled in the read-only live catalogue.', 403, 'CHECKOUT_LOCKED')) : next();
   app.post('/api/shifts/open', auth, requireTrading, async (req, res) => res.status(201).json({ shift: shifts.open(req.user, openShiftSchema.parse(req.body)) }));
   app.post('/api/shifts/:id/close', auth, requireTrading, async (req, res) => res.json({ shift: shifts.close(req.user, req.params.id, closeShiftSchema.parse(req.body)) }));
   app.post('/api/shifts/:id/cash', auth, requireTrading, async (req, res) => res.json({ shift: shifts.movement(req.user, req.params.id, cashMovementSchema.parse(req.body)) }));
@@ -290,7 +290,7 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
       { name: 'HTTPS store URL', ok: config.storeUrl.startsWith('https://') },
       { name: 'Server-side credentials', ok: config.mode === 'demo' || config.configured, detail: config.mode === 'demo' ? 'Not needed for demo' : config.configured ? 'Configured' : 'Missing' },
       { name: 'Public origin configured', ok: !config.production || Boolean(config.publicOrigin) || config.mode === 'demo' },
-      { name: config.liveReadOnly ? 'Live catalogue pilot' : 'Write gate',
+      { name: config.liveReadOnly ? 'Live catalogue (read-only)' : 'Write gate',
         ok: config.liveReadOnly ? !config.writesEnabled && !config.wholesaleWritesEnabled : config.mode === 'demo' || config.writesEnabled,
         detail: config.liveReadOnly ? 'Checkout locked; only catalogue reads are tested' : config.mode === 'demo' ? 'Demo only' : config.writesEnabled ? 'Enabled' : 'Locked' },
     ];
