@@ -159,9 +159,12 @@ jobs:
       - name: Test Windows SQLite ledger and offline cash queue
         run: node --test tests/desktop-store.test.js
         timeout-minutes: 4
-      - name: Test central sync and read-only pilot gates
-        run: node --test tests/desktop-sync.test.js
-        timeout-minutes: 4
+      - name: Test signed central sync without HTTP
+        run: node --test --test-name-pattern='^(?!read-only pilot routes)' tests/desktop-sync.test.js
+        timeout-minutes: 3
+      - name: Test read-only pilot HTTP route lock
+        run: node --test --test-name-pattern='^read-only pilot routes' tests/desktop-sync.test.js
+        timeout-minutes: 3
       - name: Parse the uninstalled Woo plugin (and lint PHP if installed)
         run: node --test tests/desktop-plugin-syntax.test.js
         timeout-minutes: 2

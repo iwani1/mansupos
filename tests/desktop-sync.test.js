@@ -157,8 +157,10 @@ test('read-only pilot routes never call reservation plugin or create Woo orders'
   t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));instance.db.close();});
   const base=`http://127.0.0.1:${server.address().port}/api`;
   instance.db.prepare('UPDATE users SET must_change_password=0').run();
-  const login=await fetch(base+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'owner',password:'very-long-secret-for-test'})});
+  const login=await fetch(base+'/auth/login',{method:'POST',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Connection:'close'},body:JSON.stringify({username:'owner',password:'very-long-secret-for-test'})});
   const token=(await login.json()).token;
-  const response=await fetch(base+'/desktop/enroll',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({deviceId})});
-  assert.equal(response.status,403);assert.equal(calls,0);
+  const response=await fetch(base+'/desktop/enroll',{method:'POST',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Connection:'close',Authorization:`Bearer ${token}`},body:JSON.stringify({deviceId})});
+  assert.equal(response.status,403);
+  await response.text(); // Drain the rejected request before closing the Windows HTTP server.
+  assert.equal(calls,0);
 });
