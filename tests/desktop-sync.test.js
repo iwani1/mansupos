@@ -22,8 +22,11 @@ const env={NODE_ENV:'test',POS_MODE:'live',POS_LIVE_READ_ONLY:'false',WOO_BASE_U
   POS_OWNER_USERNAME:'owner',POS_OWNER_PASSWORD:'very-long-secret-for-test',
   POS_REQUIRE_SHIFT:'false'};
 function fixture(t){
-  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mansu-central-offline-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
-  const config=readConfig({...env,POS_DATA_DIR:dir});const db=openDatabase(config);t.after(()=>db.close());
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mansu-central-offline-'));
+  const config=readConfig({...env,POS_DATA_DIR:dir});const db=openDatabase(config);
+  // Windows cannot unlink an open SQLite ledger; close it BEFORE removing
+  // the temporary directory (Linux otherwise masks this cleanup bug).
+  t.after(()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
   const owner=db.prepare("SELECT id,username,name,role FROM users WHERE role='owner'").get();
   let pluginCalls=0,orderCalls=0;
   const orders=new Map();
@@ -146,7 +149,7 @@ test('a missing Woo refund acknowledgement keeps the original return pending for
 });
 
 test('read-only pilot routes never call reservation plugin or create Woo orders',async t=>{
-  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mansu-locked-desktop-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mansu-locked-desktop-'));
   let calls=0;
   const instance=createApp({env:{NODE_ENV:'test',POS_MODE:'live',POS_LIVE_READ_ONLY:'true',POS_DATA_DIR:dir,
     WOO_BASE_URL:'https://www.mansutrendzgh.com',WOO_CONSUMER_KEY:'read',WOO_CONSUMER_SECRET:'only',
@@ -154,7 +157,12 @@ test('read-only pilot routes never call reservation plugin or create Woo orders'
     reservations:{status(){calls++;},allocate(){calls++;},sync(){calls++;}},
     api:{createOrder(){calls++;},updateOrder(){calls++;}},logger:{info(){},error(){},warn(){},debug(){}}});
   const server=instance.app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
-  t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));instance.db.close();});
+  t.after(async()=>{
+    server.closeAllConnections();
+    await new Promise(r=>server.close(r));
+    instance.db.close();
+    fs.rmSync(dir,{recursive:true,force:true});
+  });
   const base=`http://127.0.0.1:${server.address().port}/api`;
   instance.db.prepare('UPDATE users SET must_change_password=0').run();
   const login=await fetch(base+'/auth/login',{method:'POST',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Connection:'close'},body:JSON.stringify({username:'owner',password:'very-long-secret-for-test'})});
