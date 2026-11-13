@@ -87,6 +87,8 @@ jobs:
                 fs.readdirSync(".").some(name => /^wc-product-export-.*\.csv$/.test(name))) process.exit(1);
             console.log("In-store source hashes verified; raw Woo export excluded from runtime image.");
           '
+      - name: Verify guarded central routes and shared contracts load in the web image
+        run: docker run --rm mansu-pos:ci node --input-type=module -e 'await import("./server/app.js"); console.log("Central routes load without bundling Electron or the uninstalled Woo plugin.")'
       - name: Smoke test container
         run: |
           trap 'docker rm -f mansu-pos-ci >/dev/null 2>&1 || true' EXIT
@@ -143,6 +145,7 @@ jobs:
     # publish an installer: public GitHub Releases require separate approval,
     # code signing, a real Windows install/restore test and Woo acceptance.
     runs-on: windows-2025
+    timeout-minutes: 25
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       MANSU_SIGNED_UPDATE_BUILD: 'false'
@@ -153,7 +156,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node --test tests/desktop-store.test.js tests/desktop-sync.test.js tests/desktop-plugin-syntax.test.js
+      - name: Test Windows SQLite ledger and offline cash queue
+        run: node --test tests/desktop-store.test.js
+        timeout-minutes: 4
+      - name: Test central sync and read-only pilot gates
+        run: node --test tests/desktop-sync.test.js
+        timeout-minutes: 4
+      - name: Parse the uninstalled Woo plugin (and lint PHP if installed)
+        run: node --test tests/desktop-plugin-syntax.test.js
+        timeout-minutes: 2
       - name: Confirm Electron's bundled Node can open the offline SQLite ledger
         shell: pwsh
         run: |
@@ -161,7 +172,9 @@ jobs:
           & .\node_modules\electron\dist\electron.exe -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync(':memory:');db.exec('CREATE TABLE t(x)');db.close();console.log('Electron SQLite available')"
           if ($LASTEXITCODE -ne 0) { throw 'Electron runtime cannot open node:sqlite.' }
           Remove-Item Env:ELECTRON_RUN_AS_NODE
-      - run: npm run dist:win
+      - name: Compile unsigned Windows QA installer without publishing
+        run: npm run dist:win
+        timeout-minutes: 12
       - name: Verify the installer stays unsigned and never becomes a release
         shell: pwsh
         run: |

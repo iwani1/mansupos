@@ -154,7 +154,7 @@ test('read-only pilot routes never call reservation plugin or create Woo orders'
     reservations:{status(){calls++;},allocate(){calls++;},sync(){calls++;}},
     api:{createOrder(){calls++;},updateOrder(){calls++;}},logger:{info(){},error(){},warn(){},debug(){}}});
   const server=instance.app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
-  t.after(async()=>{await new Promise(r=>server.close(r));instance.db.close();});
+  t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));instance.db.close();});
   const base=`http://127.0.0.1:${server.address().port}/api`;
   instance.db.prepare('UPDATE users SET must_change_password=0').run();
   const login=await fetch(base+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'owner',password:'very-long-secret-for-test'})});

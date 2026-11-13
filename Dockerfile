@@ -13,6 +13,9 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
 COPY --chown=node:node server ./server
+# The guarded central sync routes import only this shared validation contract.
+# Do not copy the Electron shell, local till ledger or uninstalled Woo plugin.
+COPY --chown=node:node desktop/contracts.js ./desktop/contracts.js
 # The authenticated physical-store catalogue verifies the original files and
 # reviewed snapshot at runtime, even when cash checkout is locked. Never copy
 # these source documents into dist (the public web root).
