@@ -35,7 +35,9 @@ npm test
 npm run lint
 npm run build:live
 npm run test:desktop:browser
-# On a trusted Windows builder only: npm run dist:win (never publishes)
+# On a trusted Windows builder only: first fetch the official Electron binary
+node node_modules/electron/install.js
+npm run dist:win # unsigned QA only; never publishes
 ```
 
 The test fixtures fabricate their own catalogue/keys and write only to temporary local directories. They are not a substitute for the owner's written setup and **separate selling** decisions. Any public Release, plugin installation, live order, or change to the read-only pilot requires an explicit subsequent approval.

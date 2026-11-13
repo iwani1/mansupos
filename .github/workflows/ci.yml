@@ -177,6 +177,9 @@ jobs:
       - name: Parse the uninstalled Woo plugin (and lint PHP if installed)
         run: node --test tests/desktop-plugin-syntax.test.js
         timeout-minutes: 2
+      - name: Download the official Windows Electron runtime for QA
+        run: node node_modules/electron/install.js
+        timeout-minutes: 8
       - name: Confirm Electron's bundled Node can open the offline SQLite ledger
         shell: pwsh
         run: |
