@@ -7,7 +7,9 @@ const axeSource = fs.readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8'
 
 // Run only against an isolated demo ledger. This exercises the EXISTING POS
 // inventory/wholesale pages, not a production Woo API or a live checkout.
-const { browser, page, pageErrors } = await openBrowser();
+// Measure the completed modal, not transient semi-transparent entrance frames
+// that make otherwise accessible text appear low-contrast in a timing race.
+const { browser, page, pageErrors } = await openBrowser({ reducedMotion: 'reduce' });
 let created = null;
 try {
   const health = await (await page.request.get(`${base}/api/health`)).json();

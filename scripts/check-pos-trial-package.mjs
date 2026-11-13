@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import { listPackage, extractFile } from '@electron/asar';
 
 try {
@@ -12,7 +13,9 @@ try {
   assert.equal(scripts.length,1,'Exactly one local renderer JS bundle is permitted.');
   assert.equal(styles.length,1,'Exactly one local renderer stylesheet is permitted.');
   assert.deepEqual([...entries].sort(),[...expected,...scripts,...styles].sort(),'Unexpected file in practice ASAR (possibly the selling POS, its server or a secret).');
-  const content=name=>extractFile(file,name).toString();
+  // ASAR's getFile splits on the CURRENT OS separator, even though our
+  // allowlist compares portable '/' paths. Windows needs '\\' for nested UI.
+  const content=name=>extractFile(file,name.split('/').join(path.sep)).toString();
   const manifest=JSON.parse(content('package.json'));
   assert.equal(manifest.main,'main.js');
   assert.equal(manifest.private,true);
