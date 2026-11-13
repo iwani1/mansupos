@@ -84,10 +84,18 @@ async function start() {
 
   if (smoke) {
     // Packaged Windows runner checks the actual Electron window/preferences
-    // without contacting the pilot or accepting credentials. This mode exits
-    // immediately; it cannot display a fake store or perform a transaction.
-    const isolated = await window.webContents.executeJavaScript(
-      "document.readyState === 'complete' && typeof require === 'undefined' && !window.mansuDesktop && !window.mansuPractice");
+    // without contacting the pilot or accepting credentials. Navigate first:
+    // executeJavaScript on a newly constructed, un-navigated about:blank window
+    // may wait forever for did-finish-load. No fixture or remote host is loaded.
+    await Promise.race([
+      window.loadURL('about:blank'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('QA blank window did not load.')), 10000)),
+    ]);
+    const isolated = await Promise.race([
+      window.webContents.executeJavaScript(
+        "document.readyState === 'complete' && typeof require === 'undefined' && !window.mansuDesktop && !window.mansuPractice"),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('QA renderer did not respond.')), 10000)),
+    ]);
     if (!isolated || requestAllowed({ url: `${PILOT_ORIGIN}/api/sales/prepare`, method: 'POST', resourceType: 'xhr' })) {
       throw new Error('Packaged online pilot sandbox or checkout lock failed.');
     }

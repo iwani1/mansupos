@@ -46,6 +46,7 @@ test('app has no local sale path, credential bridge, updater or browser-exposed 
   assert.match(main, /session\.fromPartition\(partition, \{ cache: false \}\)/);
   assert.match(main, /webRequest\.onBeforeRequest/);
   assert.match(main, /verifyPilot\(\)/);
+  assert.match(main, /window\.loadURL\('about:blank'\)/); // explicit no-network packaged smoke navigation
   assert.match(main, /nodeIntegration: false/);
   assert.match(main, /sandbox: true/);
   assert.match(main, /setWindowOpenHandler\(\(\) => \(\{ action: 'deny' \}\)\)/);
