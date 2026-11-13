@@ -1,6 +1,8 @@
 # Windows till / shared Woo stock — implementation draft, NOT a release
 
-**Status:** Code is on this branch only. The existing web POS and its installed read-only 1.2.3 catalogue pilot are unchanged. The Woo reservation plugin in `woocommerce/mansu-offline-reservations/` is **not installed**. No staging store is available; the intended deployment has **one offline Windows computer**. No Windows installer has been verified on a real computer, no Woo allocation or order has been created on the website, and no live last-unit test has been witnessed. Do not install the plugin, put a write key on the pilot, enable offline selling, or distribute an installer as a public release from this document.
+**Superseded proposal:** The owner clarified that the requested separate Windows POS must be **online-only**, not a local-sale-and-later-sync till. This offline code is historical, not the Windows app to install or distribute. See the separate [online Windows read-only pilot](WINDOWS-ONLINE-PILOT.md).
+
+**Status:** Code is on this branch only. The existing web POS and its installed read-only 1.2.3 catalogue pilot are unchanged. The Woo reservation plugin in `woocommerce/mansu-offline-reservations/` is **not installed**. No staging store is available; this earlier design assumed one offline Windows computer. No Windows installer has been verified on a real computer, no Woo allocation or order has been created on the website, and no live last-unit test has been witnessed. Do not install the plugin, put a write key on the pilot, enable offline selling, or distribute an installer as a public release from this document.
 
 ## What the code does in isolation
 

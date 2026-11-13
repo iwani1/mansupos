@@ -11,7 +11,7 @@ export default [
   },
   js.configs.recommended,
   {
-    files: ['desktop/hardware-test/main.cjs'],
+    files: ['desktop/hardware-test/main.cjs', 'desktop/online/*.cjs'],
     languageOptions: { globals: globals.node },
   },
   {

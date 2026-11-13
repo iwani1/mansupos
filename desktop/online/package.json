@@ -1,0 +1,9 @@
+{
+  "name": "mansu-pos-online-read-only-pilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Online Windows POS pilot. Always connects to the read-only POS service; no local sales, stock allocation or sync queue.",
+  "author": "MansutRENDZGH",
+  "license": "UNLICENSED",
+  "main": "main.cjs"
+}

@@ -1,0 +1,22 @@
+{
+  "appId": "com.mansutrendzgh.pos.online-pilot",
+  "productName": "Mansu POS Online - READ ONLY PILOT",
+  "electronVersion": "45.3.1",
+  "asar": true,
+  "npmRebuild": false,
+  "directories": { "output": "release" },
+  "files": ["main.cjs", "policy.cjs", "package.json"],
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "icon": "../assets/mansu.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Mansu POS Online (READ ONLY PILOT)",
+    "artifactName": "Mansu-POS-ONLINE-READ-ONLY-PILOT-${version}-Windows-Setup.${ext}"
+  }
+}

@@ -361,3 +361,72 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
+
+  online-pilot-package:
+    # Separate installable ONLINE shell for the existing read-only pilot, NOT
+    # the offline till and NOT a selling release. Only an explicit [online-qa]
+    # push uploads a short-lived unsigned QA artifact. No live login or Woo
+    # request is performed by CI; no GitHub Release or deployment is created.
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[online-qa]')
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test HTTPS pilot pin, read-only request policy and package boundaries
+        run: node --test tests/online-pilot.test.js
+        timeout-minutes: 3
+      - name: Download official Windows Electron runtime
+        run: node node_modules/electron/install.js
+        timeout-minutes: 8
+      - name: Build separate unsigned online read-only pilot installer
+        run: npm run dist:online:win
+        timeout-minutes: 10
+      - name: Smoke packaged native window with no live network or credentials
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $out = 'desktop/online/release'
+          $exe = @(Get-ChildItem "$out/win-unpacked" -Filter '*Online*.exe' -File)
+          if ($exe.Count -ne 1) { throw 'Expected exactly one packaged online pilot executable.' }
+          $env:MANSU_ONLINE_CI_SMOKE = '1'
+          $process = Start-Process -FilePath $exe[0].FullName -ArgumentList '--qa-smoke' -PassThru
+          try {
+            if (-not $process.WaitForExit(45000)) {
+              Stop-Process -Id $process.Id -Force
+              throw 'The online pilot Electron window did not finish its offline-free smoke test.'
+            }
+            if ($process.ExitCode -ne 0) { throw "Online pilot smoke test exited $($process.ExitCode)." }
+          } finally { Remove-Item Env:MANSU_ONLINE_CI_SMOKE }
+      - name: Inspect isolated ASAR, unsigned installer and SHA-256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'desktop/online/release'
+          node scripts/check-online-package.mjs "$out/win-unpacked/resources/app.asar"
+          if ($LASTEXITCODE -ne 0) { throw 'Online pilot package contained unexpected offline or production POS files.' }
+          $setup = @(Get-ChildItem $out -Filter 'Mansu-POS-ONLINE-READ-ONLY-PILOT-*-Windows-Setup.exe' -File)
+          if ($setup.Count -ne 1 -or $setup[0].Length -lt 50000000) { throw 'Exactly one complete online pilot installer was expected.' }
+          $signature = Get-AuthenticodeSignature $setup[0].FullName
+          if ($signature.Status -ne 'NotSigned') { throw "Unexpected QA installer signature state: $($signature.Status)" }
+          $hash = (Get-FileHash $setup[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($setup[0].Name)" | Set-Content -Encoding ascii "$out/SHA256.txt"
+          Copy-Item docs/WINDOWS-ONLINE-PILOT.md "$out/READ-ME-ONLINE-PILOT.md"
+          Write-Host "ONLINE READ-ONLY PILOT, unsigned, no checkout: $($setup[0].Name), SHA256 $hash"
+          Write-Host 'Only a time-limited Actions artifact is uploaded; no GitHub Release or Woo change.'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: online-pos-READ-ONLY-PILOT-Windows-x64-${{ github.run_id }}
+          path: |
+            desktop/online/release/Mansu-POS-ONLINE-READ-ONLY-PILOT-*-Windows-Setup.exe
+            desktop/online/release/SHA256.txt
+            desktop/online/release/READ-ME-ONLINE-PILOT.md
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0

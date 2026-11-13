@@ -1,5 +1,7 @@
 # Install Mansu POS as a desktop web app
 
+This page describes the browser-installed **PWA**, not a Windows `.exe`. A separate, unsigned [online Windows read-only pilot QA installer](WINDOWS-ONLINE-PILOT.md) is now available to build; it is not an offline till or an approved selling release. Installing either option does not enable checkout.
+
 The owner reports that the existing read-only **1.2.3** Contabo pilot includes the installable, online-only POS web app (PWA). The current branch refreshes its icon/offline-notice colours but is **not deployed** to that pilot. It is not a Windows `.exe` or a separate server: the installed window uses the same HTTPS origin, staff sign-in, backend and permissions as the browser. Installing it does not approve Woo writes, import goods, enable payments or make stock available offline. Although version 1.2.3 code is now installed, private Wholesale prices and checkout remain locked on this pilot.
 
 ## Install on a computer
@@ -8,7 +10,7 @@ The owner reports that the existing read-only **1.2.3** Contabo pilot includes t
 2. Sign in with your **POS** staff account. If your browser offers an **Install this app** button in the top bar, choose it. In a compact window, open the **navigation menu → Install desktop app** on the deployed 1.2.3 pilot, or **Install app** in the pending redesigned branch. Alternatively, use the browser's install icon or its menu's **Install app / Install this site as an app** option. Browser wording varies; Help & shortcuts also explains installation.
 3. Confirm the browser prompt. Open **Mansu POS** from your desktop, Start menu, app launcher or Dock. The window can be resized. The deployed 1.2.3 pilot still has its existing navigation; the pending branch redesign adds a grouped workroom directory on large screens and a menu drawer on smaller ones. Both use the same POS account and server.
 
-If no install option appears, use Chrome or Edge, confirm you are on the canonical HTTPS host, refresh once, and have an administrator check the endpoints below. Do not bypass a certificate warning. Other browsers may offer a shortcut or their own equivalent; a native executable is not supplied.
+If no install option appears, use Chrome or Edge, confirm you are on the canonical HTTPS host, refresh once, and have an administrator check the endpoints below. Do not bypass a certificate warning. Other browsers may offer a shortcut or their own equivalent; the PWA itself is not a native executable. For the separate Windows QA `.exe`, see [Windows online pilot](WINDOWS-ONLINE-PILOT.md).
 
 **This is not offline POS.** Only a public **Connection required** notice is stored for offline reopening. Product, session, sales, payment and `/api` responses are network-only and not saved by the service worker. If a running window reports the device offline, stop: do not use an old price/stock figure, accept payment or release goods. On reconnection the app rechecks the catalogue and keeps its warning until fresh reads succeed; use **Retry refresh** if they fail. Check current stock before continuing. The existing read-only pilot never permits checkout even when connected.
 
