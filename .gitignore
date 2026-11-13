@@ -13,6 +13,7 @@ playwright-report/
 .DS_Store
 image-search/
 release/
+desktop/pos-trial/bundle/
 desktop/update-policy.json
 # Future raw Woo exports stay local; the already-tracked upload is still in Git history.
 wc-product-export-*.csv

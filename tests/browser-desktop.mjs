@@ -5,6 +5,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { randomBytes, randomUUID, createHash, createHmac, createCipheriv, createDecipheriv } from 'node:crypto';
 import { openDesktopDatabase, DesktopStore } from '../desktop/store.js';
+import { tradingOrigin } from '../desktop/trading-origin.js';
 import { desktopDispatch } from '../desktop/bridge.js';
 import { AppError } from '../server/errors.js';
 import { openBrowser, recordFailure } from './browser-helpers.mjs';
@@ -42,7 +43,8 @@ const product={id:101,name:'Private sample shirt',type:'simple',sku:'SAMPLE-101'
   backorders:'no',backordersAllowed:false,stockStatus:'instock',purchasable:true,soldIndividually:false,variations:[]};
 const catalog={products:[product],source:'woocommerce',complete:true,stale:false,fetchedAt:new Date().toISOString()};
 let connected=true,syncCalls=0;
-const remote={async request(_origin,_token,resource,_method,body){
+const remote={validateOrigin:tradingOrigin,expectedService:{mode:'live',storeUrl:'https://www.mansutrendzgh.com'},
+  async request(_origin,_token,resource,_method,body){
   if(!connected)throw new AppError('Fake central service is offline.',503,'SYNC_OFFLINE');
   if(resource==='/auth/login')return {user:{id:ownerId,username:'owner',name:'Owner',role:'owner',mustChangePassword:false},
     token:'fake-private-session',config:{mode:'live',storeUrl:'https://www.mansutrendzgh.com'}};

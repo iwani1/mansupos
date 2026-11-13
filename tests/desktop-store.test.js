@@ -37,7 +37,9 @@ function fixture() {
   };
   let syncCalls=0, failSync=false, allocationCalls=0, loseAllocationOnce=false, bootstrapCalls=0, failBootstrap=false;
   const localGrants=structuredClone(grants), allocations=new Map();
-  const remote={ async request(_origin,_token,route,_method,body) {
+  const remote={ validateOrigin:tradingOrigin,
+    expectedService:{ mode:'live', storeUrl:'https://www.mansutrendzgh.com' },
+    async request(_origin,_token,route,_method,body) {
     if(route==='/auth/login')return { user:{ id:ownerId,username:'owner',name:'Owner',role:'owner',mustChangePassword:false },
       config:{ mode:'live',storeUrl:'https://www.mansutrendzgh.com' },token:'central-private-session' };
     if(route==='/desktop/enroll')return { deviceId:device, enrolled:true, deviceSecret:'a'.repeat(64) };

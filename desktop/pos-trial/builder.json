@@ -1,0 +1,22 @@
+{
+  "appId": "com.mansutrendzgh.pos.practice-only",
+  "productName": "Mansu POS Practice - NOT FOR SALES",
+  "electronVersion": "45.3.1",
+  "asar": true,
+  "npmRebuild": false,
+  "directories": { "output": "../release" },
+  "files": ["main.js", "preload.cjs", "package.json", "ui/**"],
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "icon": "../practice.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Mansu POS Practice (NOT FOR SALES)",
+    "artifactName": "Mansu-POS-PRACTICE-NOT-FOR-SALES-${version}-Windows-Setup.${ext}"
+  }
+}

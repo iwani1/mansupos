@@ -71,6 +71,8 @@ jobs:
       - run: npm run test:a11y
       - name: Test desktop renderer with isolated SQLite and fake Woo (not Electron)
         run: npm run test:desktop:browser
+      - name: Test isolated SAMPLE checkout, restart, NOT A RECEIPT and fake sync renderer
+        run: npm run test:practice:browser
       - name: Test separate non-selling hardware-check renderer
         run: npm run test:hardware:browser
       - name: Collect browser diagnostics
@@ -285,6 +287,77 @@ jobs:
             desktop/hardware-test/release/MansutRENDZGH-Hardware-Check-*-Windows-Setup.exe
             desktop/hardware-test/release/SHA256.txt
             desktop/hardware-test/release/READ-ME-HARDWARE-TEST.md
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+  practice-package:
+    # The owner approved ONE non-selling workflow trial. Only an explicit
+    # [practice-qa] push attaches this short-lived unsigned SAMPLE installer.
+    # It never installs the Woo plugin, enables sales or creates a Release.
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[practice-qa]')
+    runs-on: windows-2025
+    timeout-minutes: 25
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test isolated sample ledger and package boundaries on Windows
+        run: node --test tests/pos-trial.test.js tests/pos-trial-package.test.js
+        timeout-minutes: 3
+      - name: Download official Windows Electron runtime
+        run: node node_modules/electron/install.js
+        timeout-minutes: 8
+      - name: Build separate unsigned POS practice installer
+        run: npm run dist:practice:win
+        timeout-minutes: 12
+      - name: Smoke packaged Electron UI, DPAPI checkout, restart and fake retry (no printing)
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $out = 'desktop/pos-trial/release'
+          $exe = @(Get-ChildItem "$out/win-unpacked" -Filter '*Practice*.exe' -File)
+          if ($exe.Count -ne 1) { throw 'Expected exactly one packaged practice executable.' }
+          $env:MANSU_PRACTICE_CI_SMOKE = '1'
+          $process = Start-Process -FilePath $exe[0].FullName -ArgumentList '--qa-smoke' -PassThru
+          try {
+            if (-not $process.WaitForExit(60000)) {
+              Stop-Process -Id $process.Id -Force
+              throw 'The sample practice Electron window did not finish its offline/restart/fake sync smoke test.'
+            }
+            if ($process.ExitCode -ne 0) { throw "Practice smoke test exited $($process.ExitCode)." }
+          } finally { Remove-Item Env:MANSU_PRACTICE_CI_SMOKE }
+      - name: Inspect packaged ASAR, unsigned installer, hash and guide
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'desktop/pos-trial/release'
+          node scripts/check-pos-trial-package.mjs "$out/win-unpacked/resources/app.asar"
+          if ($LASTEXITCODE -ne 0) { throw 'Practice ASAR contained unexpected files or a live connection.' }
+          $setup = @(Get-ChildItem $out -Filter 'Mansu-POS-PRACTICE-NOT-FOR-SALES-*-Windows-Setup.exe' -File)
+          if ($setup.Count -ne 1 -or $setup[0].Length -lt 50000000) {
+            Write-Output "::error title=Practice QA installer size::Expected one complete installer, found $($setup.Count); size $($setup[0].Length)."
+            throw 'Exactly one complete practice-only installer was expected.'
+          }
+          $signature = Get-AuthenticodeSignature $setup[0].FullName
+          if ($signature.Status -ne 'NotSigned') { throw "Unexpected QA signature state: $($signature.Status)" }
+          $hash = (Get-FileHash $setup[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($setup[0].Name)" | Set-Content -Encoding ascii "$out/SHA256.txt"
+          Copy-Item docs/POS-PRACTICE-TRIAL.md "$out/READ-ME-PRACTICE.md"
+          Write-Host "NOT FOR SALES, unsigned, fake sync only: $($setup[0].Name), SHA256 $hash"
+          Write-Host 'Only a time-limited Actions artifact is uploaded; no GitHub Release or Woo change is made.'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pos-practice-NOT-FOR-SALES-Windows-x64-${{ github.run_id }}
+          path: |
+            desktop/pos-trial/release/Mansu-POS-PRACTICE-NOT-FOR-SALES-*-Windows-Setup.exe
+            desktop/pos-trial/release/SHA256.txt
+            desktop/pos-trial/release/READ-ME-PRACTICE.md
           if-no-files-found: error
           retention-days: 3
           compression-level: 0

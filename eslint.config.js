@@ -4,7 +4,11 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import react from 'eslint-plugin-react';
 
 export default [
-  { ignores: ['dist/**', 'node_modules/**', 'test-results/**', '.data/**', 'coverage/**', '**/release/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'test-results/**', '.data/**', 'coverage/**', '**/release/**', 'desktop/pos-trial/bundle/**'] },
+  {
+    files: ['desktop/pos-trial/preload.cjs'],
+    languageOptions: { globals: globals.node },
+  },
   js.configs.recommended,
   {
     files: ['desktop/hardware-test/main.cjs'],

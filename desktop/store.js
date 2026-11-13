@@ -3,11 +3,10 @@ import path from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { hashPassword, verifyPassword } from '../server/db.js';
-import { prepareSchema, paymentSchema, normalizeItems } from '../server/sales.js';
+import { hashPassword, verifyPassword } from '../server/passwords.js';
+import { prepareSchema, paymentSchema, normalizeItems } from '../server/sale-inputs.js';
 import { AppError } from '../server/errors.js';
 import { bootstrapSchema, grantSchema, returnInputSchema, syncEventSchema } from './contracts.js';
-import { tradingOrigin } from './remote.js';
 
 const SCHEMA = 2;
 const sha = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -79,9 +78,15 @@ export function openDesktopDatabase(directory) {
 // The codec must be OS-backed DPAPI on a packaged Windows application. Tests
 // inject a deterministic codec; plaintext fallback is deliberately forbidden.
 export class DesktopStore {
-  constructor(db, codec, remote) {
-    if (!codec?.encryptString || !codec?.decryptString || !remote) throw new Error('Protected local storage and a central transport are required.');
+  constructor(db, codec, remote, { practiceMode = false } = {}) {
+    if (!codec?.encryptString || !codec?.decryptString || !remote?.request || !remote?.validateOrigin ||
+        !remote?.expectedService?.mode || !remote?.expectedService?.storeUrl) {
+      throw new Error('Protected local storage and an explicitly identified transport are required.');
+    }
     this.db = db; this.codec = codec; this.remote = remote;
+    // Only the separately packaged QA shell opts in; the normal till remains
+    // unchanged and never reads a practice ledger or issues practice numbers.
+    this.practiceMode = practiceMode === true;
     this.userData = path.dirname(db.location());
     this.user = null; this.prepared = new Map(); this.syncing = false;
   }
@@ -105,14 +110,14 @@ export class DesktopStore {
   async connect({ origin, username, password }) {
     // Reject an unapproved host BEFORE sending even the first staff credential.
     // The central transport repeats the check as a defense-in-depth boundary.
-    const url = new URL(tradingOrigin(origin));
+    const url = new URL(this.remote.validateOrigin(origin));
     z.string().min(1).max(80).parse(username); z.string().min(12).max(256).parse(password);
     const existingOrigin = this.setting('origin');
     if (existingOrigin && existingOrigin !== url.origin) throw new AppError('This device belongs to a different POS service. Do not reconnect it to another ledger.', 409, 'DEVICE_BINDING');
     const signed = await this.remote.request(url.origin, '', '/auth/login', 'POST', { username, password });
     const { user, token, config } = signed;
     if (!user?.id || !['owner','manager','cashier'].includes(user.role) || user.mustChangePassword || !token ||
-        config?.mode !== 'live' || config?.storeUrl !== 'https://www.mansutrendzgh.com') {
+        config?.mode !== this.remote.expectedService.mode || config?.storeUrl !== this.remote.expectedService.storeUrl) {
       throw new AppError('Use a fully activated account on the separate live trading service, not the demo or read-only catalogue pilot.', 403, 'WRONG_SERVICE');
     }
     if (!this.hasAccount() && user.role !== 'owner') throw new AppError('An owner must enroll this computer first.', 403);
@@ -202,10 +207,12 @@ export class DesktopStore {
   session() {
     const user = this.user ? this.requireUser() : null;
     return { user, provisioned:this.hasAccount(), config: {
-      mode: 'desktop', version: '1.2.3', businessName: 'MansutRENDZGH', currency: 'GHS', receiptWidth: '80',
-      receiptFooter: 'Thank you for shopping with MansutRENDZGH.', paymentMethods: ['cash'],
+      mode: 'desktop', version: '1.2.3',
+      businessName: this.practiceMode ? 'MansutRENDZGH PRACTICE' : 'MansutRENDZGH',
+      ...(this.practiceMode ? { practiceMode: true } : {}), currency: 'GHS', receiptWidth: '80',
+      receiptFooter: this.practiceMode ? 'SIMULATION ONLY — NO MONEY COLLECTED OR GOODS RELEASED.' : 'Thank you for shopping with MansutRENDZGH.', paymentMethods: ['cash'],
       writesEnabled: user ? this.eligible() : false, wholesaleWritesEnabled: Boolean(management(user) && this.eligible() && this.setting('canWholesale') === 'true'),
-      requireShift: false, lowStockThreshold: 5, storeUrl: 'https://www.mansutrendzgh.com',
+      requireShift: false, lowStockThreshold: 5, storeUrl: this.remote.expectedService.storeUrl,
     }, deviceId: this.setting('deviceId') || null, origin: this.setting('origin') || '',
       leaseExpiresAt: this.setting('leaseExpiresAt') || null,
       pendingAllocation: user?.role === 'owner' ? this.pendingAllocation() : null };
@@ -344,7 +351,7 @@ export class DesktopStore {
           productId, variationId, stockKey, quantity, name, label, sku, price,
           ...(agreedUnitPrice != null ? { agreedUnitPrice } : {}),
         })), note: draft.note, createdAt: when, grantRevisions: revisions });
-      const saved = { ...draft, number: `MTD-${when.slice(0,10).replaceAll('-','')}-${id.slice(0,8).toUpperCase()}`,
+      const saved = { ...draft, number: `${this.practiceMode ? 'PRACTICE' : 'MTD'}-${when.slice(0,10).replaceAll('-','')}-${id.slice(0,8).toUpperCase()}`,
         paymentMethod: payment.method, paymentReference: event.paymentReference, tendered,
         changeDue: payment.method === 'cash' ? tendered - draft.total : 0,
         paidAt: payment.method === 'cash' ? when : null, createdAt: when,
@@ -573,7 +580,7 @@ export class DesktopStore {
     permit(management(this.requireUser()));
     const destinationDir = path.join(this.userData,'backups');
     fs.mkdirSync(destinationDir,{recursive:true,mode:0o700});
-    const destination = path.join(destinationDir,`mansu-offline-${new Date().toISOString().replaceAll(':','-')}-${randomUUID()}.db`);
+    const destination = path.join(destinationDir,`${this.practiceMode ? 'mansu-practice' : 'mansu-offline'}-${new Date().toISOString().replaceAll(':','-')}-${randomUUID()}.db`);
     try {
       await backup(this.db,destination);
       fs.chmodSync(destination,0o600);
