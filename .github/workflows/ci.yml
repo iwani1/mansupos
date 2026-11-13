@@ -71,6 +71,8 @@ jobs:
       - run: npm run test:a11y
       - name: Test desktop renderer with isolated SQLite and fake Woo (not Electron)
         run: npm run test:desktop:browser
+      - name: Test separate non-selling hardware-check renderer
+        run: npm run test:hardware:browser
       - name: Collect browser diagnostics
         if: failure()
         run: cp /tmp/mansu-pos.log test-results/server.log || true
@@ -214,3 +216,69 @@ jobs:
           $hash = Get-FileHash $setup[0].FullName -Algorithm SHA256
           Write-Host "Unsigned QA-only installer $($setup[0].Name): SHA256 $($hash.Hash)"
           Write-Host 'Installer discarded with this runner. No artifact or GitHub Release is published.'
+
+  hardware-check-package:
+    # The user approved a non-selling hardware test, NOT a POS release or Woo
+    # installation. Only a deliberate, branch-pushed [hardware-qa] commit may
+    # attach this short-lived unsigned tester; normal CI never uploads an EXE.
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[hardware-qa]')
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify non-selling package boundaries
+        run: node --test tests/hardware-test.test.js
+      - name: Download official Windows Electron runtime
+        run: node node_modules/electron/install.js
+        timeout-minutes: 8
+      - name: Build separate unsigned Windows hardware-check installer
+        run: npm run dist:hardware:win
+        timeout-minutes: 10
+      - name: Smoke-test packaged Electron window and local controls (no printing)
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $exe = 'desktop/hardware-test/release/win-unpacked/MansutRENDZGH Hardware Check.exe'
+          if (-not (Test-Path $exe)) { throw 'Packaged hardware-check executable was not found.' }
+          $env:MANSU_HARDWARE_CI_SMOKE = '1'
+          $process = Start-Process -FilePath $exe -ArgumentList '--qa-smoke' -PassThru
+          try {
+            if (-not $process.WaitForExit(45000)) {
+              Stop-Process -Id $process.Id -Force
+              throw 'The hardware-check Electron window did not finish its smoke test.'
+            }
+            if ($process.ExitCode -ne 0) { throw "Hardware-check Electron smoke test exited $($process.ExitCode)." }
+          } finally { Remove-Item Env:MANSU_HARDWARE_CI_SMOKE }
+      - name: Verify packaged files and unsigned installer; record hash
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'desktop/hardware-test/release'
+          node scripts/check-hardware-package.mjs "$out/win-unpacked/resources/app.asar"
+          if ($LASTEXITCODE -ne 0) { throw 'Hardware test package contained unexpected files.' }
+          $setup = @(Get-ChildItem $out -Filter 'MansutRENDZGH-Hardware-Check-*-Windows-Setup.exe' -File)
+          if ($setup.Count -ne 1 -or $setup[0].Length -lt 50000000) { throw 'Exactly one complete hardware-only installer was expected.' }
+          $signature = Get-AuthenticodeSignature $setup[0].FullName
+          if ($signature.Status -ne 'NotSigned') { throw "Unexpected QA signature state: $($signature.Status)" }
+          $hash = (Get-FileHash $setup[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($setup[0].Name)" | Set-Content -Encoding ascii "$out/SHA256.txt"
+          Copy-Item docs/HARDWARE-TEST.md "$out/READ-ME-HARDWARE-TEST.md"
+          Write-Host "TEST ONLY, unsigned, no sales, no POS ledger, no Woo: $($setup[0].Name), SHA256 $hash"
+          Write-Host 'Only a time-limited Actions artifact is uploaded; no GitHub Release is created.'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hardware-check-TEST-ONLY-Windows-x64-${{ github.run_id }}
+          path: |
+            desktop/hardware-test/release/MansutRENDZGH-Hardware-Check-*-Windows-Setup.exe
+            desktop/hardware-test/release/SHA256.txt
+            desktop/hardware-test/release/READ-ME-HARDWARE-TEST.md
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; font-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>MansutRENDZGH Hardware Check — TEST ONLY</title>
+  <link rel="stylesheet" href="hardware.css">
+  <script src="hardware.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner"><span class="mark" aria-hidden="true">M·</span><div><strong>MANSUTRENDZGH</strong><span>Windows hardware check</span></div><span class="header-tag">TEST ONLY</span></div>
+  </header>
+  <main class="content">
+    <div class="intro"><span class="eyebrow">NO SALES · NO STOCK · NO PAYMENT</span><h1>Check the counter hardware.</h1><p>This separate test app has no WooCommerce connection, POS sign-in, payment screen, or sales ledger. It does not prove that the offline POS is ready to sell.</p></div>
+    <div class="warning" role="alert"><strong>Not a point-of-sale application.</strong> Do not collect money or release goods using this test. Never enter customer details or staff passwords here.</div>
+    <section class="panel" aria-labelledby="scanner-heading">
+      <div class="step"><span>01</span><div><h2 id="scanner-heading">Barcode scanner</h2><p>Use a USB/Bluetooth scanner set to keyboard (HID) mode with an Enter suffix. Scan a known label; check that the code below matches exactly.</p></div></div>
+      <label for="scan-code">Barcode or SKU test</label>
+      <div class="input-row"><input id="scan-code" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="128" placeholder="Click here, scan a label, then press Enter" aria-describedby="scan-hint"><button type="button" id="clear-scan" class="secondary">Clear</button></div>
+      <p class="hint" id="scan-hint">Press F2 to focus this field. A scanner should type the code and send Enter by itself.</p>
+      <div class="scan-result"><span>Last code received</span><output id="last-code" for="scan-code">—</output><p id="scan-status" role="status" aria-live="polite">Waiting for code and Enter.</p></div>
+      <p class="footnote">This only checks keyboard input. It does not look up a Woo product or change stock.</p>
+    </section>
+    <section class="panel" aria-labelledby="printer-heading">
+      <div class="step"><span>02</span><div><h2 id="printer-heading">80 mm receipt printer</h2><p>Install the trusted Windows driver and set 80 mm paper. The button opens the normal print dialog; it never sends raw printer commands.</p></div></div>
+      <button type="button" id="print-test" class="primary">Print TEST ONLY slip</button>
+      <p class="hint">Check the two edges, readability, paper width and cut. The slip contains no price, payment, order or real customer details.</p>
+    </section>
+    <section class="panel" aria-labelledby="drawer-heading">
+      <div class="step"><span>03</span><div><h2 id="drawer-heading">Cash drawer</h2><p>This app cannot open a drawer directly. If a drawer is connected to the printer, its driver may open it when the test slip prints; otherwise mark it unsupported.</p></div></div>
+      <p class="footnote">Do not connect the drawer cable directly to the PC. Note whether it opened, stayed closed, or was not present.</p>
+    </section>
+    <p class="closing">Send back: scanner code/Enter result, printer width/readability/cut, and drawer result. Close this app after the check; results are not saved or uploaded.</p>
+  </main>
+  <div id="print-root" aria-hidden="true"><div class="slip"><strong class="slip-brand">MANSUTRENDZGH</strong><strong class="slip-warning">HARDWARE TEST ONLY<br>NOT A RECEIPT</strong><p>NO SALE · NO PAYMENT · NO STOCK CHANGE</p><p id="test-time"></p><div class="rule"></div><div class="alignment"><span>LEFT</span><span>CENTER</span><span>RIGHT</span></div><div class="rule"></div><p>Check print width, text clarity, paper feed and cutting. A driver-controlled drawer might open on print; this app does not trigger it.</p><strong class="slip-warning">NOT VALID FOR GOODS RELEASE</strong><div class="rule"></div><p class="end">END OF TEST SLIP</p></div></div>
+</body>
+</html>

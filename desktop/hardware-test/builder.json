@@ -1,0 +1,21 @@
+{
+  "appId": "com.mansutrendzgh.hardwarecheck",
+  "productName": "MansutRENDZGH Hardware Check",
+  "electronVersion": "45.3.1",
+  "asar": true,
+  "npmRebuild": false,
+  "directories": { "output": "release" },
+  "files": ["main.cjs", "index.html", "hardware.css", "hardware.js", "package.json"],
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "icon": "../assets/mansu.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "shortcutName": "Mansu Hardware Check (TEST ONLY)",
+    "artifactName": "MansutRENDZGH-Hardware-Check-${version}-Windows-Setup.${ext}"
+  }
+}

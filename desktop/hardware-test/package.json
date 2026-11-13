@@ -1,0 +1,9 @@
+{
+  "name": "mansutrendzgh-hardware-check",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Non-selling Windows scanner and printer hardware check. No POS, WooCommerce, payment, or sales ledger.",
+  "author": "MansutRENDZGH",
+  "license": "UNLICENSED",
+  "main": "main.cjs"
+}
