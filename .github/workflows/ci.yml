@@ -63,8 +63,8 @@ jobs:
         run: |
           if ! npm run test:browser > "$RUNNER_TEMP/browser-suite.log" 2>&1; then
             tail -n 45 "$RUNNER_TEMP/browser-suite.log"
-            note=$(tail -n 13 "$RUNNER_TEMP/browser-suite.log" | tr '\r\n' '  ' | cut -c1-750)
-            echo "::error title=Web browser regression::${note//%/%25}"
+            note=$(tail -c 750 "$RUNNER_TEMP/browser-suite.log" | tr '\r\n' '  ')
+            echo "::error title=Web browser regression (final output)::${note//%/%25}"
             exit 1
           fi
           tail -n 28 "$RUNNER_TEMP/browser-suite.log"
@@ -264,9 +264,15 @@ jobs:
           node scripts/check-hardware-package.mjs "$out/win-unpacked/resources/app.asar"
           if ($LASTEXITCODE -ne 0) { throw 'Hardware test package contained unexpected files.' }
           $setup = @(Get-ChildItem $out -Filter 'MansutRENDZGH-Hardware-Check-*-Windows-Setup.exe' -File)
-          if ($setup.Count -ne 1 -or $setup[0].Length -lt 50000000) { throw 'Exactly one complete hardware-only installer was expected.' }
+          if ($setup.Count -ne 1 -or $setup[0].Length -lt 50000000) {
+            Write-Output "::error title=Hardware QA installer size::Expected one complete installer, found $($setup.Count); size $($setup[0].Length)."
+            throw 'Exactly one complete hardware-only installer was expected.'
+          }
           $signature = Get-AuthenticodeSignature $setup[0].FullName
-          if ($signature.Status -ne 'NotSigned') { throw "Unexpected QA signature state: $($signature.Status)" }
+          if ($signature.Status -ne 'NotSigned') {
+            Write-Output "::error title=Hardware QA signature::Unexpected signature state: $($signature.Status)"
+            throw "Unexpected QA signature state: $($signature.Status)"
+          }
           $hash = (Get-FileHash $setup[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $($setup[0].Name)" | Set-Content -Encoding ascii "$out/SHA256.txt"
           Copy-Item docs/HARDWARE-TEST.md "$out/READ-ME-HARDWARE-TEST.md"
