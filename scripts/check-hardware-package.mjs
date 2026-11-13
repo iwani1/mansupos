@@ -5,7 +5,7 @@ import { listPackage, extractFile } from '@electron/asar';
 try {
   const file = process.argv[2];
   if (!file || !fs.existsSync(file)) throw new Error('Pass the built Windows resources/app.asar for hardware package inspection.');
-  const actual = listPackage(file).map(name => name.replace(/^\//, '')).sort();
+  const actual = listPackage(file).map(name => name.replaceAll('\\', '/').replace(/^\/+/, '')).sort();
   const allowed = ['main.cjs', 'index.html', 'hardware.css', 'hardware.js', 'package.json'].sort();
   const unexpected = actual.filter(name => !allowed.includes(name));
   const missing = allowed.filter(name => !actual.includes(name));
