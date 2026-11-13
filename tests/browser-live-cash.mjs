@@ -4,6 +4,7 @@ import { openBrowser, recordFailure, testBase as base } from './browser-helpers.
 // browser responses: no live Woo URL or real POS order/payment is contacted.
 const { browser, page, pageErrors } = await openBrowser();
 let payRequests = 0;
+let taxableFixture = false;
 try {
   await page.route('**/api/auth/demo', async route => {
     const response = await route.fetch();
@@ -25,7 +26,8 @@ try {
   await page.route('**/api/sales/prepare', route => route.fulfill({ status: 201, json: {
     sale: { id: 'isolated-ui-fixture', number: 'FIXTURE-ONLY', status: 'awaiting_payment',
       saleType: 'retail', items: [{ productId: 7331, variationId: 0, name: 'Fixture item',
-        quantity: 1, price: 19900, total: 19900 }], total: 19900, tax: 0 },
+        quantity: 1, price: 19900, total: 19900 }], subtotal: taxableFixture ? 19400 : 19900,
+      total: 19900, tax: taxableFixture ? 500 : 0 },
   } }));
   await page.route('**/api/sales/*/pay', route => { payRequests++; return route.abort(); });
   await page.goto(base, { waitUntil: 'networkidle' });
@@ -40,8 +42,14 @@ try {
     throw new Error('Live payment UI must offer cash only.');
   }
   await modal.getByText(/Live POS sales are cash-only/).waitFor();
+  if (await modal.locator('.amount-due small').count()) throw new Error('Zero-tax order displayed a tax claim.');
+  await modal.getByRole('button', { name: 'Leave unpaid' }).click();
+  taxableFixture = true;
+  await page.locator('.product-card:not([disabled])').first().click();
+  await page.getByRole('button', { name: /Prepare order GH/ }).click();
+  await modal.getByText('Includes GH₵5.00 tax · authoritative store total').waitFor();
   if (payRequests || pageErrors.length) throw new Error(`Unexpected payment request or browser errors: ${pageErrors.join('; ')}`);
-  console.log('PASS: isolated live-mode UI offers cash only; no payment request sent.');
+  console.log('PASS: isolated live-mode UI offers cash only and displays tax only when returned; no payment request sent.');
 } catch (error) {
   await recordFailure(page, error, 'live-cash-browser-failure', pageErrors);
   process.exitCode = 1;

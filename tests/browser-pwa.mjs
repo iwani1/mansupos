@@ -15,7 +15,7 @@ async function cacheEntries() {
   }))));
 }
 function assertOnlyPublicNotice(entries) {
-  if (entries.length !== 1 || entries[0].name !== 'mansu-offline-notice-v1' || entries[0].paths.join(',') !== '/offline.html') {
+  if (entries.length !== 1 || entries[0].name !== 'mansu-offline-notice-v2' || entries[0].paths.join(',') !== '/offline.html') {
     throw new Error(`Private or unexpected response found in service worker cache: ${JSON.stringify(entries)}`);
   }
 }
@@ -71,7 +71,7 @@ try {
   await page.setViewportSize({ width: 600, height: 760 });
   await issueInstallPrompt();
   await page.getByLabel('Open navigation').click();
-  await page.getByRole('button', { name: 'Install desktop app' }).click();
+  await page.locator('.sidebar').getByRole('button', { name: 'Install app' }).click();
   await page.waitForFunction(() => window.__installPromptCalls === 2);
   if (await page.getByLabel('Open navigation').getAttribute('aria-expanded') !== 'false') {
     throw new Error('Install action left the compact navigation drawer open.');

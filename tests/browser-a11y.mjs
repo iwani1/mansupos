@@ -25,6 +25,19 @@ try {
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
   await scan('register');
+  for (const id of ['overview', 'products', 'categories', 'orders', 'customers']) {
+    await page.locator(`[data-nav="${id}"]`).click();
+    await page.locator('main h1:visible').waitFor();
+    if (id === 'overview') await page.locator('.overview-metrics').waitFor();
+    if (id === 'customers') await page.locator('.customers-page .records-surface').waitFor();
+    await scan(id);
+    if (id === 'products') {
+      await page.locator('.catalogue-table .product-name-button').first().click();
+      await scan('product-details');
+      await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
+    }
+  }
+  await page.locator('[data-nav="register"]').click();
   await page.locator('.product-card').filter({ hasText: 'Accessibility backorder item' }).click();
   await page.getByText('Backorder · notify customer').waitFor();
   await scan('backorder-cart');
@@ -61,7 +74,7 @@ try {
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   }
   await page.setViewportSize({ width: 375, height: 812 });
-  for (const id of ['sales','wholesale','inventory','reports','shifts','staff','audit','connection','register']) {
+  for (const id of ['overview','products','categories','sales','orders','customers','wholesale','inventory','reports','shifts','staff','audit','connection','register']) {
     await page.getByLabel('Open navigation').click();
     await page.locator(`[data-nav="${id}"]`).click();
     await page.locator('main h1:visible').waitFor();

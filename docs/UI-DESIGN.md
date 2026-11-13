@@ -1,4 +1,6 @@
-# MansutRENDZGH Retail Studio — UI design
+# MansutRENDZGH Retail Studio — historical UI audit
+
+> This document records an earlier ivory/brass design pass. The current application-wide white/pink/charcoal system, Manrope typography and grouped navigation are documented in [DESIGN.md](../DESIGN.md). The earlier audit below is preserved for context, not as current visual guidance or trading approval.
 
 ## Direction
 

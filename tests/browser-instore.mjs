@@ -97,7 +97,7 @@ try {
   await page.getByText('Catalogue only — in-store checkout locked.').waitFor();
   await page.getByText('These PDF figures are historical, not live WooCommerce stock.', { exact: false }).waitFor();
   await page.getByText('PDF positive count', { exact: true }).first().waitFor();
-  await page.getByRole('button', { name: 'Open quick guide' }).click();
+  await page.locator('.help-nav').click();
   const guide = page.getByRole('dialog', { name: 'Your quick guide' });
   await guide.getByText('The read-only pilot cannot sell or recount this stock.', { exact: false }).waitFor();
   await guide.getByRole('button', { name: 'Got it' }).click();
@@ -117,7 +117,7 @@ try {
   await page.reload({ waitUntil: 'networkidle' });
   await page.locator('[data-nav="instore"]').click();
   await page.getByText('Cash-only register active').waitFor();
-  await page.getByRole('button', { name: 'Open quick guide' }).click();
+  await page.locator('.help-nav').click();
   await guide.getByText('Only the in-store POS stock is deducted.', { exact: false }).waitFor();
   await guide.getByRole('button', { name: 'Got it' }).click();
   await page.screenshot({ path: 'test-results/instore-approved-desktop.png' });

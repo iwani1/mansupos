@@ -27,6 +27,10 @@ add('Live approval', config.mode !== 'live' || !config.writesEnabled || (process
 add('Live catalogue pilot', !config.liveReadOnly || (!config.writesEnabled && !config.wholesaleWritesEnabled && !config.inStoreCashEnabled && config.mode === 'live'),
   config.liveReadOnly ? 'Woo catalogue and verified physical-source reads only; all three checkout gates locked' : 'not requested');
 add('Separate wholesale gate', true, config.mode === 'demo' ? 'isolated demo only' : config.wholesaleWritesEnabled ? 'wholesale writes enabled; verify documented tax/stock/recovery acceptance and written approval' : 'wholesale checkout locked');
+add('One-till offline setup', !config.desktopSetupEnabled || config.mode === 'live' && !config.liveReadOnly && config.writesEnabled && config.desktopDeviceMasterSecret.length >= 32,
+  config.desktopSetupEnabled ? 'explicit setup gate enabled; plugin and real stock allocation remain UNVERIFIED' : 'enrollment and allocation disabled');
+add('Offline selling', !config.desktopEnabled || config.desktopSetupEnabled && !config.liveReadOnly,
+  config.desktopEnabled ? 'explicit selling gate enabled; NOT evidence of witnessed Woo last-unit, order or Windows acceptance' : 'desktop shared-stock checkout locked');
 let physicalStock;
 if (config.mode === 'live') {
   try { physicalStock = loadInStoreSnapshot();

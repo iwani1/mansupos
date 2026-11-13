@@ -66,6 +66,9 @@ try {
     data.products.push(shared);
     if (injectUnknownStock) data.products.push({ ...simple, id: 999994, name: 'Test unknown stock', sku: 'TEST-UNKNOWN', barcode: 'TEST-UNKNOWN', stockSource: 'unknown', manageStock: false, stock: null });
     if (simulateStaging) {
+      // This fully constructed fixture represents a complete staging catalogue;
+      // the original demo response deliberately marks itself incomplete.
+      data.complete = true;
       // Demo fixtures have independent stock; add the ownership fields supplied by the live adapter.
       for (const p of data.products) {
         p.stockSource ??= p.manageStock ? 'product' : 'untracked';
@@ -108,12 +111,23 @@ try {
   const directory = await page.locator('.sidebar nav').evaluate(nav => {
     const region = nav.getBoundingClientRect();
     const links = [...nav.querySelectorAll('.nav-item')].filter(el => el.getClientRects().length);
-    return { top: links[0].getBoundingClientRect().top, bottom: links.at(-1).getBoundingClientRect().bottom,
-      regionTop: region.top, regionBottom: region.bottom, scrollTop: nav.scrollTop };
+    return { top: links[0].getBoundingClientRect().top, regionTop: region.top, regionBottom: region.bottom,
+      scrollHeight: nav.scrollHeight, clientHeight: nav.clientHeight };
   });
-  if (directory.top < directory.regionTop - 1 || directory.bottom > directory.regionBottom + 1 || directory.scrollTop !== 0) {
-    throw new Error(`Desktop directory hides a destination at 1280×800: ${JSON.stringify(directory)}`);
+  if (directory.top < directory.regionTop - 1 || directory.regionBottom > 800 || directory.clientHeight < 180) {
+    throw new Error(`Desktop directory clips the navigation region at 1280×800: ${JSON.stringify(directory)}`);
   }
+  // The grouped directory scrolls independently at short heights. Its final
+  // destination must be reachable without scrolling the cart or moving the account menu.
+  await page.locator('.sidebar nav .nav-item').last().scrollIntoViewIfNeeded();
+  const lastLink = await page.locator('.sidebar nav .nav-item').last().boundingBox();
+  const navRegion = await page.locator('.sidebar nav').boundingBox();
+  if (!lastLink || lastLink.y + lastLink.height > navRegion.y + navRegion.height + 1) throw new Error('Last desktop navigation destination is unreachable.');
+  await page.getByRole('button', { name: 'Administration · Collapse section' }).click();
+  if (await page.locator('[data-nav="staff"]').isVisible()) throw new Error('Administration group did not collapse.');
+  await page.getByRole('button', { name: 'Administration · Expand section' }).click();
+  if (!(await page.locator('[data-nav="staff"]').isVisible())) throw new Error('Administration group did not expand.');
+  await page.locator('.sidebar nav').evaluate(nav => { nav.scrollTop = 0; });
   for (const selector of ['.product-category', '.stock-caption', '.nav-short-label']) {
     const size = await page.locator(selector).first().evaluate(el => parseFloat(getComputedStyle(el).fontSize));
     if (size < 11) throw new Error(`${selector} is too small: ${size}px.`);
@@ -241,7 +255,7 @@ try {
   await page.getByText('Open a shift before selling.', { exact: false }).waitFor();
   if (await page.locator('.topbar .badge').innerText() !== 'Checkout locked') throw new Error('Synced staging catalogue was mistaken for trading approval.');
   await page.locator('[data-nav="connection"]').click();
-  await page.getByText('Staging · checkout locked').waitFor();
+  await page.locator('.connection-hero .badge').getByText('Staging · checkout locked').waitFor();
   await page.locator('[data-nav="register"]').click();
   const liveVariable = page.locator('.product-card').filter({ hasText: sample.mixed });
   if (!(await liveVariable.innerText()).includes('See option availability')) throw new Error('Variable live stock should not sum potentially shared parent stock.');

@@ -9,6 +9,8 @@ import { WooCommerce } from './woocommerce.js';
 import { Catalog } from './catalog.js';
 import { WholesalePrices, priceInputSchema, priceRemovalSchema } from './wholesale-prices.js';
 import { InStoreService, inStoreSaleSchema, inStoreCountSchema } from './instore.js';
+import { OfflineReservations } from './offline-reservations.js';
+import { DesktopSyncService } from './desktop-sync.js';
 import { SalesService, prepareSchema, paymentSchema } from './sales.js';
 import { ShiftService, openShiftSchema, closeShiftSchema, cashMovementSchema } from './shifts.js';
 import { AppError, now } from './errors.js';
@@ -48,13 +50,15 @@ function createSession(res, db, config, userId) {
 const role = (...roles) => (req, res, next) => roles.includes(req.user.role) ? next() : next(new AppError('Your staff role does not allow this action.', 403));
 const passwordSchema = z.string().min(12).max(256);
 
-export function createApp({ env = process.env, api: injectedApi, logger: injectedLogger } = {}) {
+export function createApp({ env = process.env, api: injectedApi, reservations: injectedReservations, logger: injectedLogger } = {}) {
   const config = readConfig(env);
   const logger = injectedLogger || createLogger(config.logLevel);
   const db = openDatabase(config);
   const api = injectedApi || new WooCommerce(config, fetch, logger);
   const catalog = new Catalog(db, api, config);
   const wholesalePrices = new WholesalePrices(db, catalog, api, config);
+  const desktop = new DesktopSyncService(db, config, catalog, api,
+    injectedReservations || new OfflineReservations(config), wholesalePrices);
   const sales = new SalesService(db, catalog, api, config);
   const shifts = new ShiftService(db, config);
   let inStore;
@@ -171,6 +175,12 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
   });
 
   app.get('/api/catalog', auth, async (req, res) => res.json(await catalog.get(req.query.refresh === '1')));
+  // Separately gated live trading service only. The read-only pilot, demo and
+  // ordinary Woo checkout never enroll a device or issue offline allocations.
+  app.post('/api/desktop/enroll', auth, role('owner'), sensitiveLimit, (req, res) => res.json(desktop.enroll(req.user, req.body)));
+  app.get('/api/desktop/bootstrap', auth, async (req, res) => res.json(await desktop.bootstrap(req.user, req.query.deviceId)));
+  app.post('/api/desktop/allocate', auth, role('owner'), sensitiveLimit, async (req, res) => res.json(await desktop.allocate(req.user, req.body)));
+  app.post('/api/desktop/sync', auth, sensitiveLimit, async (req, res) => res.json(await desktop.sync(req.user, req.body)));
   // Private wholesale defaults belong to the POS ledger, not Woo product
   // metadata. Cashiers/public catalogue callers never receive these prices.
   // The live catalogue pilot cannot manage or read them.
@@ -377,5 +387,5 @@ export function createApp({ env = process.env, api: injectedApi, logger: injecte
     if (status >= 500) logger.error({ reqId: req.id, method: req.method, path: req.path, code: error.code || 'SERVER_ERROR', name: error.name || 'Error' });
     res.status(status).json({ error: error instanceof AppError ? error.message : 'An unexpected server error occurred. Check the sale history before retrying.', code: error.code || 'SERVER_ERROR', reqId: req.id });
   });
-  return { app, config, db, api, catalog, sales, inStore, shifts, logger };
+  return { app, config, db, api, catalog, sales, desktop, inStore, shifts, logger };
 }

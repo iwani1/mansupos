@@ -30,13 +30,13 @@ async function priceAndReview(simple, variable) {
   await page.getByLabel(new RegExp(`Agreed unit price for ${variable.name}`)).fill('67.35');
   assert.equal((await page.locator('.wholesale-summary>div:nth-of-type(3) strong').innerText()).trim(), 'GH₵251.35');
   await page.getByRole('button', { name: /Review quote/ }).click();
-  await page.getByRole('checkbox', { name: /I, Demo Owner, approve these final tax-inclusive prices/ }).check();
+  await page.getByRole('checkbox', { name: /I, Demo Owner, approve these final all-in prices/ }).check();
   assert.equal(await page.getByRole('button', { name: 'Prepare wholesale order' }).isDisabled(), false);
 }
 try {
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
-  assert.equal(await page.locator('.sale-type-switch').count(), 0, 'Retail register must not expose a wholesale switch.');
+  assert.equal(await page.getByRole('group', { name: 'Selling mode' }).getByRole('button', { name: 'RETAIL' }).getAttribute('aria-pressed'), 'true');
   assert.equal(await page.locator('.trade-price, .trade-approval').count(), 0, 'Negotiated pricing must not appear in retail.');
   await page.locator('[data-nav="wholesale"]').click();
   await page.getByRole('heading', { name: 'Wholesale', exact: true }).waitFor();
@@ -59,7 +59,7 @@ try {
   await page.getByLabel('Buyer name (optional)').fill('');
   await page.getByRole('button', { name: 'Review quote' }).click();
   assert.match(await page.locator('.wholesale-review').innerText(), /Buyer name\s+Not provided/);
-  await page.getByRole('checkbox', { name: /I, Demo Owner, approve these final tax-inclusive prices/ }).check();
+  await page.getByRole('checkbox', { name: /I, Demo Owner, approve these final all-in prices/ }).check();
   await scan('wholesale-unnamed-quote');
   await page.getByRole('button', { name: 'Prepare wholesale order' }).click();
   const unnamedDialog = page.getByRole('dialog', { name: 'Complete payment' });
@@ -79,7 +79,7 @@ try {
   await page.locator('[data-nav="sales"]').click();
   const unnamedRow = page.locator('.records-sales tbody tr').filter({ hasText: unnamedSale.number });
   await unnamedRow.waitFor();
-  assert.match(await unnamedRow.innerText(), /Wholesale · buyer not recorded/);
+  assert.match(await unnamedRow.innerText(), /Wholesale POS.*Buyer not recorded/is);
   await unnamedRow.getByRole('button', { name: 'View quote' }).click();
   assert.match(await page.getByRole('dialog', { name: 'Approved wholesale quote' }).innerText(), /buyer not recorded/);
   await page.getByRole('button', { name: 'Close quote' }).click();
@@ -95,9 +95,9 @@ try {
   assert.match(await page.locator('.wholesale-summary').innerText(), /Catalogue reference/);
   await page.getByRole('button', { name: /Review quote/ }).click();
   assert.match(await page.locator('.wholesale-review').innerText(), new RegExp(buyerName));
-  assert.match(await page.locator('.wholesale-review').innerText(), /2 × GH₵92\.00 tax included/);
-  assert.match(await page.locator('.wholesale-review').innerText(), /no extra tax/);
-  const approval = page.getByRole('checkbox', { name: /I, Demo Owner, approve these final tax-inclusive prices/ });
+  assert.match(await page.locator('.wholesale-review').innerText(), /2 × GH₵92\.00 all-in/);
+  assert.match(await page.locator('.wholesale-review').innerText(), /Final agreed amount · all-in/);
+  const approval = page.getByRole('checkbox', { name: /I, Demo Owner, approve these final all-in prices/ });
   assert.equal(await page.getByRole('button', { name: 'Prepare wholesale order' }).isDisabled(), true);
   await approval.check();
   await page.getByRole('button', { name: 'Edit quote' }).click();
@@ -168,10 +168,10 @@ try {
   const receipt = page.locator('.receipt-dialog .receipt-paper');
   const printed = await receipt.innerText();
   assert.match(printed, new RegExp(buyerName));
-  assert.match(printed, /Tax included · approved by Demo Owner/);
-  assert.match(printed, /2 × GH₵92\.00 · tax included/);
-  assert.match(printed, /1 × GH₵67\.35 · tax included/);
-  assert.match(printed, /Included tax/);
+  assert.match(printed, /Final price · approved by Demo Owner/);
+  assert.match(printed, /2 × GH₵92\.00/);
+  assert.match(printed, /1 × GH₵67\.35/);
+  assert.doesNotMatch(printed, /\bTax\b/i, 'Untaxed demo receipts should not show a tax line or imply included tax.');
   assert.match(printed, /GH₵251\.35/);
   await scan('wholesale-receipt');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
@@ -179,7 +179,7 @@ try {
   await page.getByLabel('Search sales').fill(buyerName);
   const row = page.locator('.records-sales tbody tr').filter({ hasText: buyerName });
   await row.waitFor();
-  assert.match(await row.innerText(), /Wholesale buyer:/);
+  assert.match(await row.innerText(), /Buyer:/);
   assert.match(await row.innerText(), /Paid/);
   await row.getByRole('button', { name: 'View quote' }).click();
   assert.match(await page.getByRole('dialog', { name: 'Approved wholesale quote' }).innerText(), /GH₵251\.35/);
@@ -213,7 +213,7 @@ try {
   await page.getByLabel(new RegExp(`Agreed unit price for ${mobileGood.name}`)).fill('75.50');
   await page.getByRole('button', { name: /Review quote/ }).click();
   assert.match(await page.locator('.wholesale-review').innerText(), /Buyer name\s+Not provided/);
-  await page.getByRole('checkbox', { name: /I, Demo Owner, approve these final tax-inclusive prices/ }).check();
+  await page.getByRole('checkbox', { name: /I, Demo Owner, approve these final all-in prices/ }).check();
   const button = page.getByRole('button', { name: 'Prepare wholesale order' });
   assert.equal(await button.isDisabled(), false);
   await button.scrollIntoViewIfNeeded();

@@ -36,7 +36,7 @@ try {
     runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'] },
   })).violations.map(issue => ({ id: issue.id, targets: issue.nodes.map(node => node.target) })));
   if (violations.length) throw new Error(`Private wholesale price dialog accessibility: ${JSON.stringify(violations)}`);
-  await dialog.getByLabel('Wholesale unit price (GH₵, tax included)').fill('75.00');
+  await dialog.getByLabel('Wholesale unit price (GH₵, all-in)').fill('75.00');
   created = { productId: product.id, variationId: option?.id || 0 }; // Clean up even if the save response is interrupted.
   await dialog.getByRole('button', { name: 'Save private price' }).click();
   await dialog.waitFor({ state: 'hidden' });

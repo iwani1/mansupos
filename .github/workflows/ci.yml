@@ -60,6 +60,8 @@ jobs:
           exit 1
       - run: npm run test:browser
       - run: npm run test:a11y
+      - name: Test desktop renderer with isolated SQLite and fake Woo (not Electron)
+        run: npm run test:desktop:browser
       - name: Collect browser diagnostics
         if: failure()
         run: cp /tmp/mansu-pos.log test-results/server.log || true
@@ -135,3 +137,40 @@ jobs:
           docker compose --env-file .env -p mansu-pos-ci -f deploy/docker-compose.existing-proxy.yml logs --tail=100 pos
           echo '::error title=POS-only Compose unhealthy::Local health check failed.'
           exit 1
+
+  windows-package:
+    # Compile and inspect an UNSIGNED QA package on Windows. Never upload or
+    # publish an installer: public GitHub Releases require separate approval,
+    # code signing, a real Windows install/restore test and Woo acceptance.
+    runs-on: windows-2025
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      MANSU_SIGNED_UPDATE_BUILD: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/desktop-store.test.js tests/desktop-sync.test.js tests/desktop-plugin-syntax.test.js
+      - name: Confirm Electron's bundled Node can open the offline SQLite ledger
+        shell: pwsh
+        run: |
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          & .\node_modules\electron\dist\electron.exe -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync(':memory:');db.exec('CREATE TABLE t(x)');db.close();console.log('Electron SQLite available')"
+          if ($LASTEXITCODE -ne 0) { throw 'Electron runtime cannot open node:sqlite.' }
+          Remove-Item Env:ELECTRON_RUN_AS_NODE
+      - run: npm run dist:win
+      - name: Verify the installer stays unsigned and never becomes a release
+        shell: pwsh
+        run: |
+          $policy = Get-Content -Raw desktop/update-policy.json | ConvertFrom-Json
+          if ($policy.signed -ne $false) { throw 'Unsigned QA build unexpectedly enabled automatic updates.' }
+          $setup = @(Get-ChildItem release -Filter 'MansuTRENDZGH-POS-*-Windows-Setup.exe' -File)
+          if ($setup.Count -ne 1 -or $setup[0].Length -lt 50000000) { throw 'Exactly one complete Windows NSIS installer was expected.' }
+          $signature = Get-AuthenticodeSignature $setup[0].FullName
+          if ($signature.Status -ne 'NotSigned') { throw "Unexpected QA installer signature state: $($signature.Status)" }
+          $hash = Get-FileHash $setup[0].FullName -Algorithm SHA256
+          Write-Host "Unsigned QA-only installer $($setup[0].Name): SHA256 $($hash.Hash)"
+          Write-Host 'Installer discarded with this runner. No artifact or GitHub Release is published.'

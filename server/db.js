@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { demoProducts } from './demo-catalog.js';
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
@@ -157,6 +157,23 @@ function migrate(db) {
       CREATE TABLE wholesale_price_revisions (id INTEGER PRIMARY KEY AUTOINCREMENT);
       INSERT INTO wholesale_price_revisions (id)
         SELECT MAX(revision) FROM wholesale_prices HAVING COUNT(*) > 0;
+    `),
+    // Central inbox for a separately enrolled offline till. Never reuse the
+    // retired POS-only stock ledger; Woo's reservation plugin is the authority.
+    // Keep the original event before any remote write, then ack and import the
+    // order in one local transaction. Lost responses replay the SAME event ID.
+    () => db.exec(`
+      CREATE TABLE offline_devices (
+        id TEXT PRIMARY KEY, enrolled_by TEXT NOT NULL REFERENCES users(id),
+        enrolled_at TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+      );
+      CREATE TABLE offline_events (
+        id TEXT PRIMARY KEY, device_id TEXT NOT NULL REFERENCES offline_devices(id),
+        kind TEXT NOT NULL CHECK(kind IN ('sale','return')), fingerprint TEXT NOT NULL,
+        payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+        woo_order_id INTEGER, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_offline_events_status ON offline_events(status,created_at);
     `),
   ];
   if (current > migrations.length) throw new Error('POS ledger schema is newer than this application. Do not downgrade a trading ledger.');

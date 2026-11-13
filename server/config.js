@@ -48,6 +48,27 @@ export function readConfig(env = process.env) {
   const wholesaleWritesEnabled = mode === 'demo' || (writesEnabled && (mode === 'staging'
     ? env.POS_STAGING_WHOLESALE_APPROVED === 'true'
     : env.POS_LIVE_WHOLESALE_APPROVED === 'true' && liveWholesaleAcceptance.length >= 8));
+  // A separate, initially OFF reservation rollout. This is not implied by
+  // ordinary Woo POS write approval and is never valid on the catalogue pilot.
+  const desktopRequested = env.POS_DESKTOP_RESERVATION_APPROVED === 'true';
+  const desktopSetupRequested = env.POS_DESKTOP_SETUP_APPROVED === 'true';
+  for (const key of ['POS_DESKTOP_SETUP_APPROVED','POS_DESKTOP_RESERVATION_APPROVED']) {
+    if (env[key] && !['true', 'false'].includes(env[key])) throw new Error(`${key} must be true or false.`);
+  }
+  const desktopSetupReference = (env.POS_DESKTOP_SETUP_REFERENCE || '').trim();
+  const desktopDeviceMasterSecret = env.POS_DESKTOP_DEVICE_MASTER_SECRET || '';
+  if (desktopSetupRequested && (mode !== 'live' || liveReadOnly || !writesEnabled || !env.POS_DESKTOP_WP_APP_USER ||
+      !env.POS_DESKTOP_WP_APP_PASSWORD || desktopDeviceMasterSecret.length < 32 ||
+      desktopSetupReference.length < 8 || desktopSetupReference === approvalReference)) {
+    throw new Error('Offline setup requires a separate live trading service, distinct setup reference, dedicated WordPress Application Password, and a 32+ character device signing secret; never the read-only pilot.');
+  }
+  const desktopSetupEnabled = desktopSetupRequested && mode === 'live' && !liveReadOnly && writesEnabled;
+  const desktopAcceptance = (env.POS_DESKTOP_ACCEPTANCE_REFERENCE || '').trim();
+  if (desktopRequested && (!desktopSetupEnabled || desktopAcceptance.length < 8 || desktopAcceptance === approvalReference ||
+      desktopAcceptance === desktopSetupReference || desktopAcceptance === liveWholesaleAcceptance)) {
+    throw new Error('Offline selling requires a distinct documented live website-checkout acceptance AFTER reservation setup and witnessed last-unit tests.');
+  }
+  const desktopEnabled = desktopRequested && desktopSetupEnabled;
   // This is a legacy local-stock path. The client's new shared-Woo plan must
   // never run it outside isolated tests: a local deduction would leave website
   // stock unchanged. Keep fixture coverage for historical ledger safety.
@@ -88,6 +109,8 @@ export function readConfig(env = process.env) {
   return {
     mode, storeUrl, configured, liveReadOnly, writesEnabled, wholesaleWritesEnabled, approvalReference,
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
+    desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
+    desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',
     consumerKey: env.WOO_CONSUMER_KEY || '', consumerSecret: env.WOO_CONSUMER_SECRET || '',
     dataDir: env.POS_DATA_DIR || path.resolve('.data'),
     port, bindHost, production, publicOrigin,

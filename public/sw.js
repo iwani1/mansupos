@@ -1,7 +1,7 @@
 // The installed app must never serve stale stock, orders, login pages or an
 // offline checkout. Cache only this public notice; all application requests
 // (especially /api/*) remain network-only.
-const CACHE = 'mansu-offline-notice-v1';
+const CACHE = 'mansu-offline-notice-v2';
 const OFFLINE = '/offline.html';
 
 self.addEventListener('install', event => {

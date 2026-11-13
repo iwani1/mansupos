@@ -3,6 +3,7 @@
   "version": "1.2.3",
   "private": true,
   "type": "module",
+  "main": "desktop/main.js",
   "description": "A WooCommerce-connected point of sale for MansutRENDZGH, with an isolated demo workspace.",
   "engines": {
     "node": ">=22.13.0"
@@ -12,8 +13,11 @@
     "start": "NODE_ENV=production node server/index.js",
     "build": "vite build",
     "build:live": "vite build && node scripts/prepare-live-build.mjs",
+    "build:desktop": "vite build --base ./ && node scripts/prepare-live-build.mjs && node scripts/prepare-desktop-build.mjs",
+    "dist:win": "npm run build:desktop && electron-builder --win nsis --x64 --publish never",
     "test": "node --test tests/*.test.js",
-    "test:browser": "node tests/browser.mjs && node tests/browser-recovery.mjs && node tests/browser-preview.mjs && node tests/browser-motion.mjs && node tests/browser-design.mjs && node tests/browser-wholesale.mjs && node tests/browser-wholesale-prices.mjs && node tests/browser-live-pilot.mjs && node tests/browser-live-cash.mjs && node tests/browser-instore.mjs && node tests/browser-shared-woo-colours.mjs && node tests/browser-pwa.mjs",
+    "test:browser": "node tests/browser.mjs && node tests/browser-recovery.mjs && node tests/browser-preview.mjs && node tests/browser-motion.mjs && node tests/browser-design.mjs && node tests/browser-workspace.mjs && node tests/browser-wholesale.mjs && node tests/browser-wholesale-prices.mjs && node tests/browser-live-pilot.mjs && node tests/browser-live-cash.mjs && node tests/browser-instore.mjs && node tests/browser-shared-woo-colours.mjs && node tests/browser-pwa.mjs",
+    "test:desktop:browser": "npm run build:desktop && node tests/browser-desktop.mjs",
     "test:pwa": "node tests/browser-pwa.mjs",
     "test:design": "node tests/browser-design.mjs",
     "test:a11y": "node tests/browser-a11y.mjs",
@@ -22,12 +26,56 @@
     "preflight": "node server/preflight.js",
     "lint": "eslint ."
   },
+  "build": {
+    "appId": "com.mansutrendzgh.pos.desktop",
+    "productName": "MansutRENDZGH POS",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "desktop/**",
+      "server/**/*.js",
+      "package.json",
+      "!**/*.map",
+      "!**/.env*",
+      "!**/test-results/**"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "desktop/assets/mansu.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MansutRENDZGH POS",
+      "artifactName": "MansuTRENDZGH-POS-${version}-Windows-Setup.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "iwani1",
+      "repo": "mansupos",
+      "releaseType": "release"
+    }
+  },
   "dependencies": {
     "@fontsource/bodoni-moda": "^5.3.0",
     "@fontsource/dm-sans": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
     "csv-parse": "7.0.3",
     "dotenv": "^16.6.1",
+    "electron-updater": "6.8.11",
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
@@ -41,10 +89,13 @@
     "@sparticuz/chromium": "^133.0.0",
     "@vitejs/plugin-react": "^4.7.0",
     "axe-core": "^4.14.0",
+    "electron": "45.3.1",
+    "electron-builder": "26.18.0",
     "eslint": "9.39.5",
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "5.2.0",
     "globals": "^17.14.0",
+    "php-parser": "3.7.0",
     "playwright-core": "^1.51.1",
     "vite": "^6.3.5"
   }

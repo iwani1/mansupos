@@ -1,134 +1,68 @@
 ---
 name: MansutRENDZGH Retail Studio
-description: A calm, product-led boutique counter with unambiguous operational states.
+description: Compact fashion-tech selling and operations workspace with truthful data scope and locked trading gates.
 colors:
-  paper: "#f3efe8"
-  paper-deep: "#e9e2d7"
-  surface: "#fffdf9"
-  ink: "#2b2028"
-  ink-soft: "#4a3d45"
-  ink-hover: "#40303a"
-  ink-disabled: "#766d72"
-  muted: "#5c5056"
-  line: "#ded5ca"
-  line-dark: "#c9bcaf"
-  brass: "#7a5a2e"
-  brass-light: "#e8dccb"
-  brass-bright: "#c9a46c"
-  wine: "#6e3040"
-  sage: "#405843"
-  sage-light: "#e7ede6"
-  amber: "#7a561f"
-  amber-light: "#f4ead6"
-  danger: "#8f3d36"
-  danger-light: "#f6e7e3"
+  surface: "#FFFFFF"
+  paper: "#F9F5F7"
+  paper-deep: "#F3ECF0"
+  ink: "#242124"
+  brand: "#DC147E"
+  brand-ink: "#B31365"
+  support: "#858085"
+  line: "#EDE5EA"
+  line-dark: "#D9CFD6"
+  success: "#2C604A"
+  warning: "#765019"
+  danger: "#A22F3D"
 typography:
-  display:
-    fontFamily: "'Bodoni Moda', Georgia, serif"
-    fontSize: "38px"
-    fontWeight: 500
-    lineHeight: 1.1
-    letterSpacing: "-0.8px"
-  section:
-    fontFamily: "'Bodoni Moda', Georgia, serif"
-    fontSize: "23px"
-    fontWeight: 500
-    lineHeight: 1.2
-    letterSpacing: "-0.5px"
-  body:
-    fontFamily: "'DM Sans', sans-serif"
-    fontSize: "14px"
-    fontWeight: 400
-    lineHeight: 1.5
-    letterSpacing: "0"
+  family: "Manrope, system sans-serif"
+  body: "14px / 1.5"
+  page: "23–28px, weight 800"
+  section: "15–18px, weight 700"
+  numerals: "tabular for amounts and stock"
 rounded:
   control: "4px"
-  surface: "6px"
-  dialog: "8px"
-  pill: "999px"
+  surface: "5px"
+  dialog: "5px"
 spacing:
-  xs: "8px"
-  sm: "12px"
-  md: "16px"
-  lg: "24px"
-  xl: "32px"
+  compact: "8px"
+  standard: "12–18px"
+  page: "20–27px"
 components:
-  button-primary:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.surface}"
-    rounded: "{rounded.control}"
-    height: "44px"
-    padding: "10px 16px"
-  button-primary-hover:
-    backgroundColor: "{colors.ink-hover}"
-  button-secondary:
-    backgroundColor: "transparent"
-    textColor: "{colors.ink-soft}"
-    rounded: "{rounded.control}"
-    height: "44px"
-    padding: "10px 16px"
-  surface:
-    backgroundColor: "{colors.surface}"
-    rounded: "{rounded.surface}"
-  badge-warning:
-    backgroundColor: "{colors.amber-light}"
-    textColor: "{colors.amber}"
-    rounded: "{rounded.pill}"
+  primary-action: "pink #DC147E on white, plain rectangular control"
+  secondary-action: "white with a one-pixel divider"
+  surface: "white with a one-pixel border; no default drop shadow"
+  status: "text + icon/dot; never color alone"
 ---
 
-## Overview
+## Identity and implementation
 
-**Retail studio, not a generic dashboard.** This is a fashion-boutique selling workspace. The garment and the current sale lead; records and configuration are quieter, task-first companions. Keep the incumbent ivory, aubergine-black and restrained brass identity. CSS custom properties in `src/styles.css` are the implementation source of truth; `src/studio.css` composes the current whole-workspace layout on top of those tokens and the existing In-store styles. The frontmatter above captures their portable core. `docs/UI-DESIGN.md` records earlier design decisions and audit history.
+The existing React/Vite POS is the product. Its presentation is a **restrained white, charcoal and pink fashion-tech workroom**, not a generic card dashboard. Manrope is self-hosted through Fontsource; avoid decorative serif display faces, gradients, glass effects, ornate illustrations, gratuitous motion and stacked shadows. Use `src/styles.css` for tokens and the essential application/print layout, then `src/studio.css` for app-wide presentation overrides. Existing `src/instore.css` still contains the locked historical In-store collection layout. The earlier ivory/brass design audit is retained in `docs/UI-DESIGN.md` as history, not the current palette.
 
-The [awesome-design-md collection](https://github.com/voltagent/awesome-design-md) informed the token/component/responsive documentation pattern (Oura, Notion, Nike and Shopify analyses are *different brands*, not themes to borrow). [Impeccable](https://github.com/pbakaus/impeccable) informed the task-first inspection of hierarchy, states, accessibility and responsive behavior. Neither supplied assets, installed skills nor an approval-bypassing workflow to this app.
+Use `#DC147E` for primary actions, selected navigation and larger accents on white; use darker `#B31365` for small pink text on white or `#F9F5F7`. Reserve green, amber and red for named operational states. Keep real photographs only where the connected Woo catalogue provides them; isolated demo illustrations are clearly labelled. No decorative product imagery is added to admin pages. Prices are GHS, displayed in GH₵ with tabular numerals. Long names, SKUs and translations must wrap rather than forcing page-level horizontal overflow.
 
-## Colors
+## Shell and navigation
 
-| Use | CSS tokens | Rule |
-| --- | --- | --- |
-| Canvas and raised content | `--paper`, `--paper-deep`, `--surface`, `--line`, `--line-dark` | Paper holds the workspace; near-white holds data and forms. Dividers, not shadow stacks, separate most information. |
-| Primary reading and actions | `--ink`, `--ink-soft`, `--muted`, `--ink-hover`, `--ink-disabled` | Ink makes the action and amount legible. Disabled actions remain readable but cannot imply availability. |
-| Brand and secondary links | `--brass`, `--brass-light`, `--brass-bright`, `--wine` | Brass is a quiet accent and visible focus cue, not an all-purpose status color. |
-| Operational meaning | `--sage[-light]`, `--amber[-light]`, `--danger[-light]` | Success, caution and error respectively; always pair color with words and/or an icon. |
+- A 236px white directory groups **Workspace, Catalogue, Operations and Administration**. Each group can collapse independently. The entire rail can collapse to labelled-tooltip icons; the setting persists on the device. On short desktop heights, the group list scrolls independently while profile/help remain reachable. This is intentional; don't hide a destination to make every item fit a fixed viewport.
+- At widths up to 1080px, use a focus-contained drawer. Escape and the scrim close it; navigation returns focus to the new page and the drawer cannot trap focus after resizing to desktop. Mobile shows the Mansu wordmark, search, status, alerts and account when space allows; the page heading supplies context below.
+- Header search opens and focuses the real Register search. Alerts come from **loaded** interrupted POS sales and the current catalogue state, not a fabricated notification stream. Demo/read-only/locked/synced states always use words. Profile offers actual workspace/help/logout actions; this shell does not create customer accounts or Woo admin functions.
+- New page bodies: `src/Overview.jsx`, `src/Catalogue.jsx`, `src/Customers.jsx` and the existing task pages in `src/Pages.jsx`. Shared heading, buttons, notices, modal, table region and selling-mode switch live in `src/components.jsx`.
 
-Use `GH₵` and tabular numerals for prices, totals and stock. **Demo**, **staging**, **checkout locked**, **connection review** and **live** must be described in text; a green catalogue indicator alone never implies permission to trade. Verify readable contrast on each surface, including disabled actions and warnings.
+## Counter and operational surfaces
 
-## Typography
+- **Retail POS:** search/scan, categories, stock filter, product options and cart stay one fast touchscreen flow. Keep the sale total and **Prepare order** in view at common desktop/tablet counter heights; at 820px and below the full-height cart opens from a fixed sale bar. Retail prices come from Woo/the isolated demo, not from private Wholesale defaults. Preserve cart idempotency, shared-parent stock limits, unknown stock handling, held carts and session recovery.
+- **Wholesale:** only owner/manager; start with goods, enter final **all-in** negotiated prices (including any applicable tax), review and approve, then record full payment. Buyer name is optional. Quotes and receipts show an actual tax line only when WooCommerce returned a positive tax amount. Private per-option price defaults are not public retail prices; they require the existing identity/revision safeguards and separate trading permission. The selling-mode switch navigates to this real workflow; it is not an unguarded discount toggle.
+- **Overview:** `GET /api/reports?days=1` and `?days=7` drive the actual POS totals, channel mix, daily chart and top goods; `/api/sales` supplies **loaded** unsettled and recent records. `src/catalog-insights.js` counts each known parent-managed stock pool only once. No website sale, historical POS-only In-store receipt or general customer profile is inferred. An incomplete/stale Woo catalogue is labelled and cannot produce an authoritative stock total. Demo values are clearly practice data.
+- **Products/Categories/Inventory:** use the loaded Woo catalogue. Products are searchable and inspectable but not editable here; categories filter the real directory. Stock/option source and counts are legible. On tablets, the dense inventory table scrolls sideways with a hint; on phones semantic tables become labelled records. An incomplete/stale catalogue leaves stock units blank in exports; demo CSVs explicitly identify practice data.
+- **Sales/Orders:** two contexts for the same **POS-only** ledger, with channel/status/search, detail, receipt, optional quote, payment, cancellation and reconciliation actions still connected to their guarded APIs. Counts of pending orders refer to loaded pages; website orders remain excluded. Customers shows only the existing owner/manager named Wholesale buyers, not invented phone/address/purchase profiles. There is no supplier API; do not ship a fake supplier directory.
+- **Reports/Shifts/Staff/Audit/Settings/In-store:** preserve their actual APIs, signed refund charts, cash counts, role limits, audit trails, refresh and diagnostic actions. A synced catalogue never implies that live checkout is approved. Printed receipt dimensions and the offline safety notice remain functional, not decorative.
 
-Bodoni Moda (self-hosted with Fontsource) is for page and section headings, figures, and the brand. DM Sans is for navigation, product names, controls, tables, instructions and operational labels. Use system monospace only for SKU/barcode or event identifiers. Avoid uppercase tracked micro-labels for stock or controls. At phone sizes form/search fields stay large enough to avoid browser zoom; small text is supporting context, not the only way to convey stock or payment state.
+## States, accessibility and safety
 
-Hierarchy: one page `h1`; section `h2`; item/empty-state `h3` within its section. When there is no section heading, add one rather than skipping from `h1` to `h3`. Use concise explanatory copy directly below the relevant title or control.
+Use native labelled controls, visible keyboard focus, semantic table headers, text status, proper `aria-pressed` for modes and view switches, alert semantics for errors, and focus-managed dialogs. Do not put navigation or account labels behind visible initials. Fields and key touch actions remain reachable at 320px; reduced-motion disables transitions. Device/browser status is not a stock guarantee. The service worker caches only the **public no-sales offline notice**; it never caches authenticated screens, orders or stock.
 
-## Layout
+**The Contabo pilot remains read-only.** This design change neither enables trading nor changes Woo taxes, stock, REST order logic, POS write gates or payment permissions. There has been no supervised genuine Woo sale, Woo pending/paid side-effect acceptance, approved last-unit concurrency control, separate trading ledger backup or production approval. See `docs/LIVE-READONLY-REVIEW.md`, `docs/SHARED-WOO-STOCK.md` and `docs/LIVE-CASH-ROLLOUT.md` before any trading deployment. Do not test design by placing a live dummy order or toggling the retired POS-only stock route.
 
-- **Counter (over 820px):** search, scanner and category filters form one collection shelf beside a viewport-sized sale cart. Three garment columns fit at 1280px; two are preferable at narrower counter widths, with four on very wide displays. The total and **Prepare order** remain visible at 1280 × 800 while cart detail scrolls independently.
-- **Directory:** desktop uses a 208px labeled, grouped workroom directory, not an icon-only rail. At a short counter height its supplementary connection card yields to the actual destinations. At 1080px and below it becomes a focus-contained drawer; Escape closes it, and the off-screen drawer is hidden from focus. Active page and environment remain legible in text.
-- **Phone (up to 640px):** a fixed bottom sale bar opens the full-height cart. Data tables keep semantic headers but reflow into labeled two-column records instead of hiding price, stock status, actions or access. Search and filters stack; records and long SKUs wrap. At intermediate widths, a labeled, focusable table region retains horizontal scrolling.
-- **Operational sheets:** records have a section title, count, filters and semantic table in that order. Stats form one compact comparative strip (two columns at 375px, one at very narrow widths). Reports show a signed daily chart *and* expandable daily totals; an all-zero period says so rather than fabricating activity. Period, scope and export remain in view; reports cover recorded POS sales, not all web orders.
-- **Task progression:** Wholesale uses a visible goods → approval → full-payment sequence and a sticky agreed-total sheet. The cash desk pairs the opening-float form with a practical procedure, while connection keeps read permissions, write gates and trading acceptance separate.
+## Verification
 
-Use the actual data's length: long names, missing SKUs, zero/negative totals, no records and interrupted sales all need a complete layout. No screen may cause page-level horizontal overflow at 320px.
-
-## Elevation & Depth
-
-Surfaces use a one-pixel line; don't add a shadow to every card. The sticky cart (`--shadow`) and active dialogs/toasts (`--shadow-lg`) earn elevation because they layer over the workspace. The dark connection header is a status anchor, not a decorative hero. No gradients, glass or blurred containers in routine task flow. The backdrop blur belongs only to active dialogs and the navigation scrim.
-
-## Shapes
-
-Controls and ledger sheets use approximately 2–4px corners; dialogs 3px. Badges, avatars and stock dots remain circular/pill by function; the product add affordance is a small squared-off control. Use Lucide stroke icons consistently; icons support text, never replace a payment instruction or security state. Buttons and fields are generally at least 44px high, with visible brass keyboard focus. Native checkbox, select and focus behavior is preferable to an ornamental replacement.
-
-## Components
-
-- **Register/cart:** `PageHeading`, product grid, search and F2 scanner form one selling path. Category and view filters expose pressed state. Stock/backorder/shared-pool warnings stay visible; unknown connected stock is never presented as sellable. The primary CTA says **Prepare order** because it prepares a WooCommerce order, not a charge. The cart total and CTA stay visible; notes and item details can scroll.
-- **Checkout/receipt:** the store-confirmed total leads. Cash needs a counted tender and explicit confirmation; MoMo/Card need an externally verified reference and confirmation. Switching method clears stale input/confirmation. The checkout decision remains in view when long quotes or fields scroll; at 1280 × 800, the confirmation and action are both visible. Recording a payment is not payment processing. Receipt width and demo watermark remain explicit and printer-safe.
-- **Records/reports:** native tables within named `TableRegion` components; headers remain accessible when phone records reflow. Status is a text badge. Filters show a specific empty state with a way to clear filters. Daily bars have a zero baseline and a readable daily-totals list; never imply a net refund is a new sale.
-- **Shifts/staff/audit:** cash movements use labeled type, amount and reason; counted close remains a deliberate action. Staff access is a compact role comparison, not decorative cards. Audit events have their own section heading and preserve long subjects and timestamps.
-- **Connection/navigation/feedback:** show catalogue and write-gate states separately. `Notice` is inline guidance; errors use alert semantics, while a dismissible `Toast` confirms an action. Drawer, modal and data-region focus must work with a keyboard. Reduced-motion users get no animation; product/card and feedback motion never delay a sale.
-
-## Do's and Don'ts
-
-- **Do** preserve the existing boutique palette and garment-led counter. **Don't** copy another brand's DESIGN.md, logo, illustrations or layout verbatim.
-- **Do** name actions for what they actually do and keep role, demo and live gates explicit. **Don't** claim payment was charged or a live order was approved merely because a button was clicked.
-- **Do** keep the operational safeguards in `docs/SETUP.md`, `docs/ACCEPTANCE.md`, `docs/PRODUCTION.md` and the backend intact. **Don't** restyle away the locked checkout, stale-stock, reconciliation, backorder or external-payment warnings.
-- **Do** test at 1280 × 800, 820px, 375px and 320px with keyboard, reduced motion, long data and empty states. **Don't** assume an axe pass alone proves a workflow or hardware is safe.
-- **Do** use isolated demo data for browser walkthroughs. **Don't** mutate the shared public demo ledger or treat mocked staging as real staging acceptance. Concurrent last-item storefront/POS stock remains a release gate, not a visual-design problem.
+Use an **isolated** `POS_MODE=demo` data directory. `npm test` covers API/gate and catalogue insight cases; `npm run lint`, `npm run build` and `npm run build:live` check source and demo-free live assets. `npm run test:browser` exercises the isolated production-built demo workflows, a read-only pilot fixture, responsive pages, the PWA notice and data-sourced workspace. `npm run test:a11y` checks desktop/phone pages and dialogs with axe. Test 1280×800, 768px tablet, 375px and 320px phones, grouped navigation, search/scan, named ledger records, stock ownership, report scope and checkout locks. These checks are **not** live Woo or hardware acceptance.
