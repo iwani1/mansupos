@@ -108,6 +108,27 @@ export class OnlineSalesService {
       throw new AppError('Original Woo cash intent and stock hold cannot be verified.', 409, 'RECONCILIATION_REQUIRED');
     }
   }
+  async assertLiveBridgeReady() {
+    if (!this.config.onlineBridgeLiveEnabled) return null; // Local synthetic bridge remains isolated.
+    try {
+      // This is a signed, read-only WP GET. It never creates an order or
+      // extends a stock hold; the PHP write endpoints still verify Woo state.
+      const health = await this.bridge.health();
+      if (!health || health.kind !== 'mansu-online-bridge-health' || health.ok !== true ||
+          health.service !== this.config.bridgeService || health.service !== 'live-trading' ||
+          health.siteId !== this.config.bridgeSiteId || health.ledgerId !== this.ledgerId ||
+          health.corePrerequisitesOk !== true || health.cashOnly !== true ||
+          health.wooVersion !== '11.0.1' ||
+          typeof health.taxEnabled !== 'boolean' || typeof health.hposEnabled !== 'boolean') {
+        throw new Error('Remote bridge or v9 trading ledger did not match.');
+      }
+      return health;
+    } catch {
+      // Do not expose signed credentials or raw remote errors to the browser.
+      // No new cash intent, order or stock mutation is allowed on this path.
+      throw new AppError('The signed Woo reservation bridge is not verified for this trading ledger. Do not prepare a new sale or collect cash.', 503, 'BRIDGE_NOT_READY');
+    }
+  }
   async prepare(user, input) {
     if (!this.config.writesEnabled) throw new AppError('Online bridge writes are locked.', 403, 'CHECKOUT_LOCKED');
     const type = input.saleType || 'retail';
@@ -133,6 +154,9 @@ export class OnlineSalesService {
       const pending = this.db.prepare(`SELECT id FROM sales WHERE fingerprint=? AND status IN ('creating','awaiting_payment','needs_reconciliation')
         AND created_at>=? LIMIT 1`).get(fingerprint, new Date(Date.now() - 15 * 60000).toISOString());
       if (pending) throw new AppError('A matching unfinished cart exists. Inspect Sales instead of creating another order.', 409, 'RECONCILIATION_REQUIRED');
+      // No local intent or remote reservation until this exact trading ledger
+      // is verified. Local fixtures have their own separate test-only gate.
+      await this.assertLiveBridgeReady();
       const shift = this.shifts.requireOpen(user.id);
       const id = randomUUID();
       const time = now();
@@ -338,6 +362,9 @@ export class OnlineSalesService {
       }
       const shift = this.db.prepare('SELECT status,user_id FROM shifts WHERE id=?').get(row.shift_id);
       if (!shift || shift.status !== 'open' || shift.user_id !== row.cashier_id) throw new AppError('The original cash drawer shift is not open.', 409, 'SHIFT_CLOSED');
+      // Verify before even STARTING a cash intent. If a later physical cash
+      // event already exists, the separate reconciliation path remains usable.
+      await this.assertLiveBridgeReady();
       try {
         const remote = await this.bridge.status(row.idempotency_key);
         this.assertRemote(row, remote);
