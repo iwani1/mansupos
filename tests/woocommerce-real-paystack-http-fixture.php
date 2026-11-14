@@ -35,6 +35,7 @@ if ( $phase === 'setup' ) {
         'return_valid' => array( 'store-api', false, 'exact' ),
         'return_late' => array( 'checkout', true, 'exact' ),
         'webhook_mismatch' => array( 'store-api', true, 'wrong-currency' ),
+        'webhook_underpaid' => array( 'checkout', true, 'underpaid' ),
     ) as $name => $spec ) {
         $product = new WC_Product_Simple();
         $product->set_name( 'SYNTHETIC HTTP PAYSTACK ' . $name );
@@ -127,6 +128,25 @@ switch ( $phase ) {
         break;
     case 'webhook-late':
         $late( 'webhook_late' );
+        break;
+    case 'webhook-late-replay':
+        $late( 'webhook_late' );
+        list( $order ) = $case( 'webhook_late' );
+        $paystack_notes = 0;
+        foreach ( wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 100 ) ) as $note ) {
+            if ( strpos( $note->content, 'Payment via Paystack successful' ) !== false ) {
+                ++$paystack_notes;
+            }
+        }
+        $assert( $paystack_notes >= 1,
+            'Repeated expired-hold webhook did not retain Paystack success reconciliation evidence.' );
+        if ( $paystack_notes > 1 ) {
+            echo 'PAYSTACK_LATE_REPLAY_DUPLICATE_SUCCESS_NOTES_OBSERVED count=' .
+                $paystack_notes . '; fulfillment must stay blocked; no production acceptance.' . PHP_EOL;
+        }
+        break;
+    case 'webhook-underpaid':
+        $late( 'webhook_underpaid', 'on-hold' );
         break;
     case 'return-valid':
         $valid( 'return_valid' );
