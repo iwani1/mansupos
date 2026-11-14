@@ -66,6 +66,9 @@ jobs:
           mkdir -p "$WP_PATH/wp-content/mu-plugins"
           cp "$GITHUB_WORKSPACE/tests/fixtures/mansu-ci-paystack-http-mock.php" "$WP_PATH/wp-content/mu-plugins/"
           MANSU_CI_WP_PATH="$WP_PATH" MANSU_CI_WP_CLI="$RUNNER_TEMP/wp-cli.phar" node "$GITHUB_WORKSPACE/tests/woocommerce-real-paystack-http-runner.mjs"
+          php -l "$GITHUB_WORKSPACE/tests/woocommerce-cross-channel-payment-fixture.php"
+          node --check "$GITHUB_WORKSPACE/tests/woocommerce-cross-channel-runner.mjs"
+          MANSU_CI_WP_PATH="$WP_PATH" MANSU_CI_WP_CLI="$RUNNER_TEMP/wp-cli.phar" node "$GITHUB_WORKSPACE/tests/woocommerce-cross-channel-runner.mjs"
           php -l "$GITHUB_WORKSPACE/tests/woocommerce-race-worker.php"
           node --check "$GITHUB_WORKSPACE/tests/woocommerce-race-runner.mjs"
           MANSU_CI_WP_PATH="$WP_PATH" \
