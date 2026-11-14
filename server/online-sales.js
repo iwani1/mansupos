@@ -222,6 +222,7 @@ export class OnlineSalesService {
       cashCollectionAllowed: row.status === 'awaiting_payment' && !row.payment_method &&
         row.tendered == null && !row.paid_at &&
         Number.isSafeInteger(row.woo_order_id) && row.woo_order_id > 0 && row.prepared_total === row.total && row.total > 0 &&
+        !eventExists(this.db, id, 'online.cash_intent_started') &&
         !eventExists(this.db, id, 'online.cash_accepted') && !eventExists(this.db, id, 'online.payment_started') &&
         !eventExists(this.db, id, 'online.cancel_started') && remote.state === 'reserved' &&
         remote.orderIdentityVerified && !remote.stockOrCashIntentObserved &&
@@ -249,7 +250,7 @@ export class OnlineSalesService {
     const previouslyPaid = Boolean(row.paid_at);
     let status = 'needs_reconciliation', paidAt = row.paid_at, message = review;
     if (remote.state === 'paid' && remote.paymentVerified && remote.orderIdentityVerified &&
-        remote.stockOrCashIntentObserved && custody && started && !cancelStarted && row.payment_method === 'cash' &&
+        remote.stockOrCashIntentObserved && intentStarted && custody && started && !cancelStarted && row.payment_method === 'cash' &&
         Number.isSafeInteger(row.tendered) && row.tendered >= row.total &&
         row.change_due === row.tendered - row.total &&
         Number.isSafeInteger(row.woo_order_id) && row.woo_order_id === remote.orderId &&
@@ -262,7 +263,7 @@ export class OnlineSalesService {
         row.tendered == null && row.status !== 'failed' && remote.state === 'reserved') {
       try { this.assertReserved(remote, { forCash: true }); status = 'awaiting_payment'; message = null; }
       catch { /* Hold is unknown/expired; never reopen cash collection. */ }
-    } else if (!custody && !started && !previouslyPaid && remote.state === 'cancelled' &&
+    } else if (!custody && !started && !intentStarted && !previouslyPaid && remote.state === 'cancelled' &&
         remote.cancelledVerified === true && remote.orderIdentityVerified && !remote.stockOrCashIntentObserved) {
       status = 'cancelled'; message = null;
     }
@@ -274,6 +275,7 @@ export class OnlineSalesService {
           latest.prepared_total !== row.prepared_total || latest.total !== row.total || latest.items_json !== row.items_json ||
           latest.shift_id !== row.shift_id || latest.fingerprint !== row.fingerprint || latest.idempotency_key !== row.idempotency_key ||
           eventExists(this.db, id, 'online.cash_accepted') !== custody ||
+          eventExists(this.db, id, 'online.cash_intent_started') !== intentStarted ||
           eventExists(this.db, id, 'online.payment_started') !== started ||
           eventExists(this.db, id, 'online.cancel_started') !== cancelStarted) {
         throw new AppError('The local attempt changed during status recovery. Refresh before any action.', 409, 'SALE_BUSY');
@@ -324,6 +326,7 @@ export class OnlineSalesService {
         return verified;
       }
       if (row.payment_method || row.tendered != null || row.status !== 'awaiting_payment' ||
+          eventExists(this.db, id, 'online.cash_intent_started') ||
           eventExists(this.db, id, 'online.cash_accepted') || eventExists(this.db, id, 'online.payment_started') ||
           eventExists(this.db, id, 'online.cancel_started')) {
         throw new AppError(review, 409, 'RECONCILIATION_REQUIRED');
@@ -460,6 +463,7 @@ export class OnlineSalesService {
         throw new AppError('Online retail or wholesale writes are locked.', 403, 'CHECKOUT_LOCKED');
       }
       if (row.status !== 'awaiting_payment' || row.payment_method || row.tendered != null || row.paid_at ||
+          eventExists(this.db, id, 'online.cash_intent_started') ||
           eventExists(this.db, id, 'online.cash_accepted') || eventExists(this.db, id, 'online.payment_started') ||
           eventExists(this.db, id, 'online.cancel_started')) {
         throw new AppError('Only an unpaid attempt with no cash custody can be cancelled automatically.', 409, 'RECONCILIATION_REQUIRED');
@@ -468,7 +472,8 @@ export class OnlineSalesService {
         const latest = this.db.prepare('SELECT * FROM sales WHERE id=?').get(id);
         this.assertLinked(latest);
         if (latest.total !== row.total || latest.woo_order_id !== row.woo_order_id ||
-            latest.items_json !== row.items_json || eventExists(this.db, id, 'online.cash_accepted') ||
+            latest.items_json !== row.items_json || eventExists(this.db, id, 'online.cash_intent_started') ||
+            eventExists(this.db, id, 'online.cash_accepted') ||
             eventExists(this.db, id, 'online.payment_started') || eventExists(this.db, id, 'online.cancel_started')) {
           throw new AppError('Cash, payment, cancellation or order mapping changed. Review the original sale.', 409, 'RECONCILIATION_REQUIRED');
         }

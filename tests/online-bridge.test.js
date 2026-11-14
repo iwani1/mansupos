@@ -382,6 +382,51 @@ test('a missing durable order link or earlier custody/cancel marker never reopen
   assert.equal(h.bridge.state.cancels, 0);
 });
 
+
+test('a committed cash intent blocks stale checkout, cancellation and a cancelled recovery verdict', async t => {
+  const h = await harness(t);
+  const sale = (await prepare(h, cart())).data.sale;
+  // The persisted sale status may be stale, but an append-only intent cannot be ignored.
+  localTransaction(h.db, () => saleEvent(h.db, sale.id, 'online.cash_intent_started', 'system',
+    { wooOrderId: sale.wooOrderId, amountCents: sale.total }));
+  assert.equal(h.db.prepare('SELECT status FROM sales WHERE id=?').get(sale.id).status, 'awaiting_payment');
+  const status = await read(h, sale.id);
+  assert.equal(status.status, 200);
+  assert.equal(status.data.bridge.reservationVerified, true);
+  assert.equal(status.data.bridge.cashCollectionAllowed, false);
+  assert.equal((await pay(h, sale.id)).status, 409);
+  assert.equal((await post(h, `/sales/${sale.id}/cancel`)).status, 409);
+  assert.equal(h.bridge.state.cashIntents, 0);
+  assert.equal(h.bridge.state.payments, 0);
+  assert.equal(h.bridge.state.cancels, 0);
+  assert.equal((await post(h, `/sales/${sale.id}/reconcile`)).data.sale.status, 'needs_reconciliation');
+  h.db.prepare("UPDATE sales SET status='awaiting_payment' WHERE id=?").run(sale.id);
+  const key = h.db.prepare('SELECT idempotency_key FROM sales WHERE id=?').get(sale.id).idempotency_key;
+  h.bridge.records.get(key).state = 'cancelled'; // A simulated external cancel is not proof no cash was taken.
+  const response = await post(h, `/sales/${sale.id}/reconcile`);
+  assert.equal(response.status, 200);
+  assert.equal(response.data.sale.status, 'needs_reconciliation');
+  assert.equal(h.bridge.state.cancels, 0);
+});
+
+test('a remote paid signal cannot create a POS receipt without the original local intent event', async t => {
+  const h = await harness(t);
+  const sale = (await prepare(h, cart())).data.sale;
+  localTransaction(h.db, () => {
+    h.db.prepare("UPDATE sales SET status='needs_reconciliation',payment_method='cash',tendered=?,change_due=? WHERE id=?")
+      .run(sale.total + 2000, 2000, sale.id);
+    saleEvent(h.db, sale.id, 'online.cash_accepted', 'system', { wooOrderId: sale.wooOrderId, amountCents: sale.total });
+    saleEvent(h.db, sale.id, 'online.payment_started', 'system', { wooOrderId: sale.wooOrderId, amountCents: sale.total });
+  });
+  const key = h.db.prepare('SELECT idempotency_key FROM sales WHERE id=?').get(sale.id).idempotency_key;
+  Object.assign(h.bridge.records.get(key), { state: 'paid', paidAt: new Date().toISOString() });
+  const response = await post(h, `/sales/${sale.id}/reconcile`);
+  assert.equal(response.status, 200);
+  assert.equal(response.data.sale.status, 'needs_reconciliation');
+  assert.equal(response.data.sale.paidAt, null);
+  assert.equal(h.bridge.state.payments, 0);
+});
+
 test('Woo paid evidence cannot make a receipt after the local cash amount becomes unprovable', async t => {
   const h = await harness(t);
   const sale = (await prepare(h, cart())).data.sale;
