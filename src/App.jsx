@@ -12,6 +12,7 @@ import WorkspaceCommandMenu from './WorkspaceCommandMenu.jsx';
 import { Sales, Inventory, Reports, Staff, Connection, Help, Shifts, Audit } from './Pages.jsx';
 import { Checkout, Receipt } from './Checkout.jsx';
 import RecoveryQueue from './RecoveryQueue.jsx';
+import StockSafety from './StockSafety.jsx';
 import { Spinner, Toast, Notice, Modal } from './components.jsx';
 
 const navigation = [
@@ -21,6 +22,7 @@ const navigation = [
   { id:'products', label:'Products', short:'Products', icon:Package, group:'Catalogue' },
   { id:'categories', label:'Categories', short:'Categories', icon:Tags, group:'Catalogue' },
   { id:'inventory', label:'Inventory', short:'Stock', icon:Boxes, group:'Catalogue' },
+  { id:'stockSafety', label:'Stock safety review', short:'Audit stock', icon:ShieldCheck, group:'Catalogue', roles:['owner','manager'], liveOnly:true },
   { id:'sales', label:'Sales history', short:'Sales', icon:ReceiptText, group:'Operations' },
   { id:'orders', label:'Orders', short:'Orders', icon:ScrollText, group:'Operations' },
   { id:'recovery', label:'Recovery queue', short:'Review', icon:ShieldCheck, group:'Operations', roles:['owner','manager'] },
@@ -175,6 +177,7 @@ export default function App() {
           {page==='categories'&&<CategoriesPage catalog={catalog} config={config} onSelect={openCategory} refresh={refresh}/>}
           {(page==='sales'||page==='orders')&&<Sales key={page} view={page} sales={sales} config={config} refresh={refresh} onReceipt={setReceipt} onPay={setPending} notify={notify} hasMore={salesHasMore} loadingMore={salesLoadingMore} onLoadMore={loadMoreSales}/>}
           {page==='inventory'&&<Inventory catalog={catalog} config={config} user={user} active={page==='inventory'} refresh={refresh} notify={notify}/>}
+          {page==='stockSafety'&&config.mode==='live'&&user.role!=='cashier'&&<StockSafety active={page==='stockSafety'}/>}
           {page==='customers'&&user.role!=='cashier'&&<Customers refreshKey={refreshKey}/>}
           {page==='recovery'&&user.role!=='cashier'&&<RecoveryQueue/>}
           {page==='shifts'&&<Shifts config={config} user={user} shift={shift} refresh={refresh} notify={notify}/>}
