@@ -31,6 +31,12 @@ The disposable real WooCommerce/MySQL conformance exercise now tests **both orde
 
 The additional test is strictly on the GitHub Actions ephemeral `WP_ENVIRONMENT_TYPE=local` WordPress installation with pinned WooCommerce 11.0.1, disposable MySQL, a synthetic product and zero actual transactions. It must not be executed on GreenGeeks/Contabo. The installed website's actual plugins, Paystack notifications and callbacks remain unverified.
 
+## Explicit live checkout safety interlock
+
+The uninstalled Woo online bridge now reports `lateGatewayGuardVerified: false` in its **signed, read-only health response**. The bridge client requires this field, and the live `OnlineSalesService.assertLiveBridgeReady()` refuses to prepare a new Woo order or report collectible cash unless it is **true**. The existing Woo bridge source cannot currently assert it: no Paystack/website late-callback admission guard has been implemented or independently accepted. This ensures that copying old live approvals and Woo settings is not enough to activate live transactions. Synthetic tests may inject `true` into a fake bridge **only to exercise other logic**; that fake is not a production configuration and does not affect Contabo.
+
+This is a **deliberate hard blocker**, not a promise that the late callback is safe. It must be lifted only by a separately reviewed, proved Woo/Paystack integration that prevents post-expiry paid orders from silently claiming the same last item, while preserving genuine customer payment and manual refund/recovery evidence.
+
 ## Separate acceptance gates before selling (not done by this change)
 
 1. Verify the exact installed Woo version, checkout type, HPOS, database engine, Paystack gateway callback paths, custom hooks, plugin stock adjustments and `wc_reserved_stock` reservation behavior in an isolated environment. The Woo Online Bridge already in the repository is a **disabled-by-default prototype**, not an installed or signed-off service.
