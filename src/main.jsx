@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import './styles.css';
 import './studio.css';
+import './workspace-redesign.css';
 
 const root = createRoot(document.getElementById('root'));
 if (window.mansuDesktop) {
