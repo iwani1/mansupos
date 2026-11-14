@@ -358,6 +358,27 @@ $assert( ! is_wp_error( mansu_online_cash_intent( $cash_request( $reducer_key, '
     (int) wc_get_product( $direct_reducer_product->get_id() )->get_stock_quantity() === 0,
     'Direct reducer attempt damaged POS original held unit.' );
 
+// 13. Quarantine is permanent until a separately audited human decision.
+// Recreating the Woo hold after a delayed callback must NOT silently admit
+// the original, already-disputed website payment on a later retry.
+$reheld_product = $make_simple();
+$reheld_website = $website_hold( $reheld_product );
+$reheld_expired = $wpdb->update( $wpdb->wc_reserved_stock,
+    array( 'expires' => gmdate( 'Y-m-d H:i:s', time() - 30 ) ),
+    array( 'order_id' => $reheld_website->get_id() ) );
+$assert( $reheld_expired === 1 && $reheld_website->payment_complete() === false &&
+    $reheld_website->get_meta( '_mansu_website_stock_review', true ) === 'required',
+    'Rehold fixture did not quarantine the original expired website payment.' );
+wc_release_stock_for_order( $reheld_website );
+$reserve->reserve_stock_for_order( $reheld_website, 10 );
+$assert( (int) $reserve->get_reserved_stock( $reheld_product ) === 1,
+    'Rehold fixture failed to create a fresh valid native Woo hold.' );
+$assert( $reheld_website->payment_complete() === false &&
+    $reheld_website->has_status( 'pending' ) &&
+    $reheld_website->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
+    (int) wc_get_product( $reheld_product->get_id() )->get_stock_quantity() === 1,
+    'A fresh Woo reservation incorrectly re-authorised a quarantined gateway payment.' );
+
 echo 'DISPOSABLE_WOO_LATE_WEBSITE_GUARD_OK: native Woo payment_complete, direct status and stock-reduction hooks quarantined expired website payments without overselling. NOT a Paystack-site guarantee.' . PHP_EOL;
 
 echo 'DISPOSABLE_WOO_CORE_OK ' . $checks . ' assertions; real pinned Woo core, MySQL/InnoDB, checkout/POS holds, cash-intent, once-only Woo payment, delayed gateway race; NO real store.' . PHP_EOL;
