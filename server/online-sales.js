@@ -98,6 +98,15 @@ export class OnlineSalesService {
       throw new AppError('A live Woo hold with sufficient remaining time was not verified. Do not collect cash.', 409, 'RESERVATION_UNVERIFIED');
     }
   }
+  assertCashIntent(remote) {
+    const remaining = Date.parse(remote.expiresAt) - Date.now();
+    if (remote.state !== 'cash_intent' || !remote.orderId || !remote.orderIdentityVerified ||
+        !remote.cashIntentVerified || !remote.stockOrCashIntentObserved ||
+        remote.paymentVerified || remote.refundedCents !== 0 ||
+        !Number.isFinite(remaining) || remaining < 90000 || remaining > 11 * 60000) {
+      throw new AppError('Original Woo cash intent and stock hold cannot be verified.', 409, 'RECONCILIATION_REQUIRED');
+    }
+  }
   async prepare(user, input) {
     if (!this.config.writesEnabled) throw new AppError('Online bridge writes are locked.', 403, 'CHECKOUT_LOCKED');
     const type = input.saleType || 'retail';
@@ -235,6 +244,7 @@ export class OnlineSalesService {
     }
     const custody = eventExists(this.db, id, 'online.cash_accepted');
     const started = eventExists(this.db, id, 'online.payment_started');
+    const intentStarted = eventExists(this.db, id, 'online.cash_intent_started');
     const cancelStarted = eventExists(this.db, id, 'online.cancel_started');
     const previouslyPaid = Boolean(row.paid_at);
     let status = 'needs_reconciliation', paidAt = row.paid_at, message = review;
@@ -248,7 +258,7 @@ export class OnlineSalesService {
       status = 'paid';
       paidAt = row.paid_at || new Date(remote.paidAt).toISOString();
       message = null;
-    } else if (!custody && !started && !cancelStarted && !previouslyPaid && !row.payment_method &&
+    } else if (!custody && !started && !intentStarted && !cancelStarted && !previouslyPaid && !row.payment_method &&
         row.tendered == null && row.status !== 'failed' && remote.state === 'reserved') {
       try { this.assertReserved(remote, { forCash: true }); status = 'awaiting_payment'; message = null; }
       catch { /* Hold is unknown/expired; never reopen cash collection. */ }
@@ -332,8 +342,36 @@ export class OnlineSalesService {
         this.markReview(row, user.id, 'online.pre_cash_uncertain', error.code || 'ERROR');
         throw new AppError('Cash was not recorded. The Woo hold must be reviewed before any collection.', 409, 'RESERVATION_UNVERIFIED');
       }
-      // A physical cash receipt is an irreversible observation. Commit it
-      // BEFORE contacting Woo, and count it ONCE even if Woo later times out.
+      // Lock the original cash intent in the POS ledger BEFORE the remote
+      // write. Any interrupted acknowledgement becomes a manual-review case.
+      localTransaction(this.db, () => {
+        const current = this.db.prepare('SELECT * FROM sales WHERE id=?').get(id);
+        const drawer = this.db.prepare('SELECT status,user_id FROM shifts WHERE id=?').get(row.shift_id);
+        this.assertLinked(current);
+        if (current.status !== 'awaiting_payment' || current.payment_method || current.tendered != null ||
+            current.total !== row.total || current.items_json !== row.items_json ||
+            current.woo_order_id !== row.woo_order_id || current.shift_id !== row.shift_id ||
+            !drawer || drawer.status !== 'open' || drawer.user_id !== row.cashier_id ||
+            eventExists(this.db, id, 'online.cash_intent_started') ||
+            eventExists(this.db, id, 'online.cash_accepted') || eventExists(this.db, id, 'online.payment_started') ||
+            eventExists(this.db, id, 'online.cancel_started')) {
+          throw new AppError('Original cash attempt already started or changed.', 409, 'RECONCILIATION_REQUIRED');
+        }
+        const changed = this.db.prepare("UPDATE sales SET status='needs_reconciliation',error=?,updated_at=? WHERE id=? AND status='awaiting_payment' AND payment_method IS NULL AND tendered IS NULL")
+          .run('Awaiting original Woo cash-intent acknowledgement; do not repeat payment or cancellation.', now(), id);
+        if (changed.changes !== 1) throw new AppError('Original cash attempt could not be locked.', 409, 'RECONCILIATION_REQUIRED');
+        saleEvent(this.db, id, 'online.cash_intent_started', user.id, { wooOrderId: row.woo_order_id, amountCents: row.total });
+      });
+      try {
+        const intent = await this.bridge.cashIntent(row.idempotency_key);
+        this.assertRemote(row, intent);
+        this.assertCashIntent(intent);
+      } catch (error) {
+        this.markReview(this.row(id, user), user.id, 'online.cash_intent_uncertain', error.code || 'ERROR');
+        throw new AppError('Woo cash intent is uncertain. Do not collect cash again, cancel or retry; review the original order.', 502, 'RECONCILIATION_REQUIRED');
+      }
+      // An acknowledged Woo intent is NOT proof of payment; record the
+      // physical cash in the original drawer once, before confirming Woo.
       localTransaction(this.db, () => {
         const latest = this.db.prepare('SELECT * FROM sales WHERE id=?').get(id);
         this.assertLinked(latest);
@@ -343,12 +381,13 @@ export class OnlineSalesService {
             !drawer || drawer.status !== 'open' || drawer.user_id !== row.cashier_id) {
           throw new AppError('The original order or cash drawer changed before custody. Review the same sale.', 409, 'RECONCILIATION_REQUIRED');
         }
-        if (eventExists(this.db, id, 'online.cash_accepted') || eventExists(this.db, id, 'online.payment_started') ||
+        if (!eventExists(this.db, id, 'online.cash_intent_started') ||
+            eventExists(this.db, id, 'online.cash_accepted') || eventExists(this.db, id, 'online.payment_started') ||
             eventExists(this.db, id, 'online.cancel_started')) {
           throw new AppError('Cash, payment or cancellation already started. Review the original attempt.', 409, 'RECONCILIATION_REQUIRED');
         }
         const changed = this.db.prepare(`UPDATE sales SET payment_method='cash',tendered=?,change_due=?,status='needs_reconciliation',
-          updated_at=?,error=? WHERE id=? AND status='awaiting_payment' AND payment_method IS NULL AND tendered IS NULL`)
+          updated_at=?,error=? WHERE id=? AND status='needs_reconciliation' AND payment_method IS NULL AND tendered IS NULL`)
           .run(payment.tendered, payment.tendered - row.total, now(), 'Cash is in the drawer; Woo payment is not yet verified. Do not collect it again.', id);
         if (changed.changes !== 1) throw new AppError('Cash custody was already recorded. Review this sale.', 409, 'RECONCILIATION_REQUIRED');
         saleEvent(this.db, id, 'online.cash_accepted', user.id, { wooOrderId: row.woo_order_id, amountCents: row.total,
@@ -370,14 +409,15 @@ export class OnlineSalesService {
     if (!this.config.writesEnabled || row.sale_type === 'trade' && !this.config.wholesaleWritesEnabled) {
       throw new AppError('Online retail or wholesale cash writes are locked.', 403, 'CHECKOUT_LOCKED');
     }
-    if (!eventExists(this.db, row.id, 'online.cash_accepted') || row.payment_method !== 'cash' || !row.tendered ||
+    if (!eventExists(this.db, row.id, 'online.cash_intent_started') ||
+        !eventExists(this.db, row.id, 'online.cash_accepted') || row.payment_method !== 'cash' || !row.tendered ||
         row.paid_at || eventExists(this.db, row.id, 'online.payment_started')) {
       throw new AppError('Payment was already sent, was not collected, or requires read-only reconciliation. Never send it twice.', 409, 'RECONCILIATION_REQUIRED');
     }
     try {
       const remote = await this.bridge.status(row.idempotency_key);
       this.assertRemote(row, remote);
-      this.assertReserved(remote, { forCash: true });
+      this.assertCashIntent(remote);
       const shift = this.db.prepare('SELECT status FROM shifts WHERE id=?').get(row.shift_id);
       if (shift?.status !== 'open') throw new AppError('Original drawer shift is not open.', 409, 'SHIFT_CLOSED');
       localTransaction(this.db, () => {

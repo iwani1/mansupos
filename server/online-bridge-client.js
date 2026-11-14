@@ -1,7 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 import { AppError } from './errors.js';
 
-const states = new Set(['claimed', 'created', 'reserved', 'payment_started', 'paid', 'cancel_started', 'cancelled', 'needs_review']);
+const states = new Set(['claimed', 'created', 'reserved', 'cash_intent', 'payment_started', 'paid', 'cancel_started', 'cancelled', 'needs_review']);
 const digest = body => createHash('sha256').update(body).digest('hex');
 
 // Only the Express server holds the dedicated WP Application Password and the
@@ -14,7 +14,7 @@ export class OnlineBridgeClient {
     this.fetch = fetchImpl;
   }
   async request(method, route, payload) {
-    if (!/^\/mansu-pos\/v1\/attempts(?:\/[0-9a-f-]{36}(?:\/(?:pay|cancel))?)?$/.test(route)) {
+    if (!/^\/mansu-pos\/v1\/attempts(?:\/[0-9a-f-]{36}(?:\/(?:pay|cancel|cash-intent))?)?$/.test(route)) {
       throw new Error('Unexpected online bridge route.');
     }
     // URL is pinned at configuration time; redirects are forbidden. No URL is
@@ -58,7 +58,7 @@ export class OnlineBridgeClient {
         (result.orderId !== null && (!Number.isSafeInteger(result.orderId) || result.orderId < 1)) ||
         !Number.isSafeInteger(result.totalCents) || result.totalCents < 0 ||
         !Number.isSafeInteger(result.taxCents) || result.taxCents < 0 ||
-        typeof result.reservationVerified !== 'boolean' ||
+        typeof result.reservationVerified !== 'boolean' || typeof result.cashIntentVerified !== 'boolean' ||
         typeof result.paymentVerified !== 'boolean' || typeof result.cancelledVerified !== 'boolean' ||
         typeof result.orderIdentityVerified !== 'boolean' || typeof result.stockOrCashIntentObserved !== 'boolean' ||
         !Number.isSafeInteger(result.refundedCents) || result.refundedCents < 0 ||
@@ -71,6 +71,7 @@ export class OnlineBridgeClient {
   }
   create(body) { return this.request('POST', '/mansu-pos/v1/attempts', body); }
   status(key) { return this.request('GET', `/mansu-pos/v1/attempts/${key}`); }
+  cashIntent(key) { return this.request('POST', `/mansu-pos/v1/attempts/${key}/cash-intent`, {}); }
   pay(key) { return this.request('POST', `/mansu-pos/v1/attempts/${key}/pay`, {}); }
   cancel(key) { return this.request('POST', `/mansu-pos/v1/attempts/${key}/cancel`, {}); }
 }
