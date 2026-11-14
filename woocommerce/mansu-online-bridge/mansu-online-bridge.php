@@ -1,16 +1,16 @@
 <?php
 /**
- * Plugin Name: Mansu Online POS Bridge (isolated local development)
- * Description: Separate, disabled-by-default POS-to-Woo managed-stock bridge. NEVER install on a live shop without separate approval and installed-site review.
- * Version: 0.1.0-dev
+ * Plugin Name: Mansu Online POS Bridge
+ * Description: Disabled-by-default managed-stock bridge; live activation requires separate owner approval and installed-site verification.
+ * Version: 0.2.0-dev
  * Requires Plugins: woocommerce
  * Requires PHP: 8.1
  */
 
 defined( 'ABSPATH' ) || exit;
 
-// In this development revision the bridge cannot be enabled on staging or
-// production, even by copying a secret/flag. It is NOT the offline plugin.
+// Production activation is a distinct, opt-in release decision. This source
+// change does NOT approve a live installation or any production write.
 const MANSU_ONLINE_HOLD_MINUTES = 10; // Synthetic local fixture, not approved business policy.
 const MANSU_ONLINE_CASH_MARGIN_SECONDS = 90;
 const MANSU_ONLINE_PINNED_WOO = '11.0.1'; // Inspected source, NOT installed-site compatibility evidence.
@@ -19,11 +19,29 @@ function mansu_online_uuid( $value ) {
     return is_string( $value ) && (bool) preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D', $value );
 }
 function mansu_online_enabled() {
-    return defined( 'MANSU_ONLINE_BRIDGE_ENABLED' ) && MANSU_ONLINE_BRIDGE_ENABLED === true &&
-        function_exists( 'wp_get_environment_type' ) && wp_get_environment_type() === 'local' &&
-        defined( 'MANSU_ONLINE_BRIDGE_SERVICE' ) && MANSU_ONLINE_BRIDGE_SERVICE === 'staging' &&
-        defined( 'MANSU_ONLINE_BRIDGE_LEDGER_ID' ) && mansu_online_uuid( MANSU_ONLINE_BRIDGE_LEDGER_ID ) &&
-        defined( 'MANSU_ONLINE_BRIDGE_SITE_ID' ) && mansu_online_uuid( MANSU_ONLINE_BRIDGE_SITE_ID );
+    if ( ! defined( 'MANSU_ONLINE_BRIDGE_ENABLED' ) || MANSU_ONLINE_BRIDGE_ENABLED !== true ||
+         ! function_exists( 'wp_get_environment_type' ) ||
+         ! defined( 'MANSU_ONLINE_BRIDGE_SERVICE' ) ||
+         ! defined( 'MANSU_ONLINE_BRIDGE_LEDGER_ID' ) || ! mansu_online_uuid( MANSU_ONLINE_BRIDGE_LEDGER_ID ) ||
+         ! defined( 'MANSU_ONLINE_BRIDGE_SITE_ID' ) || ! mansu_online_uuid( MANSU_ONLINE_BRIDGE_SITE_ID ) ) {
+        return false;
+    }
+    $environment = wp_get_environment_type();
+    if ( $environment === 'local' ) {
+        return MANSU_ONLINE_BRIDGE_SERVICE === 'staging';
+    }
+    // Separate release decision: even a copied ENABLED=true does not authorise
+    // a production site unless service, host, TLS, reference and UUIDs agree.
+    return $environment === 'production' && MANSU_ONLINE_BRIDGE_SERVICE === 'live-trading' &&
+        defined( 'MANSU_ONLINE_BRIDGE_LIVE_ACCEPTED' ) && MANSU_ONLINE_BRIDGE_LIVE_ACCEPTED === true &&
+        defined( 'MANSU_ONLINE_BRIDGE_LIVE_ACCEPTANCE_REFERENCE' ) &&
+        is_string( MANSU_ONLINE_BRIDGE_LIVE_ACCEPTANCE_REFERENCE ) &&
+        strlen( trim( MANSU_ONLINE_BRIDGE_LIVE_ACCEPTANCE_REFERENCE ) ) >= 12 &&
+        defined( 'MANSU_ONLINE_BRIDGE_SITE_HOST' ) &&
+        in_array( MANSU_ONLINE_BRIDGE_SITE_HOST, array( 'mansutrendzgh.com', 'www.mansutrendzgh.com' ), true ) &&
+        function_exists( 'home_url' ) &&
+        wp_parse_url( home_url(), PHP_URL_HOST ) === MANSU_ONLINE_BRIDGE_SITE_HOST &&
+        is_ssl();
 }
 function mansu_online_table() {
     global $wpdb;
@@ -468,7 +486,7 @@ function mansu_online_attempt( $request ) {
         list( $valid ) = mansu_online_holds( $order->get_id(), $input['items'] );
         if ( ! $valid ) { throw new RuntimeException( 'Core Woo hold could not be verified.' ); }
         $job = as_schedule_single_action( time() + MANSU_ONLINE_HOLD_MINUTES * 60, 'mansu_online_expire',
-            array( 'staging', $key ), 'mansu-online' );
+            array( MANSU_ONLINE_BRIDGE_SERVICE, $key ), 'mansu-online' );
         if ( ! $job || mansu_online_update( $key, array( 'state' => 'reserved' ), 'created' ) !== 1 ) {
             throw new RuntimeException( 'Hold expiry scheduling or state could not be saved.' );
         }
@@ -665,7 +683,7 @@ function mansu_online_pay( $request ) {
     }
 }
 function mansu_online_expire( $service, $key ) {
-    if ( ! mansu_online_enabled() || $service !== 'staging' || ! mansu_online_uuid( $key ) ) { return; }
+    if ( ! mansu_online_enabled() || $service !== MANSU_ONLINE_BRIDGE_SERVICE || ! mansu_online_uuid( $key ) ) { return; }
     $ready = mansu_online_ready();
     if ( is_wp_error( $ready ) ) { return; }
     $row = mansu_online_row( $key );
