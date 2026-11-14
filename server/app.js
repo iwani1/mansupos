@@ -324,7 +324,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     res.json({ sales: page.map(row => ({ id: row.id, number: row.number, status: row.status,
       wooOrderId: row.woo_order_id, paymentMethod: row.payment_method, refundedCents: row.refunded,
       originalShiftId: row.shift_id, originalShiftStatus: row.original_shift_status || null,
-      cashIntentAwaitingReview: Boolean(row.cash_intent_event) && !Boolean(row.cash_custody_event) &&
+      cashIntentAwaitingReview: Boolean(row.cash_intent_event) && !row.cash_custody_event &&
         row.status !== 'paid',
       cashCustodyUnresolved: Boolean(row.cash_custody_event) && row.status !== 'paid',
       cashHeldCents: Boolean(row.cash_custody_event) && row.status !== 'paid' ? row.total : 0,
