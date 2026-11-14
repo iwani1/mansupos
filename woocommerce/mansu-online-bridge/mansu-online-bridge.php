@@ -897,9 +897,24 @@ function mansu_online_paystack_route_lock() {
         // php://input is seekable/re-readable in supported PHP 8.x. Only
         // inspect the claimed order ID to serialize; real Paystack must still
         // verify HMAC, remote transaction, amount and reference itself.
-        $event = json_decode( file_get_contents( 'php://input' ) );
+        $raw_event = file_get_contents( 'php://input' );
+        $event = json_decode( $raw_event );
         if ( ! is_object( $event ) || ( $event->event ?? '' ) !== 'charge.success' ||
              ! isset( $event->data->reference ) || ! is_string( $event->data->reference ) ) { return; }
+        // A claimed order number is not authority to block its lock. Refuse
+        // unsigned/forged requests BEFORE acquiring a MySQL advisory lock.
+        // This is version-specific to the public gateway tested in CI.
+        $gateway_settings = get_option( 'woocommerce_paystack_settings', array() );
+        if ( ! is_array( $gateway_settings ) ) { status_header( 503 ); exit; }
+        $mode = ( $gateway_settings['testmode'] ?? 'no' ) === 'yes' ? 'test' : 'live';
+        $secret = $gateway_settings[ $mode . '_secret_key' ] ?? '';
+        $signature = $_SERVER['HTTP_X_PAYSTACK_SIGNATURE'] ?? '';
+        if ( ! is_string( $secret ) || $secret === '' ) { status_header( 503 ); exit; }
+        if ( ! is_string( $signature ) ||
+             ! hash_equals( hash_hmac( 'sha512', $raw_event, $secret ), $signature ) ) {
+            status_header( 401 );
+            exit;
+        }
         $reference = $event->data->reference;
     } else {
         // Public Paystack return accepts either query key.
