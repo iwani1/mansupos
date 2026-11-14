@@ -166,7 +166,10 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
   let currentLedger = randomUUID();
   let healthReads = 0;
   let wooReads = 0;
+  let remoteOrderWrites = 0;
   const fakeBridge = {
+    async create() { remoteOrderWrites++; throw new Error('A bad bridge health check must never reach this write.'); },
+    async cashIntent() { remoteOrderWrites++; throw new Error('A bad bridge health check must never reach a cash write.'); },
     async health() {
       healthReads++;
       return { kind: 'mansu-online-bridge-health', ok: true, service: 'live-trading',
@@ -200,6 +203,9 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
   assert.equal(identity.service, 'live-trading');
   assert.ok(identity.ledgerId);
   const base = `http://127.0.0.1:${server.address().port}/api`;
+  const missingReady = await fetch(`${base}/ready`);
+  assert.equal(missingReady.status, 503, 'unverified live bridge cannot advertise readiness');
+  assert.equal((await missingReady.json()).ok, false);
   const login = await fetch(`${base}/auth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: liveEnv.POS_PUBLIC_ORIGIN },
     body: JSON.stringify({ username: 'owner', password: 'H9!blue-orchid-concept-passphrase' }),
@@ -216,6 +222,18 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
       newPassword: 'Q7!silver-maple-isolated-store-passphrase' }),
   });
   assert.equal(rotated.status, 200);
+  const denied = await fetch(`${base}/sales/prepare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: liveEnv.POS_PUBLIC_ORIGIN,
+      Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ idempotencyKey: randomUUID(), saleType: 'retail',
+      items: [{ productId: 10, variationId: 11, quantity: 1 }] }),
+  });
+  assert.equal(denied.status, 503, 'no checkout when live bridge cannot verify its ledger');
+  assert.equal((await denied.json()).code, 'BRIDGE_NOT_READY');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sales').get().n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sale_events').get().n, 0);
+  assert.equal(remoteOrderWrites, 0, 'no Woo reservation or cash-intent write was dispatched');
   const diagnostics = async () => {
     const response = await fetch(`${base}/connection/diagnostics`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -227,11 +245,15 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
   assert.equal(mismatch.ok, false);
   assert.equal(mismatch.checks.find(c => c.name.startsWith('Woo reservation bridge')).ok, false);
   currentLedger = identity.ledgerId;
+  const ready = await fetch(`${base}/ready`);
+  assert.equal(ready.status, 200, 'a matching, signed trading bridge can report process readiness');
+  assert.equal((await ready.json()).ok, true);
   const verified = await diagnostics();
   assert.equal(verified.ok, true);
   const health = verified.checks.find(c => c.name.startsWith('Woo reservation bridge'));
   assert.equal(health.ok, true);
   assert.match(health.detail, /Last-unit concurrency remains unverified/);
-  assert.equal(healthReads, 2);
+  assert.equal(healthReads, 5, 'readiness, rejected checkout, diagnostics and accepted readiness all use a fresh GET');
   assert.ok(wooReads >= 4);
+  assert.equal(remoteOrderWrites, 0);
 });
