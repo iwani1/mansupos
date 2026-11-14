@@ -209,7 +209,7 @@ input[type=checkbox] { accent-color:#374151; }
 .demo-banner strong,.demo-banner-icon,.demo-banner button { color:#68552f; }
 .offline-banner { border-left-color:#b3484d; }
 .main-content { padding:30px clamp(16px,3vw,50px) 56px; min-width:0; max-width:1720px; width:100%; margin:0 auto; }
-.app-footer { padding:12px clamp(16px,3vw,50px); color:#898c8d; font-size:10.5px; background:#fff; }
+.app-footer { padding:12px clamp(16px,3vw,50px); color:#555c60; font-size:11px; background:#fff; }
 
 /* Notion-like page identity, without reproducing Notion artwork or branding. */
 .page-heading { align-items:center; padding:2px 0 22px; border-bottom:1px solid #f0f0ee; margin-bottom:22px; gap:16px; }
@@ -267,8 +267,9 @@ td small { font-size:11px; color:#9b9d9e; }
 .selling-mode-row p { font-size:11px; }
 .selling-mode { background:#eeeeeb; border-radius:6px; }
 .selling-mode button { font-size:11px; font-weight:650; letter-spacing:0; border-radius:5px; }
-.selling-mode button:not(.selected):disabled { opacity:1; color:#4d5256; background:#ebede9; cursor:not-allowed; }
-.wholesale-agreed-total > span { color:#3d4246; font-weight:600; }
+.selling-mode button:not(.selected) { opacity:1; color:#30373a; background:#ebede9; }
+.selling-mode button:not(.selected):disabled { opacity:1; color:#3c4448; cursor:not-allowed; }
+.wholesale-summary > div.wholesale-agreed-total > span { color:#303638; font-weight:700; }
 .selling-mode button.selected { background:#343a3d; color:#fff; }
 .catalog-controls { border-radius:8px; padding:15px 16px 0; margin-bottom:18px; border-color:#e9eae7; }
 .catalog-controls-heading h2 { font-size:16px; }
