@@ -283,6 +283,81 @@ $assert( $direct_web->has_status( 'on-hold' ) &&
     'Direct paid status without a hold was not moved into manual review.' );
 $assert( (int) wc_get_product( $direct_product->get_id() )->get_stock_quantity() === 0,
     'Direct paid-status gateway bypass reduced stock below zero.' );
+// 10. Woo Checkout Block / Store API orders use "store-api", not "checkout".
+// An original held Store API payment must succeed exactly once.
+$block_product = $make_simple();
+$block_held = wc_create_order( array( 'status' => 'pending', 'created_via' => 'store-api' ) );
+$block_held->add_product( $block_product, 1 );
+$block_held->calculate_totals( false );
+$block_held->save();
+$reserve->reserve_stock_for_order( $block_held, 10 );
+$assert( $block_held->get_created_via() === 'store-api' &&
+    (int) $reserve->get_reserved_stock( $block_product ) === 1,
+    'Store API checkout did not create a real, active Woo stock hold.' );
+$assert( $block_held->payment_complete() === true &&
+    (int) wc_get_product( $block_product->get_id() )->get_stock_quantity() === 0,
+    'Legitimate Store API checkout failed or counted stock twice.' );
+$assert( $block_held->get_meta( '_mansu_website_stock_review', true ) !== 'required',
+    'Healthy Store API website purchase was wrongly quarantined.' );
+
+// 11. A delayed Store API payment after its original hold expires must NOT
+// claim the last unit already sold in the POS, including late callback replay.
+$block_late_product = $make_simple();
+$block_late = wc_create_order( array( 'status' => 'pending', 'created_via' => 'store-api' ) );
+$block_late->add_product( $block_late_product, 1 );
+$block_late->calculate_totals( false );
+$block_late->save();
+$reserve->reserve_stock_for_order( $block_late, 10 );
+$block_expired = $wpdb->update( $wpdb->wc_reserved_stock,
+    array( 'expires' => gmdate( 'Y-m-d H:i:s', time() - 30 ) ),
+    array( 'order_id' => $block_late->get_id() ) );
+$assert( $block_expired === 1, 'Store API hold did not expire in synthetic exercise.' );
+$block_key = 'f9c279d1-1d3c-4254-b876-569ae5d22173';
+$block_pos = $attempt( $block_late_product, $block_key );
+$assert( ! is_wp_error( $block_pos ) && $block_pos['reservationVerified'],
+    'POS did not reserve Store API expired last unit.' );
+$block_intent = mansu_online_cash_intent( $cash_request( $block_key, 'cash-intent' ) );
+$block_paid = mansu_online_pay( $cash_request( $block_key, 'pay' ) );
+$assert( ! is_wp_error( $block_intent ) && ! is_wp_error( $block_paid ) &&
+    $block_paid['paymentVerified'], 'Store API reverse-race POS payment was not completed.' );
+$assert( $block_late->payment_complete() === false &&
+    $block_late->payment_complete() === false,
+    'Late Store API website payment or duplicate callback bypassed review.' );
+$block_late = wc_get_order( $block_late->get_id() );
+$assert( $block_late->has_status( 'pending' ) &&
+    $block_late->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
+    (int) wc_get_product( $block_late_product->get_id() )->get_stock_quantity() === 0,
+    'Duplicate Store API callback corrupted paid status or shared stock.' );
+
+// 12. Paystack's underpayment/currency-mismatch path can call the Woo stock
+// reducer independently of payment_complete(). Check the native reducer
+// itself rejects an expired Store API hold; no actual gateway is contacted.
+$direct_reducer_product = $make_simple();
+$direct_reducer = wc_create_order( array( 'status' => 'pending', 'created_via' => 'store-api' ) );
+$direct_reducer->add_product( $direct_reducer_product, 1 );
+$direct_reducer->calculate_totals( false );
+$direct_reducer->save();
+$reserve->reserve_stock_for_order( $direct_reducer, 10 );
+$reducer_expired = $wpdb->update( $wpdb->wc_reserved_stock,
+    array( 'expires' => gmdate( 'Y-m-d H:i:s', time() - 30 ) ),
+    array( 'order_id' => $direct_reducer->get_id() ) );
+$assert( $reducer_expired === 1, 'Direct stock reducer original hold did not expire.' );
+$reducer_key = '52a199e9-929a-4c99-97cd-d5366c4bc072';
+$reducer_pos = $attempt( $direct_reducer_product, $reducer_key );
+$assert( ! is_wp_error( $reducer_pos ) && $reducer_pos['reservationVerified'],
+    'Direct reducer POS hold was not established.' );
+wc_reduce_stock_levels( $direct_reducer->get_id() );
+$direct_reducer = wc_get_order( $direct_reducer->get_id() );
+$line = current( $direct_reducer->get_items( 'line_item' ) );
+$assert( (int) ( $line ? $line->get_meta( '_reduced_stock', true ) : 0 ) === 0 &&
+    $direct_reducer->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
+    (int) wc_get_product( $direct_reducer_product->get_id() )->get_stock_quantity() === 1,
+    'A gateway direct Woo stock-reduction path bypassed original hold quarantine.' );
+$assert( ! is_wp_error( mansu_online_cash_intent( $cash_request( $reducer_key, 'cash-intent' ) ) ) &&
+    ! is_wp_error( mansu_online_pay( $cash_request( $reducer_key, 'pay' ) ) ) &&
+    (int) wc_get_product( $direct_reducer_product->get_id() )->get_stock_quantity() === 0,
+    'Direct reducer attempt damaged POS original held unit.' );
+
 echo 'DISPOSABLE_WOO_LATE_WEBSITE_GUARD_OK: native Woo payment_complete, direct status and stock-reduction hooks quarantined expired website payments without overselling. NOT a Paystack-site guarantee.' . PHP_EOL;
 
 echo 'DISPOSABLE_WOO_CORE_OK ' . $checks . ' assertions; real pinned Woo core, MySQL/InnoDB, checkout/POS holds, cash-intent, once-only Woo payment, delayed gateway race; NO real store.' . PHP_EOL;
