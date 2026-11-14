@@ -54,5 +54,8 @@ try {
   await recordFailure(page, error, 'live-cash-browser-failure', pageErrors);
   process.exitCode = 1;
 } finally {
+  // A catalog response may still be inside route.fetch() after the visual
+  // assertions pass. Drain intercepted requests before disposing its context.
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
   await browser.close();
 }
