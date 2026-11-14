@@ -140,6 +140,7 @@ test('read-only signed live bridge health exposes core prerequisites without cre
     kind: 'mansu-online-bridge-health', ok: true, service: 'live-trading',
     siteId: SITE_ID, ledgerId: randomUUID(), wooVersion: '11.0.1',
     corePrerequisitesOk: true, cashOnly: true, taxEnabled: true, hposEnabled: false,
+    lateGatewayGuardVerified: false,
   };
   const client = new OnlineBridgeClient(config, async (url, request) => {
     calls++;
@@ -165,6 +166,7 @@ test('read-only signed live bridge health exposes core prerequisites without cre
 test('synthetic live-profile server diagnostics refuse missing or mismatched bridge before reporting readiness', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mansu-live-release-smoke-'));
   let currentLedger = randomUUID();
+  let lateGatewayVerified = false;
   let healthReads = 0;
   let wooReads = 0;
   let remoteOrderWrites = 0;
@@ -181,7 +183,8 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
       healthReads++;
       return { kind: 'mansu-online-bridge-health', ok: true, service: 'live-trading',
         siteId: SITE_ID, ledgerId: currentLedger, wooVersion: '11.0.1',
-        corePrerequisitesOk: true, cashOnly: true, taxEnabled: false, hposEnabled: false };
+        corePrerequisitesOk: true, cashOnly: true, taxEnabled: false, hposEnabled: false,
+        lateGatewayGuardVerified: lateGatewayVerified };
     },
   };
   const fakeWoo = {
@@ -280,6 +283,13 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
   assert.equal(mismatch.ok, false);
   assert.equal(mismatch.checks.find(c => c.name.startsWith('Woo reservation bridge')).ok, false);
   currentLedger = identity.ledgerId;
+  const unsafe = await fetch(`${base}/ready`);
+  assert.equal(unsafe.status, 503, 'matching bridge without a late-gateway safeguard must remain locked');
+  assert.equal((await unsafe.json()).ok, false);
+  assert.equal(remoteOrderWrites, 0);
+  // Synthetic future attestation only. The actual uninstalled PHP bridge emits
+  // lateGatewayGuardVerified=false until real Woo/Paystack safeguards pass.
+  lateGatewayVerified = true;
   const ready = await fetch(`${base}/ready`);
   assert.equal(ready.status, 200, 'a matching, signed trading bridge can report process readiness');
   assert.equal((await ready.json()).ok, true);
@@ -294,7 +304,7 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
   const health = verified.checks.find(c => c.name.startsWith('Woo reservation bridge'));
   assert.equal(health.ok, true);
   assert.match(health.detail, /Last-unit concurrency remains unverified/);
-  assert.equal(healthReads, 7, 'readiness, checkout, status and diagnostics all require fresh health evidence');
+  assert.equal(healthReads, 8, 'readiness, checkout, status and diagnostics all require fresh health evidence');
   assert.ok(wooReads >= 4);
   assert.equal(remoteOrderWrites, 0);
 });
