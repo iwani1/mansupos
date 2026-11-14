@@ -64,6 +64,12 @@ test('owner recovery queue reports cash custody separately from Woo refund and d
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sale_events').get().n, before);
   assert.equal((await get('/recovery/queue?cursor=not-valid')).status, 400);
   assert.equal((await fetch(`${base}/recovery/queue`)).status, 401);
+  db.prepare("UPDATE users SET role='manager' WHERE id='demo-owner'").run();
+  const managerQueue = await get('/recovery/queue?limit=100');
+  assert.equal(managerQueue.status, 200, 'Owner-approved Manager role may review uncertain orders and cash refunds');
+  assert.equal((await managerQueue.json()).sales.some(item => item.number === 'AUDIT-REFUND'), true);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sale_events').get().n, before,
+    'Manager review never records payout or changes the sale history');
   db.prepare("UPDATE users SET role='cashier' WHERE id='demo-owner'").run();
   assert.equal((await get('/recovery/queue')).status, 403);
 });
