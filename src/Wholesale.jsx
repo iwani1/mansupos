@@ -76,10 +76,10 @@ export default function Wholesale({ catalog, config, user, active, checkoutScope
       const previous = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
       checkoutKey.current = previous?.fingerprint === fingerprint && previous.key ? previous.key : uuid();
       setError(previous?.uncertain && previous.fingerprint === fingerprint
-        ? config.onlineBridgeLocalTest ? 'An original local Woo attempt may exist. Find and reconcile it in Sales; never create a replacement order.'
+        ? config.onlineBridgeEnabled ? 'An original Woo reservation attempt may exist. Find and reconcile it in Sales; never create a replacement order.'
           : 'A previous order for this quote may exist. Retry with the same key or review Sales before changing it.' : '');
     } catch { checkoutKey.current = uuid(); setError(''); }
-  }, [fingerprint, storageKey, config.onlineBridgeLocalTest]);
+  }, [fingerprint, storageKey, config.onlineBridgeEnabled]);
 
   function invalidate() { setApproved(false); setError(''); }
   function addLine(product, option = null) {
@@ -143,7 +143,7 @@ export default function Wholesale({ catalog, config, user, active, checkoutScope
         try { sessionStorage.setItem(storageKey, JSON.stringify({ key: checkoutKey.current, fingerprint, uncertain: true })); } catch {}
       }
       setError(uncertain ? `${err.message} Review the original order in Sales; do not retry a local bridge write, create a replacement, or take payment.` : err.message);
-      if (uncertain && config.onlineBridgeLocalTest) onOpenSales();
+      if (uncertain && config.onlineBridgeEnabled) onOpenSales();
     } finally { setBusy(false); }
   }
 

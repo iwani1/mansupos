@@ -93,7 +93,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
   useEffect(() => {
     try {
       const stored = JSON.parse(sessionStorage.getItem(checkoutStorageKey) || 'null');
-      if (stored?.uncertain && stored.fingerprint === cartFingerprint) setError(config.onlineBridgeLocalTest
+      if (stored?.uncertain && stored.fingerprint === cartFingerprint) setError(config.onlineBridgeEnabled
         ? 'An original local Woo attempt may exist. Find and reconcile it in Sales; never create a replacement order for this cart.'
         : 'A previous checkout for this cart was interrupted. Retry safely with the same checkout key, or review Sales before starting another order.');
     } catch {}
@@ -187,9 +187,9 @@ export default function Register({ active = true, catalog, config, checkoutScope
       const uncertain = !e.status || e.status >= 500 || e.code === 'RECONCILIATION_REQUIRED' || e.code === 'SALE_BUSY';
       if (uncertain) {
         try { sessionStorage.setItem(checkoutStorageKey, JSON.stringify({ ...attempt, uncertain: true })); } catch {}
-        setError(config.onlineBridgeLocalTest ? 'The local Woo bridge attempt may already exist. Review the original attempt in Sales; do not retry the bridge write or create another order.'
+        setError(config.onlineBridgeEnabled ? 'The original Woo reservation attempt may already exist. Review it in Sales; never repeat the remote write or create another order.'
           : e.code === 'RECONCILIATION_REQUIRED' ? e.message : 'Checkout was interrupted. Retry safely with the same checkout key, or review Sales before creating another order.');
-        if (e.code === 'RECONCILIATION_REQUIRED' || config.onlineBridgeLocalTest) onOpenSales();
+        if (e.code === 'RECONCILIATION_REQUIRED' || config.onlineBridgeEnabled) onOpenSales();
       } else {
         try { sessionStorage.removeItem(checkoutStorageKey); } catch {}
         checkoutKey.current = uuid();

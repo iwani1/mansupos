@@ -27,8 +27,8 @@ export function Checkout({ sale, config, onClose, onPaid, notify }) {
   const quoteVerified = !wholesale || (sale.status === 'awaiting_payment' && config.wholesaleWritesEnabled && sale.wholesaleApprovedById &&
     sale.items.length > 0 && sale.agreedTotal === sale.total && sale.items.every(item => Number.isInteger(item.agreedUnitPrice) && item.agreedLineTotal === item.agreedUnitPrice * item.quantity));
   const amount = Math.round(Number(tendered || 0) * 100);
-  const onlineBridge = config.onlineBridgeLocalTest === true && sale.onlineBridge === true;
-  const wrongCheckout = config.onlineBridgeLocalTest === true && !sale.onlineBridge;
+  const onlineBridge = config.onlineBridgeEnabled === true && sale.onlineBridge === true;
+  const wrongCheckout = config.onlineBridgeEnabled === true && !sale.onlineBridge;
   // Listing a sale is not reservation proof. Fetch a fresh, read-only Woo
   // observation on opening this dialog; the server repeats it before custody.
   useEffect(() => {
