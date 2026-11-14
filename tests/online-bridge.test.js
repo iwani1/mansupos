@@ -48,20 +48,21 @@ function syntheticWoo() {
 // reservation. It does NOT execute PHP, MySQL, WP hooks or a real gateway.
 function syntheticBridge(stock) {
   const records = new Map();
-  const state = { creates: 0, payments: 0, cancels: 0, reads: 0, loseCreate: false,
+  const state = { creates: 0, cashIntents: 0, payments: 0, cancels: 0, reads: 0, loseIntent: false, loseCreate: false,
     losePay: false, loseCancel: false, down: false, wrongSite: false, mutateResponse: null };
   const view = record => {
     const current = record.state;
-    const expired = current === 'reserved' && Date.parse(record.expiresAt) <= Date.now();
+    const expired = ['reserved', 'cash_intent'].includes(current) && Date.parse(record.expiresAt) <= Date.now();
     const result = { siteId: state.wrongSite ? randomUUID() : SITE, service: 'staging', ledgerId: record.ledgerId,
       key: record.key, fingerprint: record.fingerprint,
       state: expired ? 'needs_review' : current, orderId: record.orderId,
       totalCents: record.totalCents, taxCents: record.taxCents,
-      expiresAt: current === 'reserved' ? record.expiresAt : null,
+      expiresAt: ['reserved', 'cash_intent'].includes(current) ? record.expiresAt : null,
       items: record.items.map(i => ({ ...i })), reservationVerified: current === 'reserved' && !expired,
+       cashIntentVerified: current === 'cash_intent' && !expired && !record.stockTouched && !record.identityUnknown,
       paymentVerified: current === 'paid' && !record.paymentUnknown,
       cancelledVerified: current === 'cancelled', orderIdentityVerified: !record.identityUnknown,
-      stockOrCashIntentObserved: current === 'paid' || Boolean(record.stockTouched),
+      stockOrCashIntentObserved: current === 'paid' || current === 'cash_intent' || Boolean(record.stockTouched),
       paidAt: record.paidAt, refundedCents: record.refundedCents || 0 };
     return state.mutateResponse ? state.mutateResponse(result) : result;
   };
@@ -76,7 +77,7 @@ function syntheticBridge(stock) {
       const amounts = new Map();
       for (const line of input.items) amounts.set(line.ownerId, (amounts.get(line.ownerId) || 0) + line.quantity);
       for (const [owner, qty] of amounts) {
-        const held = [...records.values()].filter(r => r.state === 'reserved' && Date.parse(r.expiresAt) > Date.now())
+        const held = [...records.values()].filter(r => ['reserved', 'cash_intent'].includes(r.state) && Date.parse(r.expiresAt) > Date.now())
           .reduce((sum, r) => sum + r.items.filter(i => i.ownerId === owner).reduce((n, i) => n + i.quantity, 0), 0);
         if ((owner === 10 ? stock.parentStock : owner === 12 ? stock.variationStock : stock.simpleStock) - held < qty) throw new Error('last unit already held');
       }
@@ -99,11 +100,22 @@ function syntheticBridge(stock) {
       if (!record) throw new Error('no mapping');
       return view(record);
     },
+    async cashIntent(key) {
+      if (state.down) throw new Error('Woo unavailable');
+      const record = records.get(key);
+      if (!record || record.state !== 'reserved' || Date.parse(record.expiresAt) - Date.now() < 90000) {
+        throw new Error('Original stock reservation is not payable');
+      }
+      state.cashIntents++;
+      record.state = 'cash_intent';
+      if (state.loseIntent) { state.loseIntent = false; throw new Error('Original Woo cash-intent reply lost'); }
+      return view(record);
+    },
     async pay(key) {
       state.payments++;
       if (state.down) throw new Error('Woo unavailable');
       const record = records.get(key);
-      if (!record || record.state !== 'reserved' || Date.parse(record.expiresAt) - Date.now() < 90000) throw new Error('hold expired');
+      if (!record || record.state !== 'cash_intent' || Date.parse(record.expiresAt) - Date.now() < 90000) throw new Error('cash intent not verified');
       record.state = 'paid'; record.paidAt = new Date().toISOString();
       for (const line of record.items) stock[line.ownerId === 10 ? 'parentStock' : line.ownerId === 12 ? 'variationStock' : 'simpleStock'] -= line.quantity;
       if (state.losePay) { state.losePay = false; throw new Error('response lost after Woo paid'); }
@@ -220,7 +232,7 @@ test('signed local transport pins origin, no redirect or write retry, and verifi
   const key = randomUUID();
   const response = { siteId: SITE, service: 'staging', ledgerId: randomUUID(), key,
     fingerprint: 'a'.repeat(64), orderId: null, state: 'claimed', totalCents: 0, taxCents: 0,
-    expiresAt: null, items: [], reservationVerified: false, paymentVerified: false,
+    expiresAt: null, items: [], reservationVerified: false, cashIntentVerified: false, paymentVerified: false,
     cancelledVerified: false, orderIdentityVerified: false, stockOrCashIntentObserved: false,
     refundedCents: 0, paidAt: null };
   const client = new OnlineBridgeClient(config, async (url, init) => {
@@ -298,6 +310,25 @@ test('lost create reply and restart recover same mapping through read-only statu
   assert.equal(recovered.data.sale.wooOrderId, 201);
   assert.equal(h.bridge.state.creates, 1);
   assert.equal(h.db.prepare('SELECT COUNT(*) AS n FROM sale_events WHERE sale_id=? AND event=?').get(row.id, 'online.order_recovered').n, 1);
+});
+
+test('lost Woo cash-intent acknowledgement quarantines the original order without taking or repeating cash', async t => {
+  const h = await harness(t);
+  const sale = (await prepare(h, cart())).data.sale;
+  h.bridge.state.loseIntent = true;
+  const result = await pay(h, sale.id);
+  assert.equal(result.status, 502);
+  assert.equal(h.bridge.state.cashIntents, 1);
+  assert.equal(h.bridge.state.payments, 0);
+  assert.equal(h.db.prepare('SELECT status FROM sales WHERE id=?').get(sale.id).status, 'needs_reconciliation');
+  assert.equal(h.db.prepare("SELECT COUNT(*) AS n FROM sale_events WHERE sale_id=? AND event='online.cash_intent_started'").get(sale.id).n, 1);
+  assert.equal(h.db.prepare("SELECT COUNT(*) AS n FROM sale_events WHERE sale_id=? AND event='online.cash_accepted'").get(sale.id).n, 0);
+  assert.equal((await h.request('/shifts/current', { token: h.token })).data.shift.expectedCash, 5000);
+  assert.equal((await pay(h, sale.id)).status, 409);
+  assert.equal((await post(h, `/sales/${sale.id}/cancel`)).status, 409);
+  assert.equal((await read(h, sale.id)).data.bridge.cashCollectionAllowed, false);
+  assert.equal((await post(h, `/sales/${sale.id}/reconcile`)).data.sale.status, 'needs_reconciliation');
+  assert.equal(h.bridge.state.cashIntents, 1);
 });
 
 test('cash custody is counted once before Woo verification; lost paid response recovers receipt without replay', async t => {
@@ -397,10 +428,14 @@ test('Woo downtime before cash does not count funds, after cash it blocks shift 
   // remote payment intent; the original shift cannot be closed.
   localTransaction(h.db, () => {
     h.db.prepare("UPDATE sales SET payment_method='cash',tendered=10000,change_due=0,status='needs_reconciliation' WHERE id=?").run(sale.id);
+    saleEvent(h.db, sale.id, 'online.cash_intent_started', 'system', { amountCents: 10000 });
     saleEvent(h.db, sale.id, 'online.cash_accepted', 'system', { amountCents: 10000 });
   });
   assert.equal((await h.request('/shifts/current', { token: h.token })).data.shift.expectedCash, 15000);
   const shiftId = h.db.prepare('SELECT shift_id FROM sales WHERE id=?').get(sale.id).shift_id;
+  // This crash fixture represents an acknowledged Woo intent with a lost POS
+  // continuation, not an unverified remote intent.
+  h.bridge.records.get(h.db.prepare('SELECT idempotency_key FROM sales WHERE id=?').get(sale.id).idempotency_key).state = 'cash_intent';
   assert.equal((await post(h, `/shifts/${shiftId}/close`, { closingCash: 15000 })).status, 409);
   assert.equal((await pay(h, sale.id, 10000)).status, 409);
   assert.equal((await post(h, `/sales/${sale.id}/confirm-cash`)).status, 502, 'unknown Woo state is not remotely paid');
