@@ -49,9 +49,11 @@ export default function RecoveryQueue() {
             <td data-label="Updated">{dateTime(record.updatedAt)}</td>
             <td data-label="Exception">{record.cashCustodyUnresolved
               ? <><Badge tone="red">Cash held; Woo unverified</Badge><small>{money(record.cashHeldCents)} already counted; never recollect</small></>
-              : record.cashPayoutUnverified
-                ? <><Badge tone="amber">Cash payout not verified</Badge><small>Woo refund {money(record.refundedCents)} is not cash disbursement</small></>
-                : <Badge tone={record.status === 'needs_reconciliation' ? 'red' : 'amber'}>{record.status.replaceAll('_', ' ')}</Badge>}</td>
+              : record.cashIntentAwaitingReview
+                ? <><Badge tone="red">Cash intent requires review</Badge><small>Intent started; no POS cash-custody event recorded. Verify the original Woo order and physical drawer.</small></>
+                : record.cashPayoutUnverified
+                  ? <><Badge tone="amber">Cash payout not verified</Badge><small>Woo refund {money(record.refundedCents)} is not cash disbursement</small></>
+                  : <Badge tone={record.status === 'needs_reconciliation' ? 'red' : 'amber'}>{record.status.replaceAll('_', ' ')}</Badge>}</td>
             <td data-label="Original shift">{record.originalShiftId
               ? <><strong>{record.originalShiftStatus || 'Unknown'}</strong><small>{record.originalShiftId}</small></>
               : 'Not recorded'}</td>

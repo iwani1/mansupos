@@ -32,6 +32,12 @@ test('owner recovery queue reports cash custody separately from Woo refund and d
   saleEvent(db, id, 'online.cash_accepted', 'demo-owner', { amountCents: 9000 });
   insert('AUDIT-REFUND', 'partially_refunded', 'cash', 10000, 1000);
   insert('AUDIT-UNPAID', 'awaiting_payment', null, 2000, 0);
+  const intentOnly = insert('AUDIT-INTENT', 'needs_reconciliation', null, 4500, 0);
+  saleEvent(db, intentOnly, 'online.cash_intent_started', 'demo-owner', { amountCents: 4500 });
+  const previouslyPaid = insert('AUDIT-REVIEWED-PAID', 'needs_reconciliation', 'cash', 8000, 0);
+  db.prepare('UPDATE sales SET paid_at=? WHERE id=?').run(time, previouslyPaid);
+  saleEvent(db, previouslyPaid, 'online.cash_intent_started', 'demo-owner', { amountCents: 8000 });
+  saleEvent(db, previouslyPaid, 'online.cash_accepted', 'demo-owner', { amountCents: 8000 });
   insert('AUDIT-PAID', 'paid', 'cash', 2000, 0);
   const before = db.prepare('SELECT COUNT(*) AS n FROM sale_events').get().n;
   const result = await get('/recovery/queue?limit=100');
@@ -46,6 +52,14 @@ test('owner recovery queue reports cash custody separately from Woo refund and d
   assert.equal(refund.cashPayoutUnverified, true);
   assert.equal(refund.refundedCents, 1000);
   assert.equal(sales.find(item => item.number === 'AUDIT-UNPAID').cashCustodyUnresolved, false);
+  const intent = sales.find(item => item.number === 'AUDIT-INTENT');
+  assert.equal(intent.cashIntentAwaitingReview, true);
+  assert.equal(intent.cashCustodyUnresolved, false);
+  assert.equal(intent.cashHeldCents, 0);
+  const previouslyPaid = sales.find(item => item.number === 'AUDIT-REVIEWED-PAID');
+  assert.equal(previouslyPaid.cashIntentAwaitingReview, false);
+  assert.equal(previouslyPaid.cashCustodyUnresolved, true, 'past paid_at cannot hide money currently under review');
+  assert.equal(previouslyPaid.cashHeldCents, 8000);
   assert.equal(sales.some(item => item.number === 'AUDIT-PAID'), false);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sale_events').get().n, before);
   assert.equal((await get('/recovery/queue?cursor=not-valid')).status, 400);
