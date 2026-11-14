@@ -30,7 +30,7 @@ $make_simple = static function () {
     $product->set_manage_stock( true );
     $product->set_stock_quantity( 1 );
     $product->set_backorders( 'no' );
-    $product->set_sku( 'SYNTHETIC-LAST-UNIT-01' );
+    $product->set_sku( 'SYNTHETIC-LAST-UNIT-' . wp_generate_uuid4() );
     $product->save();
     return wc_get_product( $product->get_id() );
 };
