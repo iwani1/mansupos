@@ -157,7 +157,8 @@ test('read-only signed live bridge health exposes core prerequisites without cre
     'signed Woo health must expose the unresolved late-gateway release blocker');
   const missingLateGuard = new OnlineBridgeClient(config, async () => ({
     ok: true, async text() {
-      const { lateGatewayGuardVerified, ...missing } = health;
+      const missing = { ...health };
+      delete missing.lateGatewayGuardVerified;
       return JSON.stringify(missing);
     },
   }));
