@@ -379,6 +379,31 @@ $assert( $reheld_website->payment_complete() === false &&
     (int) wc_get_product( $reheld_product->get_id() )->get_stock_quantity() === 1,
     'A fresh Woo reservation incorrectly re-authorised a quarantined gateway payment.' );
 
+// 14. Reproduce the actual Paystack mismatch ordering using pure Woo:
+// expired website hold -> POS pays -> gateway status on-hold -> direct reducer.
+// Woo's order-level stock_reduced flag is NOT proof that item lines reduced.
+$mis_product = $make_simple();
+$mis_website = $website_hold( $mis_product );
+$mis_expired = $wpdb->update( $wpdb->wc_reserved_stock,
+    array( 'expires' => gmdate( 'Y-m-d H:i:s', time() - 30 ) ),
+    array( 'order_id' => $mis_website->get_id() ) );
+$assert( $mis_expired === 1, 'Mispaid status fixture original website hold did not expire.' );
+$mis_key = '1df05c34-00ef-4bf5-8853-d1cd934c14b7';
+$mis_pos = $attempt( $mis_product, $mis_key );
+$assert( ! is_wp_error( $mis_pos ) && $mis_pos['reservationVerified'] &&
+    ! is_wp_error( mansu_online_cash_intent( $cash_request( $mis_key, 'cash-intent' ) ) ) &&
+    ! is_wp_error( mansu_online_pay( $cash_request( $mis_key, 'pay' ) ) ),
+    'Synthetic mismatch fixture POS sale failed.' );
+$mis_website->update_status( 'on-hold', 'Synthetic wrong-currency Paystack gateway success.' );
+wc_reduce_stock_levels( $mis_website->get_id() );
+$mis_website = wc_get_order( $mis_website->get_id() );
+$mis_line = current( $mis_website->get_items( 'line_item' ) );
+$assert( $mis_website->has_status( 'on-hold' ) &&
+    $mis_website->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
+    (int) ( $mis_line ? $mis_line->get_meta( '_reduced_stock', true ) : 0 ) === 0 &&
+    (int) wc_get_product( $mis_product->get_id() )->get_stock_quantity() === 0,
+    'Paystack-style on-hold plus direct reducer oversold the POS-owned last unit.' );
+
 echo 'DISPOSABLE_WOO_LATE_WEBSITE_GUARD_OK: native Woo payment_complete, direct status and stock-reduction hooks quarantined expired website payments without overselling. NOT a Paystack-site guarantee.' . PHP_EOL;
 
 echo 'DISPOSABLE_WOO_CORE_OK ' . $checks . ' assertions; real pinned Woo core, MySQL/InnoDB, checkout/POS holds, cash-intent, once-only Woo payment, delayed gateway race; NO real store.' . PHP_EOL;
