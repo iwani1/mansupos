@@ -55,7 +55,7 @@ export class OnlineBridgeClient {
       if (!result || result.kind !== 'mansu-online-bridge-health' || result.ok !== true ||
           result.service !== this.config.bridgeService || result.siteId !== this.config.bridgeSiteId ||
           !/^[a-f0-9]{8}-[a-f0-9-]{27}$/i.test(result.ledgerId || '') ||
-          !/^\\d+\\.\\d+\\.\\d+$/.test(result.wooVersion || '') ||
+          !/^\d+\.\d+\.\d+$/.test(result.wooVersion || '') ||
           result.corePrerequisitesOk !== true || result.cashOnly !== true ||
           typeof result.taxEnabled !== 'boolean' || typeof result.hposEnabled !== 'boolean') {
         throw new AppError('Woo bridge health identity or prerequisites could not be verified.', 502, 'BRIDGE_UNCERTAIN');

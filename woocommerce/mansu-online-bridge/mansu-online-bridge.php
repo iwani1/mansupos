@@ -397,7 +397,7 @@ function mansu_online_health( $request ) {
     $ready = mansu_online_ready();
     if ( is_wp_error( $ready ) ) { return $ready; }
     $hpos = class_exists( '\\Automattic\\WooCommerce\\Utilities\\OrderUtil' ) &&
-        \\Automattic\\WooCommerce\\Utilities\\OrderUtil::custom_orders_table_usage_is_enabled();
+        \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
     return array( 'kind' => 'mansu-online-bridge-health', 'ok' => true,
         'service' => MANSU_ONLINE_BRIDGE_SERVICE, 'ledgerId' => MANSU_ONLINE_BRIDGE_LEDGER_ID,
         'siteId' => MANSU_ONLINE_BRIDGE_SITE_ID, 'wooVersion' => WC_VERSION,
