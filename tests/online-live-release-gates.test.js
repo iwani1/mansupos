@@ -213,7 +213,7 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
     headers: { 'Content-Type': 'application/json', Origin: liveEnv.POS_PUBLIC_ORIGIN,
       Authorization: `Bearer ${token}` },
     body: JSON.stringify({ currentPassword: 'H9!blue-orchid-concept-passphrase',
-      newPassword: 'Q7!silver-maple-isolated-owner-passphrase' }),
+      newPassword: 'Q7!silver-maple-isolated-store-passphrase' }),
   });
   assert.equal(rotated.status, 200);
   const diagnostics = async () => {
