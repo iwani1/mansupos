@@ -94,7 +94,7 @@ try{
   assert.equal(await page.getByText('Fake service: OFFLINE').count(),1);
   await page.getByRole('button',{name:'Fake CONNECTED'}).click();
   await page.getByRole('button',{name:/Attempt fake sync/}).click();
-  await page.getByText('FAKE ACK').waitFor();
+  await page.getByText('FAKE ACK', { exact: true }).waitFor();
   assert.equal(store.queueStatus().pending,0);
   assert.equal(store.sale(eventId).wooOrderId,null);
   assert.deepEqual(external,[]);
