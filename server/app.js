@@ -19,6 +19,7 @@ import { ShiftService, openShiftSchema, closeShiftSchema, cashMovementSchema } f
 import { AppError, now } from './errors.js';
 import { createLogger, requestId } from './logger.js';
 import { localTransaction, readSaleEvents } from './sale-events.js';
+import { auditSharedWooStock } from './phase2-stock-audit.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -220,6 +221,11 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   });
 
   app.get('/api/catalog', auth, async (req, res) => res.json(await catalog.get(req.query.refresh === '1')));
+  // Owner/Manager Phase 2 evidence, not permission to trade. This refreshes
+  // Woo products/variations only and never calls an order or stock write API.
+  app.get('/api/stock-safety/audit', auth, role('owner', 'manager'), async (_req, res) => {
+    res.json(auditSharedWooStock(await catalog.get(true)));
+  });
   // Separately gated live trading service only. The read-only pilot, demo and
   // ordinary Woo checkout never enroll a device or issue offline allocations.
   app.post('/api/desktop/enroll', auth, role('owner'), sensitiveLimit, (req, res) => res.json(desktop.enroll(req.user, req.body)));
