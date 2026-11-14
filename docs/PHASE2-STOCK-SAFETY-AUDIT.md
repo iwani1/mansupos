@@ -1,0 +1,41 @@
+# Phase 2 — read-only shared Woo stock audit (code-only development)
+
+**Status:** Review-only source change, not installed on Contabo or WordPress. It does not authorize checkout or a new service. Base commit is the existing redesigned live pilot `562f5af`; keep `POS_LIVE_READ_ONLY=true` and all live write gates OFF. No new POS database, port, site or Woo credentials are needed for this audit.
+
+## Owner's Phase 2 decision
+
+- **Owner and Manager** may inspect stock-safety findings and uncertain POS orders, and may ultimately approve a separately designed cash-refund/reconciliation workflow.
+- **Cashier** may not approve a refund, modify a disputed-order decision or view the privileged recovery queue.
+- Approval rights do **not** mean that a Woo refund equals cash paid out, or that observing a pending/paid order resolves physical custody. No cash-refund approval, cash payout, stock restock or order resolution write endpoint is introduced by this milestone; it needs a separately reviewed evidence and shift-accounting model before implementation.
+- Reviewers must retain original Woo order references, cash/shift evidence and audit history. Never restore old SQLite snapshots to remove an uncertain trade.
+
+## First deliverable: read-only stock risk evidence
+
+`GET /api/stock-safety/audit` requires a signed-in **Owner or Manager**, forces a Woo product/variation catalogue refresh through the existing catalogue reader, and returns aggregated findings with at most 20 example product/variation IDs. It has no order reads, Woo writes, custom stock balance or reservation method. It does not disclose product names, prices, wholesale defaults, customer details or credentials in the audit response. Its catalogue cache refresh has the same *local SQLite* effect as the existing `/api/catalog?refresh=1` endpoint; no sale/audit event is created.
+
+The pure analyzer `server/phase2-stock-audit.js` identifies, among others:
+
+- Incomplete, unsupported, stale or demo catalogues and failed refreshes.
+- Untracked/unknown stock ownership, unmanaged parent variations, backorders, missing quantities, duplicate identities and conflicting shared stock pools.
+- Parent-managed variation pools counted **once** (three sizes sharing a parent stock of two remain **one** stock pool of two, not six units).
+
+Every response includes `checkoutAuthorized: false` and `sharedLastUnitGuardVerified: false`, **even if the reported issue count is zero**. A Woo catalogue fetch is only a snapshot. This code does not make a stock reservation, inspect online gateway callbacks or certify the installed Woo checkout hooks.
+
+## Separate acceptance gates before selling (not done by this change)
+
+1. Verify the exact installed Woo version, checkout type, HPOS, database engine, Paystack gateway callback paths, custom hooks, plugin stock adjustments and `wc_reserved_stock` reservation behavior in an isolated environment. The Woo Online Bridge already in the repository is a **disabled-by-default prototype**, not an installed or signed-off service.
+2. Prove the shared last-unit race for the actual website checkout **and** proposed POS reservation, including expired holds and late Paystack callbacks. If the gateway bypasses reservation payment guards, keep checkout locked.
+3. Design idempotent order creation, cash intent and same-order recovery, then test pending-order expiry, paid/refunded status changes, stock movement and notification side effects. A timeout must never cause another order or second cash collection.
+4. Define audited **Owner/Manager** incident decisions and refund approvals: evidence required, original vs later shift, actual payout amount/time/method, one-time refund ID/stock-restock rule, partial payouts, and no silent modification of closed shifts. Do not turn a generic cash movement into an approved refund.
+5. Obtain distinct owner acceptance for any genuine live order or cash collection, verify Woo/WordPress backups and a restore drill, and provide a separate maintenance/cutover review for the **existing** pilot identity. This milestone never changes the installed `live-pilot` ledger to `live-trading`.
+
+## Local tests
+
+```sh
+node --test tests/phase2-stock-audit.test.js
+npm test
+npm run lint
+npm run build:live
+```
+
+Tests use synthetic products, local ephemeral SQLite and mocked Woo calls. Passing tests is **not** evidence of production Woo/Paystack atomicity, receipt/tax correctness or authorization for live selling. Do not merge, deploy, install a WordPress bridge, rotate API keys or enable a checkout gate on the strength of this audit alone.
