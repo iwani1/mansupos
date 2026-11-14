@@ -58,6 +58,23 @@ The signed `lateGatewayGuardVerified` release flag remains **false** regardless 
 
 The isolated gateway tests passed against source commit `46821aa`; subsequent changes still require their own green runs. This evidence certifies only those tested paths, not the installed merchant gateway or a production checkout rollout.
 
+## Next gate: signed Paystack webhook and return HTTP tests (prepared, not yet accepted)
+
+The draft now contains a **CI-only, uninstalled HTTP test harness**:
+
+- `tests/fixtures/mansu-ci-paystack-http-mock.php` — synthetic `pre_http_request` Paystack transaction verifier; rejects any unrecognized Paystack API route or reference. Loads only in the disposable local WordPress fixture, never on the merchant's website.
+- `tests/woocommerce-real-paystack-http-fixture.php` — creates real Woo checkout and Store API orders and original holds, intentionally expires selected holds and marks the last unit as sold for the scenario, and provides read-only post-callback assertions.
+- `tests/woocommerce-real-paystack-http-runner.mjs` — exercises the public Paystack 5.8.6 plugin's genuine WC-API entry points over a *loopback* PHP server using synthetic HMAC-SHA512 webhook requests and payment-return URLs. Tests invalid signature, valid webhook, replay, expired hold, valid/late redirect, and wrong-currency webhook; no network call to Paystack is authorized.
+
+**Status:** the workflow currently runs syntax checks for these fixtures only. The new HTTP endpoint tests have **not yet been executed or passed**, and they must be explicitly wired into a reviewed disposable environment before becoming evidence. The earlier **66 real Woo assertions, 23 real Paystack token-method assertions and six last-item races** remain passing at commit `46821aa`, but they do **not** certify the webhook/redirect paths.
+
+### Remaining payment-release blockers
+
+1. Pass the new signed webhook/return tests against pinned public Paystack and Woo in local HTTP/MySQL, including replay and wrong-currency/underpayment branches; capture test logs.
+2. Compare the exact *installed-site* Woo/Paystack versions, gateways, settings, HPOS, checkout type, third-party stock hooks and transaction-status callbacks using authorized **read-only** inspection. Public upstream source is not proof of the installed plugin.
+3. Specify and test how a gateway's positive response after Woo rejects `payment_complete()` is recorded as an *externally paid but stock-quarantined* liability, including payment-reference deduplication and Owner/Manager refund evidence. No duplicate cash receipt, shipment or automatic refund.
+4. Prove recoverable timeout/retry and explicit owner approval before any production write. The draft's `lateGatewayGuardVerified` must remain false until independent acceptance.
+
 ## Explicit live checkout safety interlock
 
 The uninstalled Woo online bridge now reports `lateGatewayGuardVerified: false` in its **signed, read-only health response**. The bridge client requires this field, and the live `OnlineSalesService.assertLiveBridgeReady()` refuses to prepare a new Woo order or report collectible cash unless it is **true**. The existing Woo bridge source cannot currently assert it: the native Woo hook prototype is not independently verified against the installed Paystack gateway and cannot cover every callback/stock mutation path. This ensures that copying old live approvals and Woo settings is not enough to activate live transactions. Synthetic tests may inject `true` into a fake bridge **only to exercise other logic**; that fake is not a production configuration and does not affect Contabo.
