@@ -726,8 +726,11 @@ function mansu_online_expire( $service, $key ) {
 // guarantee; gateways can bypass payment_complete()/Woo stock hooks and other
 // plugins may modify stock directly. Live trading attestation remains FALSE.
 function mansu_online_website_order( $order ) {
+    // The classic checkout writes "checkout"; Woo Checkout Block / Store
+    // API writes "store-api". Protect BOTH, without intercepting unrelated
+    // manual admin or POS orders.
     return mansu_online_enabled() && $order instanceof WC_Order &&
-        $order->get_created_via() === 'checkout' &&
+        in_array( $order->get_created_via(), array( 'checkout', 'store-api' ), true ) &&
         $order->get_payment_method() !== 'pos_cash';
 }
 function mansu_online_website_hold_safe( $order ) {
