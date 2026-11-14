@@ -822,7 +822,7 @@ function mansu_online_website_items_reduced( $order ) {
 }
 function mansu_online_website_status_review( $order_id, $from, $to, $order ) {
     static $reviewing = false;
-    if ( $reviewing || ! in_array( $to, array( 'processing', 'completed' ), true ) ||
+    if ( $reviewing || ! in_array( $to, array( 'processing', 'completed', 'on-hold' ), true ) ||
          ! mansu_online_website_order( $order ) ||
          mansu_online_website_payment_seen( $order_id ) ||
          mansu_online_website_items_reduced( $order ) ||
@@ -832,9 +832,13 @@ function mansu_online_website_status_review( $order_id, $from, $to, $order ) {
     $reviewing = true;
     try {
         mansu_online_website_review( $order, 'direct paid-status transition without a valid hold' );
-        // A gateway which skips payment_complete() must not silently leave an
-        // unstocked website order in the fulfilment queue.
-        $order->update_status( 'on-hold', 'Website payment requires stock and gateway reconciliation before fulfilment.' );
+        // Paystack can mark a short-paid order on-hold directly, without
+        // calling Woo payment_complete() or reducing stock. Preserve that
+        // status but attach the same owner-review evidence for expired holds.
+        // Paid processing/completed bypasses must be moved to on-hold.
+        if ( $to !== 'on-hold' ) {
+            $order->update_status( 'on-hold', 'Website payment requires stock and gateway reconciliation before fulfilment.' );
+        }
     } finally {
         $reviewing = false;
     }
