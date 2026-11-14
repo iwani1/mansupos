@@ -62,6 +62,36 @@ $mansu_ci_paystack_gate = static function () {
 add_action( 'woocommerce_api_tbz_wc_paystack_webhook', $mansu_ci_paystack_gate, -10 );
 add_action( 'woocommerce_api_wc_gateway_paystack', $mansu_ci_paystack_gate, -10 );
 
+// CI only: force the POS cash payment_complete and late website
+// payment_complete to run concurrently against the SAME stock owner.
+// Neither channel can "pass" this test by avoiding the other callback.
+add_action( 'woocommerce_pre_payment_complete', static function ( $order_id ) {
+    $cross = get_option( 'mansu_ci_cross_payment', array() );
+    if ( ! is_array( $cross ) ||
+         ! isset( $cross['websiteId'], $cross['posId'] ) ) { return; }
+    if ( (int) $order_id === (int) $cross['websiteId'] ) {
+        $channel = 'website';
+    } elseif ( (int) $order_id === (int) $cross['posId'] ) {
+        $channel = 'pos';
+    } else {
+        return;
+    }
+    $dir = WP_CONTENT_DIR . '/mansu-ci-cross-payment';
+    if ( ! is_dir( $dir ) ||
+         file_put_contents( $dir . '/' . $channel,
+             (string) microtime( true ), LOCK_EX ) === false ) {
+        throw new RuntimeException( 'Cross-channel synthetic arrival marker failed.' );
+    }
+    $deadline = microtime( true ) + 28;
+    while ( ! is_file( $dir . '/website' ) || ! is_file( $dir . '/pos' ) ) {
+        if ( microtime( true ) > $deadline ) {
+            throw new RuntimeException( 'POS and Paystack never met the same-item CI barrier.' );
+        }
+        usleep( 75000 );
+    }
+    usleep( 150000 );
+}, 0, 2 );
+
 add_filter( 'pre_http_request', static function ( $preempt, $args, $url ) {
     if ( strpos( $url, 'api.paystack.co' ) === false ) {
         return $preempt;
