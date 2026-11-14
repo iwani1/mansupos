@@ -799,7 +799,14 @@ function mansu_online_pre_website_payment( $order_id, $transaction_id = '' ) {
 }
 function mansu_online_can_reduce_website_stock( $can, $order ) {
     if ( ! $can || ! mansu_online_website_order( $order ) ) { return $can; }
-    if ( $order->get_data_store()->get_stock_reduced( $order->get_id() ) ) { return $can; }
+    // Woo can set its order-level 'stock reduced' flag after an earlier
+    // status-hook attempt was DENIED. Paystack may then call the reducer a
+    // second time (e.g. currency mismatch). The order flag is NOT evidence
+    // of an item deduction and must never bypass hold/quarantine checks.
+    // An actually reduced full set of line items is safe from a second
+    // deduction by Woo core; never use this exception for review orders.
+    if ( $order->get_meta( '_mansu_website_stock_review', true ) !== 'required' &&
+         mansu_online_website_items_reduced( $order ) ) { return $can; }
     if ( mansu_online_website_hold_safe( $order ) ) { return $can; }
     // Woo's order_status_processing/completed/on-hold actions can call stock
     // reduction independently of payment_complete(). Deny that path too.
