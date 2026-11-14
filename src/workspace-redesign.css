@@ -386,6 +386,8 @@ td small { font-size:11px; color:#566064; }
 .login-form h2 { color:#2b3033; }
 .login-form p { color:#555e62; }
 .login-form .button.primary { background:#34383a; border-color:#34383a; }
+/* Keep the selected variation's small availability copy legible at WCAG AA contrast. */
+.variant-modal .size-options button.selected > span { color:#343a40; }
 .modal { border-radius:11px; box-shadow:var(--shadow-lg); }
 .modal-header { background:#fafaf9; border-bottom-color:#e9eae7; }
 .modal-header h2 { font-size:18px; }
