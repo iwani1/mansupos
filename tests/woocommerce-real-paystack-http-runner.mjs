@@ -4,13 +4,13 @@
  */
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import http from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const wp = process.env.MANSU_CI_WP_PATH;
 const cli = process.env.MANSU_CI_WP_CLI;
 const fixture = resolve('tests/woocommerce-real-paystack-http-fixture.php');
-const home = 'http://127.0.0.1:8091';
 const syntheticSecret = 'sk_test_synthetic_ci_no_real_account';
 assert.equal(process.env.CI, 'true', 'This is a CI-only test');
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'GitHub CI must be verified');
@@ -40,22 +40,37 @@ let serverErrors = '';
 server.stderr.on('data', d => { serverErrors = (serverErrors + d.toString()).slice(-5000); });
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function call(method, endpoint, body = undefined, signature = undefined) {
-  const res = await fetch(home + endpoint, {
-    method,
-    redirect: 'manual',
-    headers: {
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(signature ? { 'x-paystack-signature': signature } : {}),
-    },
-    body,
-    signal: AbortSignal.timeout(70_000),
+  // Use an explicit loopback-only HTTP/1.1 client with connection close.
+  // Avoid keepalive/parser ambiguity when Paystack's WC-API handlers call exit.
+  return new Promise((resolve, reject) => {
+    const headers = { Connection: 'close' };
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      headers['Content-Length'] = Buffer.byteLength(body);
+    }
+    if (signature) headers['x-paystack-signature'] = signature;
+    const request = http.request({
+      hostname: '127.0.0.1', port: 8091, path: endpoint,
+      method, headers, timeout: 70_000,
+    }, response => {
+      const chunks = [];
+      response.on('data', data => chunks.push(data));
+      response.on('error', reject);
+      response.on('end', () => {
+        const textBody = Buffer.concat(chunks).toString('utf8');
+        const status = response.statusCode;
+        if (status >= 500) {
+          return reject(new Error('Synthetic Paystack ' + method + ' ' + endpoint +
+            ' returned ' + status + ' body=' + textBody.slice(0, 300) +
+            ' server=' + serverErrors.slice(-700)));
+        }
+        resolve({ status, text: textBody, headers: response.headers });
+      });
+    });
+    request.on('error', reject);
+    request.on('timeout', () => request.destroy(new Error('Synthetic HTTP timeout')));
+    request.end(body);
   });
-  const bodyText = await res.text();
-  if (res.status >= 500) {
-    throw new Error('Paystack synthetic ' + method + ' ' + endpoint + ' returned ' + res.status +
-      ' response=' + bodyText.slice(0, 300) + ' server=' + serverErrors.slice(-700));
-  }
-  return res;
 }
 async function webhook(key, validSignature = true) {
   const payload = JSON.stringify({
@@ -79,7 +94,7 @@ try {
   for (let i = 0; i < 40; i++) {
     if (server.exitCode !== null) break;
     try {
-      const resp = await fetch(home + '/', { redirect: 'manual', signal: AbortSignal.timeout(1000) });
+      const resp = await call('GET', '/');
       if (resp.status < 500) { started = true; break; }
     } catch {}
     await sleep(250);
