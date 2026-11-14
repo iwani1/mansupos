@@ -95,6 +95,30 @@ export function readConfig(env = process.env) {
   if (env.POS_STAGING_APPROVED === 'true' && mode === 'staging' && !configured) throw new Error('Staging approval requires WooCommerce credentials.');
   if (env.POS_ALLOW_LIVE_WRITES === 'true' && mode === 'live' && !configured) throw new Error('Live writes require WooCommerce credentials.');
 
+  // Phase 2 is a LOCAL synthetic test path, not a new production switch.
+  // No combination of old live approval flags may turn it on. A separate
+  // reviewed implementation/approval is needed before any real installation.
+  if (env.POS_ONLINE_BRIDGE_LOCAL_TEST && !['true', 'false'].includes(env.POS_ONLINE_BRIDGE_LOCAL_TEST)) {
+    throw new Error('POS_ONLINE_BRIDGE_LOCAL_TEST must be true or false.');
+  }
+  const onlineBridgeLocalTest = env.POS_ONLINE_BRIDGE_LOCAL_TEST === 'true';
+  const bridgeUrl = env.POS_ONLINE_BRIDGE_URL || '';
+  if (onlineBridgeLocalTest) {
+    let parsed;
+    try { parsed = new URL(bridgeUrl); } catch { throw new Error('Online bridge local test requires a loopback URL.'); }
+    if (env.NODE_ENV !== 'test' || mode !== 'staging' || !writesEnabled || !configured ||
+        env.POS_REQUIRE_SHIFT !== 'true' ||
+        !['127.0.0.1', '[::1]'].includes(parsed.hostname) ||
+        !['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password ||
+        parsed.search || parsed.hash || (parsed.pathname !== '/' && parsed.pathname !== '') ||
+        new URL(storeUrl).hostname !== parsed.hostname ||
+        !env.POS_ONLINE_BRIDGE_APP_USER || !env.POS_ONLINE_BRIDGE_APP_PASSWORD ||
+        (env.POS_ONLINE_BRIDGE_SECRET || '').length < 32 ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(env.POS_ONLINE_BRIDGE_SITE_ID || '')) {
+      throw new Error('Online bridge is restricted to an isolated test-only staging ledger, loopback Woo fixture, dedicated service credentials, site identity, approved test writes and mandatory shifts.');
+    }
+  }
+
   const port = Number(env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.');
   const bindHost = env.POS_BIND_HOST || '0.0.0.0';
@@ -111,6 +135,11 @@ export function readConfig(env = process.env) {
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
     desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',
+    onlineBridgeLocalTest, bridgeUrl: onlineBridgeLocalTest ? new URL(bridgeUrl).origin : '',
+    bridgeSiteId: onlineBridgeLocalTest ? env.POS_ONLINE_BRIDGE_SITE_ID.toLowerCase() : '',
+    bridgeAppUser: onlineBridgeLocalTest ? env.POS_ONLINE_BRIDGE_APP_USER : '',
+    bridgeAppPassword: onlineBridgeLocalTest ? env.POS_ONLINE_BRIDGE_APP_PASSWORD : '',
+    bridgeSecret: onlineBridgeLocalTest ? env.POS_ONLINE_BRIDGE_SECRET : '',
     consumerKey: env.WOO_CONSUMER_KEY || '', consumerSecret: env.WOO_CONSUMER_SECRET || '',
     dataDir: env.POS_DATA_DIR || path.resolve('.data'),
     port, bindHost, production, publicOrigin,
@@ -123,7 +152,7 @@ export function readConfig(env = process.env) {
     orderStatus: env.POS_ORDER_STATUS === 'processing' ? 'processing' : 'completed',
     // First live rollout is cash-only. This is enforced on the server; a
     // changed browser or copied env flag cannot record MoMo/card as paid.
-    paymentMethods: mode === 'live' ? ['cash'] : ['cash', 'momo', 'card'],
+    paymentMethods: mode === 'live' || onlineBridgeLocalTest ? ['cash'] : ['cash', 'momo', 'card'],
     currency: 'GHS', lowStockThreshold,
     requireShift: env.POS_REQUIRE_SHIFT ? env.POS_REQUIRE_SHIFT === 'true' : mode !== 'demo',
     sessionIdleMinutes, reconcileIntervalSeconds,
@@ -131,11 +160,22 @@ export function readConfig(env = process.env) {
   };
 }
 
+// Centralize the background Woo order-sweep gate so a bridge-off ledger
+// cannot quietly resume legacy reconciliation on restart. Manual bulk sweeps
+// have a separate guard in SalesService.
+export function shouldRunReconcileTimer(config) {
+  return config.mode !== 'demo' && !config.liveReadOnly &&
+    !config.onlineBridgeLocalTest && !config.onlineBridgeQuarantined && config.configured &&
+    (config.mode !== 'live' || config.writesEnabled);
+}
+
 export function publicConfig(config) {
   return {
     mode: config.mode, storeUrl: config.storeUrl, configured: config.configured,
     liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
+    onlineBridgeLocalTest: config.onlineBridgeLocalTest,
+    onlineBridgeQuarantined: Boolean(config.onlineBridgeQuarantined),
     currency: config.currency,
     lowStockThreshold: config.lowStockThreshold, receiptFooter: config.receiptFooter,
     receiptWidth: config.receiptWidth, orderStatus: config.orderStatus,

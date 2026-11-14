@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { createApp } from './app.js';
-import { APP_VERSION, readConfig } from './config.js';
+import { APP_VERSION, readConfig, shouldRunReconcileTimer } from './config.js';
 import { acquireInstanceLease } from './instance-lease.js';
 
 process.umask(0o077);
@@ -48,8 +48,7 @@ let reconciling = false;
 // A physical-store-only cash service may hold a Woo Read-only catalogue key,
 // but must not poll customer orders in the background when Woo writes are off.
 // Woo order reconciliation after an emergency lock is a deliberate owner action.
-const reconcileTimer = config.mode !== 'demo' && !config.liveReadOnly && config.configured &&
-  (config.mode !== 'live' || config.writesEnabled) ? setInterval(async () => {
+const reconcileTimer = shouldRunReconcileTimer(config) ? setInterval(async () => {
   if (reconciling) return;
   reconciling = true;
   try {

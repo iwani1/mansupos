@@ -93,7 +93,9 @@ export default function Register({ active = true, catalog, config, checkoutScope
   useEffect(() => {
     try {
       const stored = JSON.parse(sessionStorage.getItem(checkoutStorageKey) || 'null');
-      if (stored?.uncertain && stored.fingerprint === cartFingerprint) setError('A previous checkout for this cart was interrupted. Retry safely with the same checkout key, or review Sales before starting another order.');
+      if (stored?.uncertain && stored.fingerprint === cartFingerprint) setError(config.onlineBridgeLocalTest
+        ? 'An original local Woo attempt may exist. Find and reconcile it in Sales; never create a replacement order for this cart.'
+        : 'A previous checkout for this cart was interrupted. Retry safely with the same checkout key, or review Sales before starting another order.');
     } catch {}
     // Mount-only recovery notice for the initial cart fingerprint.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -185,8 +187,9 @@ export default function Register({ active = true, catalog, config, checkoutScope
       const uncertain = !e.status || e.status >= 500 || e.code === 'RECONCILIATION_REQUIRED' || e.code === 'SALE_BUSY';
       if (uncertain) {
         try { sessionStorage.setItem(checkoutStorageKey, JSON.stringify({ ...attempt, uncertain: true })); } catch {}
-        setError(e.code === 'RECONCILIATION_REQUIRED' ? e.message : 'Checkout was interrupted. Retry safely with the same checkout key, or review Sales before creating another order.');
-        if (e.code === 'RECONCILIATION_REQUIRED') onOpenSales();
+        setError(config.onlineBridgeLocalTest ? 'The local Woo bridge attempt may already exist. Review the original attempt in Sales; do not retry the bridge write or create another order.'
+          : e.code === 'RECONCILIATION_REQUIRED' ? e.message : 'Checkout was interrupted. Retry safely with the same checkout key, or review Sales before creating another order.');
+        if (e.code === 'RECONCILIATION_REQUIRED' || config.onlineBridgeLocalTest) onOpenSales();
       } else {
         try { sessionStorage.removeItem(checkoutStorageKey); } catch {}
         checkoutKey.current = uuid();
@@ -211,6 +214,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
           <button className="button secondary held-button" onClick={() => setHeldOpen(true)}><Pause size={16} />Held sales <span className="count-pill">{savedCarts.length}</span></button>
         </PageHeading>
         <SellingModeSwitch mode="retail" onRetail={() => {}} onWholesale={onOpenWholesale} canWholesale={canWholesale} />
+        {config.onlineBridgeLocalTest && <Notice tone="warning"><strong>Isolated local development fixture only.</strong> No real cash, customer, live Woo inventory/order or receipt. Every attempt must use its own verified Woo hold; stop and reconcile the original key if its response is uncertain.</Notice>}
         {config.liveReadOnly && <Notice tone="warning">Live WooCommerce catalogue. Cart amounts are references, not verified payable totals. Checkout and payment recording are disabled; do not collect money or release goods through this POS.</Notice>}
         {stockStale && <Notice tone="warning">This catalogue is not current. Stock counts are hidden and checkout is blocked; refresh before relying on prices or availability.</Notice>}
         {requireStockSource && catalog?.complete === false && <Notice tone="warning">Only the loaded WooCommerce product and option pages appear here. Refresh or review the website if a product is missing.</Notice>}

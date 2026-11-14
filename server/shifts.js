@@ -34,7 +34,8 @@ export class ShiftService {
     // remote discrepancy moves the sale from paid to needs_reconciliation.
     // Only a separately recorded, reviewed cash-out reduces the drawer.
     const sales = this.db.prepare(`SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE shift_id=? AND payment_method='cash'
-      AND (status IN ('paid','partially_refunded','refunded') OR (status='needs_reconciliation' AND paid_at IS NOT NULL))`).get(shiftId).total;
+      AND (status IN ('paid','partially_refunded','refunded') OR (status='needs_reconciliation' AND paid_at IS NOT NULL)
+        OR EXISTS (SELECT 1 FROM sale_events WHERE sale_id=sales.id AND event='online.cash_accepted'))`).get(shiftId).total;
     const movements = this.db.prepare("SELECT COALESCE(SUM(CASE WHEN type='in' THEN amount ELSE -amount END),0) AS total FROM cash_movements WHERE shift_id=?").get(shiftId).total;
     // The physical-store collection shares the counted POS cash drawer, but
     // never shares WooCommerce sales, inventory, or the online reports.
@@ -50,9 +51,15 @@ export class ShiftService {
       COALESCE(SUM(CASE WHEN payment_method='card' THEN total - refunded ELSE 0 END),0) AS card
       FROM sales WHERE shift_id=? AND (status IN ('paid','partially_refunded','refunded')
         OR (status='needs_reconciliation' AND paid_at IS NOT NULL))`).get(shiftId);
+    // Physical custody is a drawer liability even if the remote payment is
+    // unresolved. It is counted once, NOT reported as a paid order or refund.
+    const custody = this.db.prepare(`SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS cash FROM sales
+      WHERE shift_id=? AND payment_method='cash' AND paid_at IS NULL
+      AND EXISTS (SELECT 1 FROM sale_events WHERE sale_id=sales.id AND event='online.cash_accepted')`).get(shiftId);
     const inStore = this.db.prepare('SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS cash FROM instore_sales WHERE shift_id=?').get(shiftId);
     return { orders: online.orders + inStore.orders, net: online.net + inStore.cash,
-      cash: online.cash + inStore.cash, reviewRequiredOrders: online.reviewRequiredOrders,
+      cash: online.cash + custody.cash + inStore.cash, pendingCash: custody.cash, pendingCashOrders: custody.orders,
+      reviewRequiredOrders: online.reviewRequiredOrders,
       observedCashRefunds: online.observedCashRefunds,
       momo: online.momo, card: online.card,
       inStoreOrders: inStore.orders, inStoreCash: inStore.cash };
@@ -85,8 +92,11 @@ export class ShiftService {
       const row = this.get(id, user);
       if (row.user_id !== user.id && user.role !== 'owner') throw new AppError('Only the cashier who opened the shift, or an owner, can close it.', 403);
       if (row.status !== 'open') throw new AppError('This shift is already closed.', 409);
-      const pending = this.db.prepare("SELECT COUNT(*) AS n FROM sales WHERE shift_id=? AND status IN ('creating','awaiting_payment','needs_reconciliation')").get(id).n;
-      if (pending) throw new AppError(`${pending} sale(s) still need payment or reconciliation. Resolve them before closing the shift.`, 409);
+      const pending = this.db.prepare(`SELECT COUNT(*) AS n FROM sales WHERE shift_id=? AND
+        (status IN ('creating','awaiting_payment','needs_reconciliation') OR
+          (paid_at IS NULL AND EXISTS (SELECT 1 FROM sale_events WHERE sale_id=sales.id AND event='online.cash_accepted')))`)
+        .get(id).n;
+      if (pending) throw new AppError(`${pending} sale(s) or cash liabilities still need reconciliation. Resolve them before closing the shift.`, 409);
       const expected = this.expectedCash(id);
       const variance = input.closingCash - expected;
       const summary = this.summary(id);

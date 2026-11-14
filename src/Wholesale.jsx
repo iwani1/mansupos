@@ -76,9 +76,10 @@ export default function Wholesale({ catalog, config, user, active, checkoutScope
       const previous = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
       checkoutKey.current = previous?.fingerprint === fingerprint && previous.key ? previous.key : uuid();
       setError(previous?.uncertain && previous.fingerprint === fingerprint
-        ? 'A previous order for this quote may exist. Retry with the same key or review Sales before changing it.' : '');
+        ? config.onlineBridgeLocalTest ? 'An original local Woo attempt may exist. Find and reconcile it in Sales; never create a replacement order.'
+          : 'A previous order for this quote may exist. Retry with the same key or review Sales before changing it.' : '');
     } catch { checkoutKey.current = uuid(); setError(''); }
-  }, [fingerprint, storageKey]);
+  }, [fingerprint, storageKey, config.onlineBridgeLocalTest]);
 
   function invalidate() { setApproved(false); setError(''); }
   function addLine(product, option = null) {
@@ -141,7 +142,8 @@ export default function Wholesale({ catalog, config, user, active, checkoutScope
       if (uncertain) {
         try { sessionStorage.setItem(storageKey, JSON.stringify({ key: checkoutKey.current, fingerprint, uncertain: true })); } catch {}
       }
-      setError(uncertain ? `${err.message} Do not create another order or take payment until the original order is checked in Sales.` : err.message);
+      setError(uncertain ? `${err.message} Review the original order in Sales; do not retry a local bridge write, create a replacement, or take payment.` : err.message);
+      if (uncertain && config.onlineBridgeLocalTest) onOpenSales();
     } finally { setBusy(false); }
   }
 
@@ -151,6 +153,7 @@ export default function Wholesale({ catalog, config, user, active, checkoutScope
     </PageHeading>
     <SellingModeSwitch mode="wholesale" onRetail={onOpenRetail} onWholesale={() => {}} />
     <ol className="wholesale-steps" aria-label="Wholesale order steps" tabIndex={0}><li className={step === 'review' ? 'done' : 'current'}>1 <span>Goods & prices</span></li><li className={step === 'review' ? 'current' : ''}>2 <span>Review & approve</span></li><li>3 <span>Full payment</span></li></ol>
+    {config.onlineBridgeLocalTest && <Notice tone="warning"><strong>Isolated local development fixture only.</strong> No real cash, customer, live Woo stock/order or customer receipt. Negotiated all-in prices must be verified on this temporary local Woo fixture; tax-enabled wholesale is locked.</Notice>}
     {!online && <Notice tone="warning" icon={WifiOff}>{desktop ? 'Device offline. This till can use only its unexpired reserved Woo units and its approved private-price snapshot; completed transactions remain in the local sync queue.' : 'You’re offline. You may review a draft, but cannot prepare an order or record payment.'}</Notice>}
     {stockStale && <Notice tone="warning">This catalogue is not current. Stock counts are hidden and order preparation is blocked; refresh before relying on prices or availability.</Notice>}
     {requireSource && catalog?.complete === false && <Notice tone="warning">Only the loaded WooCommerce product and option pages appear here. Refresh or review the website if goods are missing.</Notice>}

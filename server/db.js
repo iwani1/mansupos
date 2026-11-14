@@ -302,6 +302,7 @@ export function saleView(row) {
   });
   return {
     id: row.id, number: row.number, wooOrderId: row.woo_order_id, status: row.status,
+    onlineBridge: Boolean(row.online_bridge), // Informational only; never authorizes a write.
     saleType: wholesale ? 'wholesale' : 'retail', buyerId: row.buyer_id || null, buyerName: row.buyer_name || '',
     wholesaleApprovedById: row.trade_approved_by_id || null, wholesaleApprovedByName: row.trade_approved_by_name || '', wholesaleApprovedAt: row.trade_approved_at || null,
     agreedTotal: quote?.reduce((sum, item) => sum + item.agreedUnitPrice * item.quantity, 0) ?? null,

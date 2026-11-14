@@ -12,6 +12,8 @@ import { InStoreService, inStoreSaleSchema, inStoreCountSchema } from './instore
 import { OfflineReservations } from './offline-reservations.js';
 import { DesktopSyncService } from './desktop-sync.js';
 import { SalesService, prepareSchema, paymentSchema } from './sales.js';
+import { OnlineSalesService } from './online-sales.js';
+import { OnlineBridgeClient } from './online-bridge-client.js';
 import { ShiftService, openShiftSchema, closeShiftSchema, cashMovementSchema } from './shifts.js';
 import { AppError, now } from './errors.js';
 import { createLogger, requestId } from './logger.js';
@@ -59,16 +61,29 @@ function createSession(res, db, config, userId) {
 const role = (...roles) => (req, res, next) => roles.includes(req.user.role) ? next() : next(new AppError('Your staff role does not allow this action.', 403));
 const passwordSchema = z.string().min(12).max(256);
 
-export function createApp({ env = process.env, api: injectedApi, reservations: injectedReservations, logger: injectedLogger } = {}) {
+export function createApp({ env = process.env, api: injectedApi, bridge: injectedBridge, reservations: injectedReservations, logger: injectedLogger } = {}) {
   const config = readConfig(env);
   const logger = injectedLogger || createLogger(config.logLevel);
   const db = openDatabase(config);
+  // Turning OFF the experimental bridge must never fall back to unreserved
+  // legacy Woo checkout in the SAME ledger. Keep history readable, but lock
+  // all checkout writes until a separately reviewed recovery is authorised.
+  if (!config.onlineBridgeLocalTest && db.prepare("SELECT 1 FROM sale_events WHERE event='online.intent' LIMIT 1").get()) {
+    config.onlineBridgeQuarantined = true;
+    config.writesEnabled = false;
+    config.wholesaleWritesEnabled = false;
+    config.paymentMethods = ['cash'];
+  }
   const api = injectedApi || new WooCommerce(config, fetch, logger);
   const catalog = new Catalog(db, api, config);
   const wholesalePrices = new WholesalePrices(db, catalog, api, config);
   const desktop = new DesktopSyncService(db, config, catalog, api,
     injectedReservations || new OfflineReservations(config), wholesalePrices);
   const sales = new SalesService(db, catalog, api, config);
+  // No bridge client, routes, plugin writes or new SQLite schema when OFF.
+  const online = config.onlineBridgeLocalTest
+    ? new OnlineSalesService(db, catalog, injectedBridge || new OnlineBridgeClient(config), config)
+    : null;
   const shifts = new ShiftService(db, config);
   let inStore;
   try { inStore = new InStoreService(db, config); }
@@ -317,11 +332,30 @@ export function createApp({ env = process.env, api: injectedApi, reservations: i
   });
   app.post('/api/sales/prepare', auth, sensitiveLimit, async (req, res) => {
     const input = prepareSchema.parse(req.body);
-    res.status(201).json({ sale: await sales.prepare(req.user, input) });
+    res.status(201).json({ sale: await (online ? online.prepare(req.user, input) : sales.prepare(req.user, input)) });
   });
-  app.post('/api/sales/:id/pay', auth, sensitiveLimit, async (req, res) => res.json({ sale: await sales.complete(req.user, req.params.id, paymentSchema.parse(req.body)) }));
-  app.post('/api/sales/:id/reconcile', auth, async (req, res) => res.json({ sale: await sales.reconcile(req.user, req.params.id) }));
-  app.post('/api/sales/:id/cancel', auth, async (req, res) => res.json({ sale: await sales.cancel(req.user, req.params.id) }));
+  app.post('/api/sales/:id/pay', auth, sensitiveLimit, async (req, res) => {
+    const payment = paymentSchema.parse(req.body);
+    if (online && !online.isOnline(req.params.id)) throw new AppError('An older Woo order cannot use the reservation bridge. Review it separately.', 409, 'RECONCILIATION_REQUIRED');
+    res.json({ sale: await (online ? online.collectAndConfirm(req.user, req.params.id, payment) : sales.complete(req.user, req.params.id, payment)) });
+  });
+  app.get('/api/sales/:id/online-status', auth, async (req, res) => {
+    if (!online) throw new AppError('Local online bridge is disabled.', 403, 'CHECKOUT_LOCKED');
+    res.json(await online.status(req.user, req.params.id)); // Remote GET; no local or Woo mutation.
+  });
+  app.post('/api/sales/:id/confirm-cash', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => {
+    if (!online) throw new AppError('Local online bridge is disabled.', 403, 'CHECKOUT_LOCKED');
+    res.json({ sale: await online.confirmAfterCrash(req.user, req.params.id) });
+  });
+  app.post('/api/sales/:id/reconcile', auth, async (req, res) => {
+    if (online && !online.isOnline(req.params.id)) throw new AppError('Older Woo orders need separate legacy review while the bridge is enabled.', 409);
+    if (!online && sales.isOnlineSale(req.params.id)) throw new AppError('The local online bridge is disabled. Review the original attempt without remote mutation.', 403, 'CHECKOUT_LOCKED');
+    res.json({ sale: await (online ? online.reconcile(req.user, req.params.id) : sales.reconcile(req.user, req.params.id)) });
+  });
+  app.post('/api/sales/:id/cancel', auth, async (req, res) => {
+    if (online && !online.isOnline(req.params.id)) throw new AppError('Older Woo orders need separate legacy review while the bridge is enabled.', 409);
+    res.json({ sale: await (online ? online.cancel(req.user, req.params.id) : sales.cancel(req.user, req.params.id)) });
+  });
   app.post('/api/sales/reconcile-pending', auth, role('owner', 'manager'), async (req, res) => res.json(await sales.reconcilePending(req.user)));
 
   app.get('/api/shifts/current', auth, (req, res) => res.json({ shift: shifts.current(req.user.id), required: config.requireShift }));

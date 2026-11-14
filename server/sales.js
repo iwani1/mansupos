@@ -186,6 +186,14 @@ function retailPaymentProblem(row, order) {
 
 export class SalesService {
   constructor(db, catalog, api, config) { this.db = db; this.catalog = catalog; this.api = api; this.config = config; this.locks = new Set(); this.shifts = new ShiftService(db, config); }
+  isOnlineSale(id) { return Boolean(this.db.prepare("SELECT 1 FROM sale_events WHERE sale_id=? AND event='online.intent' LIMIT 1").get(id)); }
+  hasOnlineHistory() { return Boolean(this.db.prepare("SELECT 1 FROM sale_events WHERE event='online.intent' LIMIT 1").get()); }
+  assertLegacySale(id, { readOnly = false } = {}) {
+    if (this.isOnlineSale(id)) throw new AppError('This sale belongs to the separately gated online reservation bridge. Never use legacy Woo writes on it.', 403, 'CHECKOUT_LOCKED');
+    if (this.config.onlineBridgeLocalTest || !readOnly && (this.config.onlineBridgeQuarantined || this.hasOnlineHistory())) {
+      throw new AppError('Legacy Woo checkout is locked while online bridge attempts share this ledger.', 403, 'CHECKOUT_LOCKED');
+    }
+  }
   assertRemoteIdentity(row, order) {
     assertOrderIdentity(row, order);
     // A v9 sale has a durable local prepare event even if the process stopped
@@ -210,8 +218,12 @@ export class SalesService {
   }
   list(user, limit = 250) {
     const rows = user.role === 'cashier'
-      ? this.db.prepare('SELECT * FROM sales WHERE cashier_id=? ORDER BY created_at DESC, id DESC LIMIT ?').all(user.id, limit)
-      : this.db.prepare('SELECT * FROM sales ORDER BY created_at DESC, id DESC LIMIT ?').all(limit);
+      ? this.db.prepare(`SELECT sales.*, EXISTS (SELECT 1 FROM sale_events AS events
+          WHERE events.sale_id=sales.id AND events.event='online.intent') AS online_bridge
+          FROM sales WHERE cashier_id=? ORDER BY created_at DESC, id DESC LIMIT ?`).all(user.id, limit)
+      : this.db.prepare(`SELECT sales.*, EXISTS (SELECT 1 FROM sale_events AS events
+          WHERE events.sale_id=sales.id AND events.event='online.intent') AS online_bridge
+          FROM sales ORDER BY created_at DESC, id DESC LIMIT ?`).all(limit);
     return rows.map(saleView);
   }
   listPage(user, { limit = 250, cursor = '' } = {}) {
@@ -225,7 +237,9 @@ export class SalesService {
     const params = [];
     if (user.role === 'cashier') { where.push('cashier_id=?'); params.push(user.id); }
     if (after) { where.push('(created_at < ? OR (created_at = ? AND id < ?))'); params.push(after.createdAt, after.createdAt, after.id); }
-    const sql = `SELECT * FROM sales ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY created_at DESC, id DESC LIMIT ?`;
+    const sql = `SELECT sales.*, EXISTS (SELECT 1 FROM sale_events AS events
+      WHERE events.sale_id=sales.id AND events.event='online.intent') AS online_bridge
+      FROM sales ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY created_at DESC, id DESC LIMIT ?`;
     const rows = this.db.prepare(sql).all(...params, safeLimit + 1);
     const hasMore = rows.length > safeLimit;
     const page = rows.slice(0, safeLimit);
@@ -399,6 +413,9 @@ export class SalesService {
     }
   }
   async prepare(user, input) {
+    if (this.config.onlineBridgeLocalTest || this.config.onlineBridgeQuarantined || this.hasOnlineHistory()) {
+      throw new AppError('Legacy Woo checkout cannot create unreserved orders in this online-bridge ledger.', 403, 'CHECKOUT_LOCKED');
+    }
     if (this.config.mode !== 'demo' && !this.config.writesEnabled) throw new AppError('Checkout is locked. Complete the documented acceptance checks and approved server-side write gate first.', 403, 'CHECKOUT_LOCKED');
     const saleType = input.saleType || 'retail';
     if (saleType === 'wholesale' && !['owner', 'manager'].includes(user.role)) throw new AppError('Only an owner or manager can agree a wholesale price.', 403, 'WHOLESALE_ROLE_REQUIRED');
@@ -415,6 +432,7 @@ export class SalesService {
     const prepareOrder = () => this.exclusive(`prepare:${input.idempotencyKey}`, async () => {
       const existing = this.db.prepare('SELECT * FROM sales WHERE idempotency_key=?').get(input.idempotencyKey);
       if (existing) {
+        this.assertLegacySale(existing.id);
         if (existing.fingerprint !== hash || existing.cashier_id !== user.id) throw new AppError('This checkout key belongs to a different cart.', 409);
         if (existing.status === 'awaiting_payment' || isSettled(existing.status)) return saleView(existing);
         if (['cancelled', 'failed'].includes(existing.status)) throw new AppError('The previous checkout is closed. Adjust the cart to start a new sale.', 409, 'CHECKOUT_CLOSED');
@@ -528,6 +546,7 @@ export class SalesService {
   async complete(user, id, payment) {
     return this.exclusive(`sale:${id}`, async () => {
       const row = this.get(id, user);
+      this.assertLegacySale(id);
       if (!this.config.paymentMethods.includes(payment.method)) {
         throw new AppError('Live POS payments are cash-only. Do not record MoMo or card as a cash sale.', 403, 'PAYMENT_METHOD_LOCKED');
       }
@@ -659,6 +678,7 @@ export class SalesService {
   async reconcile(user, id) {
     return this.exclusive(`sale:${id}`, async () => {
       const row = this.get(id, user);
+      this.assertLegacySale(id, { readOnly: true });
       if (this.config.mode === 'demo') throw new AppError('Demo sales do not connect to WooCommerce.', 400);
       if (this.config.liveReadOnly) throw new AppError('The catalogue pilot cannot inspect Woo orders or change sale records.', 403, 'CHECKOUT_LOCKED');
       try {
@@ -692,13 +712,20 @@ export class SalesService {
     });
   }
   async reconcilePending(user = { id: 'system', role: 'owner', name: 'System' }, limit = 20) {
-    if (this.config.mode === 'demo' || this.config.liveReadOnly || !this.config.configured) return { checked: 0, reconciled: 0, failed: 0 };
+    // Neither the timer nor a manual bulk endpoint may fall through to legacy
+    // Woo order inspection on a bridge ledger. Use individual, original-key
+    // read-only reconciliation after separate owner review instead.
+    if (this.config.mode === 'demo' || this.config.liveReadOnly || !this.config.configured ||
+        this.config.onlineBridgeLocalTest || this.config.onlineBridgeQuarantined || this.hasOnlineHistory()) {
+      return { checked: 0, reconciled: 0, failed: 0 };
+    }
     const paidBefore = new Date(Date.now() - 3600000).toISOString();
     const cooldown = new Date(Date.now() - 30000).toISOString();
     const rows = this.db.prepare(`SELECT id FROM sales WHERE (
         status IN ('creating','needs_reconciliation','awaiting_payment')
         OR (status IN ('paid','partially_refunded','refunded') AND updated_at < ?)
-      ) AND (last_reconciled_at IS NULL OR last_reconciled_at < ?)
+      ) AND NOT EXISTS (SELECT 1 FROM sale_events WHERE sale_id=sales.id AND event='online.intent')
+        AND (last_reconciled_at IS NULL OR last_reconciled_at < ?)
       ORDER BY CASE WHEN status='needs_reconciliation' THEN 0 WHEN status='creating' THEN 1 WHEN status='awaiting_payment' THEN 2 ELSE 3 END,
         COALESCE(last_reconciled_at,'0000') ASC, updated_at ASC LIMIT ?`)
       .all(paidBefore, cooldown, limit);
@@ -713,6 +740,7 @@ export class SalesService {
   async cancel(user, id) {
     return this.exclusive(`sale:${id}`, async () => {
       const row = this.get(id, user);
+      this.assertLegacySale(id);
       if (row.status === 'cancelled') return saleView(row);
       if (!['awaiting_payment', 'failed'].includes(row.status)) throw new AppError('Only an unpaid, known order can be cancelled here. Handle paid orders and refunds in WooCommerce.', 409);
       if (row.payment_method) throw new AppError('A POS payment attempt is recorded. Verify the Woo order and physical payment before cancelling.', 409, 'RECONCILIATION_REQUIRED');
