@@ -15,20 +15,29 @@ import { SalesService, prepareSchema, paymentSchema } from './sales.js';
 import { ShiftService, openShiftSchema, closeShiftSchema, cashMovementSchema } from './shifts.js';
 import { AppError, now } from './errors.js';
 import { createLogger, requestId } from './logger.js';
+import { localTransaction, readSaleEvents } from './sale-events.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
 const cookieOptions = config => ({ httpOnly: true, sameSite: config.production && config.mode === 'demo' ? 'none' : 'strict', secure: config.production, path: '/', maxAge: SESSION_MS });
+const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 function readCookie(req) { return (req.headers.cookie || '').split(';').map(v => v.trim()).find(v => v.startsWith('mansu_session='))?.slice(14) || ''; }
 function bearer(req) {
-  if (req.headers.authorization?.startsWith('Bearer ')) return req.headers.authorization.slice(7);
-  // Some embedded preview proxies remove Authorization. This custom header is an equivalent
-  // bearer credential; it is not auto-sent cross-origin and mutations still require JSON/origin checks.
+  const authorization = req.headers.authorization;
+  const primary = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
+  // Some embedded preview proxies remove Authorization. The custom header is
+  // equivalent bearer material and must never silently override a different one.
   const custom = req.headers['x-mansu-session'];
-  return typeof custom === 'string' && custom.length > 0 && custom.length <= 256 ? custom : '';
+  if (custom && primary && custom !== primary) return '';
+  const token = primary || custom || '';
+  return typeof token === 'string' && TOKEN_PATTERN.test(token) ? token : '';
 }
 function sessionUser(req, db, config) {
-  const token = bearer(req) || readCookie(req);
+  const headerPresent = req.headers.authorization?.startsWith('Bearer ') || req.headers['x-mansu-session'] != null;
+  const supplied = bearer(req);
+  const cookie = readCookie(req);
+  if (headerPresent && !supplied || cookie && !TOKEN_PATTERN.test(cookie) || cookie && supplied && cookie !== supplied) return null;
+  const token = supplied || cookie;
   if (!token) return null;
   const row = db.prepare('SELECT users.*, sessions.last_seen, sessions.expires_at FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash=? AND expires_at>? AND users.active=1').get(hash(token), Date.now());
   if (!row) return null;
@@ -138,38 +147,54 @@ export function createApp({ env = process.env, api: injectedApi, reservations: i
     if (!parsed.success) return next(new AppError('Enter your username and password.', 400));
     const username = parsed.data.username.toLowerCase().trim();
     const row = db.prepare('SELECT * FROM users WHERE username=? AND active=1').get(username);
-    if (row?.locked_until && row.locked_until > Date.now()) return next(new AppError('This account is temporarily locked. Try again later or ask an owner to reset the password.', 423));
+    if (row?.locked_until && row.locked_until > Date.now()) {
+      audit(db, row.id, 'auth.locked_attempt', row.id);
+      return next(new AppError('This account is temporarily locked. Try again later or ask an owner to reset the password.', 423));
+    }
     if (!row || !verifyPassword(parsed.data.password, row.password_hash)) {
       if (row) {
         const attempts = (row.failed_attempts || 0) + 1;
         const lockedUntil = attempts >= 8 ? Date.now() + 15 * 60000 : null;
-        db.prepare('UPDATE users SET failed_attempts=?,locked_until=? WHERE id=?').run(attempts, lockedUntil, row.id);
-        audit(db, row.id, lockedUntil ? 'auth.locked' : 'auth.failed', row.id);
-      }
+        localTransaction(db, () => {
+          db.prepare('UPDATE users SET failed_attempts=?,locked_until=? WHERE id=?').run(attempts, lockedUntil, row.id);
+          audit(db, row.id, lockedUntil ? 'auth.locked' : 'auth.failed', row.id);
+        });
+      } else audit(db, 'anonymous', 'auth.failed', 'unrecognized account (no username stored)');
       return next(new AppError('Username or password is incorrect.', 401));
     }
-    db.prepare('UPDATE users SET failed_attempts=0,locked_until=NULL WHERE id=?').run(row.id);
-    const token = createSession(res, db, config, row.id);
-    audit(db, row.id, 'auth.login', row.id);
+    const token = localTransaction(db, () => {
+      db.prepare('UPDATE users SET failed_attempts=0,locked_until=NULL WHERE id=?').run(row.id);
+      const session = createSession(res, db, config, row.id);
+      audit(db, row.id, 'auth.login', row.id);
+      return session;
+    });
     res.json({ user: userView(row), config: publicConfig(config), token });
   });
   app.post('/api/auth/password', auth, sensitiveLimit, (req, res) => {
     const input = z.object({ currentPassword: z.string().min(1).max(256), newPassword: passwordSchema }).parse(req.body);
     if (config.mode === 'demo') throw new AppError('Password changes are disabled in the demo workspace.', 403);
     const row = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
-    if (!verifyPassword(input.currentPassword, row.password_hash)) throw new AppError('Current password is incorrect.', 401);
+    if (!verifyPassword(input.currentPassword, row.password_hash)) {
+      audit(db, req.user.id, 'auth.password_failed', req.user.id);
+      throw new AppError('Current password is incorrect.', 401);
+    }
     if (input.currentPassword === input.newPassword) throw new AppError('Choose a different new password.', 400);
     const problem = passwordProblem(input.newPassword, row.username);
     if (problem) throw new AppError(problem, 400);
-    db.prepare('UPDATE users SET password_hash=?,must_change_password=0,failed_attempts=0,locked_until=NULL WHERE id=?').run(hashPassword(input.newPassword), req.user.id);
     const currentToken = bearer(req) || readCookie(req);
-    db.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?').run(req.user.id, hash(currentToken));
-    audit(db, req.user.id, 'auth.password_changed', req.user.id);
+    localTransaction(db, () => {
+      db.prepare('UPDATE users SET password_hash=?,must_change_password=0,failed_attempts=0,locked_until=NULL WHERE id=?').run(hashPassword(input.newPassword), req.user.id);
+      db.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?').run(req.user.id, hash(currentToken));
+      audit(db, req.user.id, 'auth.password_changed', req.user.id);
+    });
     res.json({ ok: true, user: userView(db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id)) });
   });
   app.post('/api/auth/logout', auth, (req, res) => {
     const token = bearer(req) || readCookie(req);
-    db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hash(token));
+    localTransaction(db, () => {
+      db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hash(token));
+      audit(db, req.user.id, 'auth.logout', req.user.id);
+    });
     res.clearCookie('mansu_session', { ...cookieOptions(config), maxAge: undefined });
     res.json({ ok: true });
   });
@@ -245,14 +270,50 @@ export function createApp({ env = process.env, api: injectedApi, reservations: i
     const name = entered.replace(/\s+/g, ' ');
     if (db.prepare('SELECT id FROM trade_buyers WHERE name=? COLLATE NOCASE').get(name)) throw new AppError('That buyer already exists in the historical directory.', 409);
     const buyer = { id: randomUUID(), name };
-    db.prepare('INSERT INTO trade_buyers(id,name,created_at,created_by) VALUES (?,?,?,?)').run(buyer.id, buyer.name, now(), req.user.id);
-    audit(db, req.user.id, 'wholesale.buyer_created', buyer.id);
+    localTransaction(db, () => {
+      db.prepare('INSERT INTO trade_buyers(id,name,created_at,created_by) VALUES (?,?,?,?)').run(buyer.id, buyer.name, now(), req.user.id);
+      audit(db, req.user.id, 'wholesale.buyer_created', buyer.id);
+    });
     res.status(201).json({ buyer });
   });
   app.get('/api/sales', auth, (req, res) => {
     const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 250);
     const cursor = z.string().max(500).optional().parse(req.query.cursor);
     res.json(sales.listPage(req.user, { limit, cursor }));
+  });
+  app.get('/api/recovery/queue', auth, role('owner', 'manager'), (req, res) => {
+    const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 200);
+    const cursor = z.string().max(500).optional().parse(req.query.cursor);
+    let after = null;
+    if (cursor) {
+      try {
+        after = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+        if (typeof after.updatedAt !== 'string' || !after.updatedAt || after.updatedAt.length > 100 ||
+            typeof after.id !== 'string' || !after.id || after.id.length > 100) throw new Error('Invalid cursor');
+      } catch { throw new AppError('Invalid recovery cursor.', 400); }
+    }
+    const rows = db.prepare(`SELECT sales.id,sales.number,sales.status,sales.woo_order_id,sales.payment_method,
+      sales.refunded,sales.shift_id,sales.updated_at,shifts.status AS original_shift_status
+      FROM sales LEFT JOIN shifts ON shifts.id=sales.shift_id
+      WHERE (sales.status IN ('creating','needs_reconciliation','awaiting_payment')
+         OR (sales.refunded>0 AND sales.payment_method='cash'))
+      ${after ? 'AND (sales.updated_at < ? OR (sales.updated_at = ? AND sales.id < ?))' : ''}
+      ORDER BY sales.updated_at DESC,sales.id DESC LIMIT ?`)
+      .all(...(after ? [after.updatedAt, after.updatedAt, after.id] : []), limit + 1);
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    res.json({ sales: page.map(row => ({ id: row.id, number: row.number, status: row.status,
+      wooOrderId: row.woo_order_id, paymentMethod: row.payment_method, refundedCents: row.refunded,
+      originalShiftId: row.shift_id, originalShiftStatus: row.original_shift_status || null,
+      cashPayoutUnverified: row.refunded > 0 && row.payment_method === 'cash', updatedAt: row.updated_at })),
+    hasMore, nextCursor: hasMore && last ? Buffer.from(JSON.stringify({ updatedAt: last.updated_at, id: last.id })).toString('base64url') : null,
+    note: 'Woo refunds are observations, not proof of a cash payout. Original closed shifts stay frozen. Cash payout/approval and later-shift treatment await an owner decision.' });
+  });
+  app.get('/api/sales/:id/events', auth, role('owner', 'manager'), (req, res) => {
+    sales.get(req.params.id, req.user);
+    const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 200);
+    res.json({ saleId: req.params.id, events: readSaleEvents(db, req.params.id, limit) });
   });
   app.post('/api/sales/prepare', auth, sensitiveLimit, async (req, res) => {
     const input = prepareSchema.parse(req.body);
@@ -274,10 +335,13 @@ export function createApp({ env = process.env, api: injectedApi, reservations: i
   app.post('/api/shifts/:id/close', auth, requireTrading, async (req, res) => res.json({ shift: shifts.close(req.user, req.params.id, closeShiftSchema.parse(req.body)) }));
   app.post('/api/shifts/:id/cash', auth, requireTrading, async (req, res) => res.json({ shift: shifts.movement(req.user, req.params.id, cashMovementSchema.parse(req.body)) }));
 
-  const settledStatuses = ['paid', 'partially_refunded', 'refunded'];
+  const recordedPaidStatuses = ['paid', 'partially_refunded', 'refunded', 'needs_reconciliation'];
   const reportRows = (user, since) => {
-    const sql = `SELECT * FROM sales WHERE status IN (${settledStatuses.map(() => '?').join(',')}) AND paid_at IS NOT NULL AND paid_at>=? ${user.role === 'cashier' ? 'AND cashier_id=?' : ''} ORDER BY paid_at ASC, id ASC`;
-    const params = [...settledStatuses, since.toISOString(), ...(user.role === 'cashier' ? [user.id] : [])];
+    // paid_at is the prior POS payment evidence. A later Woo discrepancy must
+    // flag that receipt for review, not silently remove its recorded cash or
+    // historical report row. An unconfirmed payment attempt has no paid_at.
+    const sql = `SELECT * FROM sales WHERE status IN (${recordedPaidStatuses.map(() => '?').join(',')}) AND paid_at IS NOT NULL AND paid_at>=? ${user.role === 'cashier' ? 'AND cashier_id=?' : ''} ORDER BY paid_at ASC, id ASC`;
+    const params = [...recordedPaidStatuses, since.toISOString(), ...(user.role === 'cashier' ? [user.id] : [])];
     return db.prepare(sql).all(...params).map(saleView);
   };
   app.get('/api/reports', auth, role('owner', 'manager'), (req, res) => {
@@ -288,13 +352,16 @@ export function createApp({ env = process.env, api: injectedApi, reservations: i
     const total = rows.reduce((sum, sale) => sum + net(sale), 0);
     const gross = rows.reduce((sum, sale) => sum + sale.total, 0);
     const refunded = rows.reduce((sum, sale) => sum + (sale.refunded || 0), 0);
-    const active = rows.filter(sale => sale.status !== 'refunded');
+    const active = rows.filter(sale => sale.refunded < sale.total);
     const methods = ['cash','momo','card'].map(method => { const matches = rows.filter(s => s.paymentMethod === method); return { method, count: matches.length, total: matches.reduce((sum,s) => sum + net(s), 0) }; });
     const saleTypes = ['retail','wholesale'].map(type => { const matches = rows.filter(s => s.saleType === type); return { type, count: matches.length, total: matches.reduce((sum,s) => sum + net(s), 0) }; });
     const daily = Array.from({ length: days }, (_, i) => { const date = new Date(since); date.setUTCDate(date.getUTCDate() + i); const key = date.toISOString().slice(0,10); const matches = rows.filter(s => s.paidAt?.startsWith(key)); return { date: key, total: matches.reduce((sum,s) => sum + net(s), 0), count: matches.length }; });
     const products = new Map();
     for (const sale of active) for (const item of sale.items) { const key = `${item.productId}:${item.variationId}`; const p = products.get(key) || { name: item.name, label: item.label, quantity: 0, total: 0 }; p.quantity += item.quantity; p.total += item.total; products.set(key,p); }
-    res.json({ days, since: since.toISOString(), total, gross, refunded, orders: rows.length, activeOrders: active.length, refundedOrders: rows.length - active.length, items: active.reduce((sum,s) => sum + s.items.reduce((n,i) => n + i.quantity,0),0), average: rows.length ? Math.round(total / rows.length) : 0, methods, saleTypes, daily, topProducts: [...products.values()].sort((a,b) => b.quantity - a.quantity).slice(0,8), sales: rows, scope: 'WooCommerce-linked Retail and Wholesale POS orders only; excludes any legacy POS-only In-store cash receipts and online website orders.' });
+    res.json({ days, since: since.toISOString(), total, gross, refunded, orders: rows.length, activeOrders: active.length, refundedOrders: rows.length - active.length,
+      reviewRequiredOrders: rows.filter(s => s.status === 'needs_reconciliation').length,
+      items: active.reduce((sum,s) => sum + s.items.reduce((n,i) => n + i.quantity,0),0), average: rows.length ? Math.round(total / rows.length) : 0, methods, saleTypes, daily, topProducts: [...products.values()].sort((a,b) => b.quantity - a.quantity).slice(0,8), sales: rows,
+      scope: 'Recorded POS payments, including previously paid receipts under review. Woo refunds are observations, not proof of cash payouts. Excludes legacy POS-only In-store cash receipts and online website orders.' });
   });
   app.get('/api/reports/export', auth, role('owner', 'manager'), (req, res) => {
     const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
@@ -317,8 +384,10 @@ export function createApp({ env = process.env, api: injectedApi, reservations: i
     if (problem) throw new AppError(problem, 400);
     if (db.prepare('SELECT id FROM users WHERE username=?').get(input.username.toLowerCase())) throw new AppError('That username is already in use.', 409);
     const id = randomUUID();
-    db.prepare('INSERT INTO users(id,username,name,role,password_hash,created_at,must_change_password) VALUES (?,?,?,?,?,?,1)').run(id,input.username.toLowerCase(),input.name,input.role,hashPassword(input.password),now());
-    audit(db, req.user.id, 'staff.created', id);
+    localTransaction(db, () => {
+      db.prepare('INSERT INTO users(id,username,name,role,password_hash,created_at,must_change_password) VALUES (?,?,?,?,?,?,1)').run(id,input.username.toLowerCase(),input.name,input.role,hashPassword(input.password),now());
+      audit(db, req.user.id, 'staff.created', id);
+    });
     res.status(201).json({ user: userView(db.prepare('SELECT * FROM users WHERE id=?').get(id)) });
   });
   app.post('/api/staff/:id/password', auth, role('owner'), sensitiveLimit, (req, res) => {
@@ -328,18 +397,22 @@ export function createApp({ env = process.env, api: injectedApi, reservations: i
     if (!row) throw new AppError('Staff member not found.', 404);
     const problem = passwordProblem(newPassword, row.username);
     if (problem) throw new AppError(problem, 400);
-    db.prepare('UPDATE users SET password_hash=?,must_change_password=1,failed_attempts=0,locked_until=NULL WHERE id=?').run(hashPassword(newPassword), req.params.id);
-    db.prepare('DELETE FROM sessions WHERE user_id=?').run(req.params.id);
-    audit(db, req.user.id, 'staff.password_reset', req.params.id);
+    localTransaction(db, () => {
+      db.prepare('UPDATE users SET password_hash=?,must_change_password=1,failed_attempts=0,locked_until=NULL WHERE id=?').run(hashPassword(newPassword), req.params.id);
+      db.prepare('DELETE FROM sessions WHERE user_id=?').run(req.params.id);
+      audit(db, req.user.id, 'staff.password_reset', req.params.id);
+    });
     res.json({ ok: true });
   });
   app.post('/api/staff/:id/status', auth, role('owner'), (req, res) => {
     const { active } = z.object({ active: z.boolean() }).parse(req.body);
     if (req.params.id === req.user.id) throw new AppError('You cannot deactivate your own account.', 400);
-    const result = db.prepare('UPDATE users SET active=? WHERE id=?').run(active ? 1 : 0,req.params.id);
-    if (!result.changes) throw new AppError('Staff member not found.', 404);
-    if (!active) db.prepare('DELETE FROM sessions WHERE user_id=?').run(req.params.id);
-    audit(db, req.user.id, active ? 'staff.activated' : 'staff.deactivated', req.params.id);
+    localTransaction(db, () => {
+      const result = db.prepare('UPDATE users SET active=? WHERE id=?').run(active ? 1 : 0,req.params.id);
+      if (!result.changes) throw new AppError('Staff member not found.', 404);
+      if (!active) db.prepare('DELETE FROM sessions WHERE user_id=?').run(req.params.id);
+      audit(db, req.user.id, active ? 'staff.activated' : 'staff.deactivated', req.params.id);
+    });
     res.json({ ok: true });
   });
   app.get('/api/audit', auth, role('owner'), (req, res) => {

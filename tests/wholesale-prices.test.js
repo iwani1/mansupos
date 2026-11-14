@@ -191,12 +191,16 @@ test('schema v6 upgrades without deleting prior prices or sales; previous defaul
     INSERT INTO schema_migrations VALUES (6, 'legacy fixture');
     CREATE TABLE app_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
     INSERT INTO app_meta VALUES ('mode', 'live');
+    INSERT INTO app_meta VALUES ('service_identity', 'live-pilot');
     CREATE TABLE users(id TEXT PRIMARY KEY, role TEXT NOT NULL);
     INSERT INTO users VALUES ('owner-1', 'owner');
     CREATE TABLE sessions(token_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
     CREATE TABLE demo_stock(line_key TEXT PRIMARY KEY);
-    CREATE TABLE sales(id TEXT PRIMARY KEY);
-    INSERT INTO sales VALUES ('paid-receipt-to-preserve');
+    CREATE TABLE shifts(id TEXT PRIMARY KEY);
+    CREATE TABLE cash_movements(id TEXT PRIMARY KEY);
+    CREATE TABLE audit(id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL, subject TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE sales(id TEXT PRIMARY KEY, woo_order_id INTEGER, shift_id TEXT);
+    INSERT INTO sales(id) VALUES ('paid-receipt-to-preserve');
     CREATE TABLE wholesale_prices (
       product_id INTEGER NOT NULL, variation_id INTEGER NOT NULL,
       parent_sku TEXT NOT NULL, option_sku TEXT NOT NULL, option_label TEXT NOT NULL,
@@ -206,6 +210,9 @@ test('schema v6 upgrades without deleting prior prices or sales; previous defaul
     );
     INSERT INTO wholesale_prices VALUES (6312, 6583, 'AUG-84', '', 'S', 7500, 42, 'owner-1', 'legacy fixture');
   `);
+  // The offline legacy identity-review flow is tested separately. This
+  // fixture models a ledger that was explicitly bound before the v9 upgrade.
+  legacy.prepare('INSERT INTO app_meta(key,value) VALUES (?,?)').run('ledger_uuid', crypto.randomUUID());
   legacy.close();
   const db = openDatabase(readConfig({ NODE_ENV: 'test', POS_MODE: 'live', POS_DATA_DIR: dir, POS_LIVE_READ_ONLY: 'true' }));
   t.after(() => db.close());

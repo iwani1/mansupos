@@ -1,5 +1,7 @@
 # Separate live cash POS on Contabo — preparation, not a go-live approval
 
+**Phase 1 hold:** the v9 identity, verified backup/restore and payment-recovery changes are still in isolated development. This document is **not** permission to install the trading template, open port 3188, create Woo credentials or bind/restore a pilot ledger. A future approved trading ledger must get its own `live-trading` service identity and UUID; it cannot be copied or relabeled from the `live-pilot` ledger. The later-shift cash-refund payout rule remains an owner decision; see [PHASE1-RELIABILITY.md](PHASE1-RELIABILITY.md).
+
 **Shared-stock change:** the client now wants the physical-source goods to share WooCommerce retail/Wholesale stock. The separate POS-only In-store cash cutover previously described in this guide is **superseded for those goods**. Keep `POS_INSTORE_CASH_APPROVED=false`; use [SHARED-WOO-STOCK.md](SHARED-WOO-STOCK.md) for the offline mapping and blockers. Nothing here permits a bulk Woo import or a cash sale.
 
 **Status:** repository package only. No live-trading service or Read/Write Woo key has been installed. The running `pos.mansutrendzgh.com` service is still the **read-only** catalogue on `127.0.0.1:3187`; its owner, ledger, Woo Read key, Nginx route and systemd unit must not be reused or unlocked. The other VPS app on port 3000 and GreenGeeks online Paystack checkout remain untouched. Do **not** stop the catalogue service or change the POS Nginx upstream yet.

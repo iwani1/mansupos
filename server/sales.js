@@ -4,6 +4,7 @@ import { audit, saleView } from './db.js';
 import { validateAvailability } from './catalog.js';
 import { ShiftService } from './shifts.js';
 import { normalizeItems } from './sale-inputs.js';
+import { localTransaction, saleEvent } from './sale-events.js';
 
 export { prepareSchema, paymentSchema, normalizeItems } from './sale-inputs.js';
 const methodNames = { cash: 'Cash', momo: 'Mobile Money (external)', card: 'Card (external terminal)' };
@@ -32,10 +33,14 @@ function wholesaleLayout(row, order) {
   let quote;
   try { quote = JSON.parse(row.trade_quote_json || '[]'); } catch { quote = []; }
   if (!Array.isArray(quote) || !quote.length) return { problem: 'The agreed wholesale quote is missing. Review the sale.' };
-  const meta = key => order.meta_data?.find(entry => entry.key === key)?.value;
+  if (!Array.isArray(order.meta_data)) return { problem: 'WooCommerce order approval metadata is missing. Review the wholesale order.' };
+  const meta = key => order.meta_data.find(entry => entry.key === key)?.value;
   const kind = meta('_mansu_pos_sale_type');
   const prefix = kind === 'trade' ? '_mansu_pos_trade_' : '_mansu_pos_wholesale_';
-  if (!['wholesale', 'trade'].includes(kind) ||
+  const approvalKeys = ['_mansu_pos_sale_type', '_mansu_pos_quote_hash',
+    ...['buyer_id', 'buyer', 'approver', 'approver_name', 'approved_at'].map(key => `${prefix}${key}`)];
+  if (approvalKeys.some(key => order.meta_data.filter(entry => entry.key === key).length > 1) ||
+      !['wholesale', 'trade'].includes(kind) ||
     (row.buyer_id ? meta(`${prefix}buyer_id`) !== row.buyer_id : Boolean(meta(`${prefix}buyer_id`))) ||
     (row.buyer_name ? meta(`${prefix}buyer`) !== row.buyer_name : Boolean(meta(`${prefix}buyer`))) ||
     meta(`${prefix}approver`) !== row.trade_approved_by_id ||
@@ -58,9 +63,11 @@ function wholesaleLayout(row, order) {
   for (const agreed of quote) {
     const item = lines.get(lineKey(agreed));
     if (!item || Number(item.quantity) !== agreed.quantity) return { problem: 'WooCommerce changed a wholesale product, option, or quantity. Review the order.' };
-    const itemMeta = key => item.meta_data?.find(entry => entry.key === key)?.value;
-    if (itemMeta('Mansu agreed unit gross (GHS)') !== asDecimal(agreed.agreedUnitPrice) ||
-      itemMeta('Mansu catalogue unit (GHS)') !== asDecimal(agreed.catalogueUnitPrice)) {
+    const itemMeta = key => Array.isArray(item.meta_data) ? item.meta_data.filter(entry => entry.key === key) : [];
+    const agreedNotes = itemMeta('Mansu agreed unit gross (GHS)');
+    const catalogueNotes = itemMeta('Mansu catalogue unit (GHS)');
+    if (agreedNotes.length !== 1 || agreedNotes[0].value !== asDecimal(agreed.agreedUnitPrice) ||
+      catalogueNotes.length !== 1 || catalogueNotes[0].value !== asDecimal(agreed.catalogueUnitPrice)) {
       return { problem: 'WooCommerce line price notes do not match the approved wholesale quote. Review the order.' };
     }
     pairs.push({ agreed, item });
@@ -93,7 +100,16 @@ function remotePaidAt(order) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 function remoteRefunded(order) {
-  return Math.abs((order.refunds || []).reduce((sum, refund) => sum + money(refund.total), 0));
+  if (order.refunds != null && !Array.isArray(order.refunds)) return NaN;
+  let refunded = 0;
+  for (const refund of order.refunds || []) {
+    const amount = cents(refund?.total);
+    // Woo's refund totals are negative amounts against the order. A missing,
+    // positive, or malformed entry must not silently erase a prior observation.
+    if (!Number.isSafeInteger(amount) || amount > 0) return NaN;
+    refunded -= amount;
+  }
+  return refunded;
 }
 function remotePaid(order) {
   return Boolean(remotePaidAt(order)) && ['processing', 'completed', 'refunded'].includes(order.status);
@@ -103,8 +119,9 @@ const wholesaleVerifiedSnapshot = order => JSON.stringify(order.line_items.map(i
 })).sort((a, b) => a.key.localeCompare(b.key)));
 function wholesalePaymentProblem(row, order) {
   if (!remotePaid(order)) return row.payment_method ? 'A wholesale payment recording was interrupted. Verify the external payment and Woo order before retrying.' : '';
-  const posRecord = order.meta_data?.find(meta => meta.key === '_mansu_pos_payment_recorded')?.value;
-  if (posRecord !== 'externally-collected' || !methodCodes[row.payment_method] || order.payment_method !== methodCodes[row.payment_method] ||
+  const records = Array.isArray(order.meta_data) ? order.meta_data.filter(meta => meta.key === '_mansu_pos_payment_recorded') : [];
+  if (records.length !== 1 || records[0].value !== 'externally-collected' ||
+    !methodCodes[row.payment_method] || order.payment_method !== methodCodes[row.payment_method] ||
     !Number.isSafeInteger(row.tendered) || row.tendered < cents(order.total) ||
     (row.payment_method !== 'cash' && (!row.payment_reference || order.transaction_id !== row.payment_reference))) {
     return 'The paid wholesale order has no matching, fully verified POS payment record. Do not release goods; review it first.';
@@ -112,14 +129,79 @@ function wholesalePaymentProblem(row, order) {
   return '';
 }
 function assertOrderIdentity(row, order) {
-  if (!order || !Number.isInteger(Number(order.id))) throw new AppError('WooCommerce returned an invalid order identity.', 502, 'RECONCILIATION_REQUIRED');
+  if (!order || !Number.isSafeInteger(Number(order.id)) || Number(order.id) < 1) throw new AppError('WooCommerce returned an invalid order identity.', 502, 'RECONCILIATION_REQUIRED');
   if (row.woo_order_id && Number(order.id) !== Number(row.woo_order_id)) throw new AppError('WooCommerce order identity did not match this sale.', 409, 'RECONCILIATION_REQUIRED');
-  const key = order.meta_data?.find(meta => meta.key === '_mansu_pos_key')?.value;
-  if (key !== row.idempotency_key) throw new AppError('WooCommerce order identity did not match this checkout.', 409, 'RECONCILIATION_REQUIRED');
+  const keys = order.meta_data?.filter(meta => meta.key === '_mansu_pos_key') || [];
+  if (keys.length !== 1 || keys[0].value !== row.idempotency_key) throw new AppError('WooCommerce order identity did not match this checkout.', 409, 'RECONCILIATION_REQUIRED');
+}
+
+function retailOrderProblem(row, order) {
+  let expected;
+  try { expected = JSON.parse(row.items_json); } catch { expected = null; }
+  if (!Array.isArray(expected) || !expected.length || !Array.isArray(order.line_items) || order.line_items.length !== expected.length) {
+    return 'WooCommerce order lines do not match the saved retail cart. Review the order.';
+  }
+  if (['fee_lines', 'coupon_lines', 'shipping_lines'].some(key => order[key] != null && (!Array.isArray(order[key]) || order[key].length)) ||
+      (order.shipping_total != null && cents(order.shipping_total) !== 0) ||
+      (order.discount_total != null && cents(order.discount_total) !== 0)) {
+    return 'WooCommerce added a fee, discount, or shipping to the POS order. Review the total.';
+  }
+  const lines = new Map();
+  let gross = 0;
+  for (const item of order.line_items) {
+    const key = lineKey(item);
+    const net = cents(item.total), tax = cents(item.total_tax), subtotal = cents(item.subtotal);
+    if (lines.has(key) || !Number.isSafeInteger(Number(item.product_id)) || Number(item.product_id) < 1 ||
+        !Number.isSafeInteger(Number(item.quantity)) || Number(item.quantity) < 1 ||
+        ![net, tax, subtotal].every(Number.isSafeInteger) || net < 0 || tax < 0 || subtotal !== net) {
+      return 'WooCommerce returned ambiguous retail product, option, quantity, or price. Review the order.';
+    }
+    lines.set(key, item);
+    gross += net + tax;
+  }
+  const taxTotal = order.line_items.reduce((sum, item) => sum + cents(item.total_tax), 0);
+  if (expected.some(item => {
+    const remote = lines.get(lineKey(item));
+    return Number(remote?.quantity) !== item.quantity ||
+      (item.total != null && item.total !== cents(remote.total)) ||
+      (item.tax != null && item.tax !== cents(remote.total_tax));
+  }) || !Number.isSafeInteger(gross) || gross !== cents(order.total) ||
+      !Number.isSafeInteger(taxTotal) || taxTotal !== cents(order.total_tax)) {
+    return 'WooCommerce changed the saved retail product, option, quantity, tax, or total. Review the order.';
+  }
+  return '';
+}
+
+function retailPaymentProblem(row, order) {
+  if (!remotePaid(order)) return '';
+  const records = order.meta_data?.filter(meta => meta.key === '_mansu_pos_payment_recorded') || [];
+  if (records.length !== 1 || records[0].value !== 'externally-collected' ||
+      !methodCodes[row.payment_method] || order.payment_method !== methodCodes[row.payment_method] ||
+      !Number.isSafeInteger(row.tendered) || row.tendered < cents(order.total) ||
+      (row.payment_method !== 'cash' && (!row.payment_reference || order.transaction_id !== row.payment_reference))) {
+    return 'The paid WooCommerce order has no matching POS payment intent and verified payment record. Do not release goods; review it first.';
+  }
+  return '';
 }
 
 export class SalesService {
   constructor(db, catalog, api, config) { this.db = db; this.catalog = catalog; this.api = api; this.config = config; this.locks = new Set(); this.shifts = new ShiftService(db, config); }
+  assertRemoteIdentity(row, order) {
+    assertOrderIdentity(row, order);
+    // A v9 sale has a durable local prepare event even if the process stopped
+    // BEFORE the create intent. Never link a found order if this POS did not
+    // record the remote-create intent first. Older v8 rows have no journal;
+    // accept absent legacy markers there, but never conflicting ones.
+    const newSale = this.db.prepare("SELECT 1 FROM sale_events WHERE sale_id=? AND event='sale.prepare_intent' LIMIT 1").get(row.id);
+    const createStarted = this.db.prepare("SELECT 1 FROM sale_events WHERE sale_id=? AND event='woo.create_started' LIMIT 1").get(row.id);
+    if (newSale && !createStarted) throw new AppError('No POS WooCommerce create intent exists for this checkout. Manual reconciliation required.', 409, 'RECONCILIATION_REQUIRED');
+    for (const [key, expected] of [['_mansu_pos_channel', 'mansu-pos'], ['_mansu_pos_cashier', row.cashier_id]]) {
+      const values = order.meta_data?.filter(meta => meta.key === key) || [];
+      if (values.length > 1 || (newSale && values.length !== 1) || (values.length === 1 && values[0].value !== expected)) {
+        throw new AppError('WooCommerce order origin/cashier identity does not match this POS sale. Manual reconciliation required.', 409, 'RECONCILIATION_REQUIRED');
+      }
+    }
+  }
   get(id, user) {
     const row = this.db.prepare('SELECT * FROM sales WHERE id=?').get(id);
     if (!row) throw new AppError('Sale not found.', 404);
@@ -161,7 +243,7 @@ export class SalesService {
   async repriceWholesaleOrder(row, created) {
     let order = created;
     for (let attempt = 0; attempt < 4; attempt++) {
-      assertOrderIdentity(row, order);
+      this.assertRemoteIdentity(row, order);
       if (order.currency !== this.config.currency || order.status !== 'pending' || remotePaid(order)) throw new AppError('The store did not return an unpaid GHS wholesale order. Review it before collecting payment.', 409, 'RECONCILIATION_REQUIRED');
       const layout = wholesaleLayout(row, order);
       if (layout.problem) throw new AppError(layout.problem, 409, 'RECONCILIATION_REQUIRED');
@@ -181,54 +263,126 @@ export class SalesService {
         updates.push({ id: item.id, subtotal: asDecimal(nextNet), total: asDecimal(nextNet) });
       }
       if (!updates.length) throw new AppError(problem, 409, 'RECONCILIATION_REQUIRED');
+      saleEvent(this.db, row.id, 'woo.wholesale_reprice_started', row.trade_approved_by_id || 'system', { wooOrderId: row.woo_order_id, details: { attempt: attempt + 1 } });
       order = await this.api.updateOrder(row.woo_order_id, { line_items: updates });
+      this.assertRemoteIdentity(row, order);
+      saleEvent(this.db, row.id, 'woo.wholesale_reprice_observed', row.trade_approved_by_id || 'system', { wooOrderId: row.woo_order_id });
     }
     throw new AppError('WooCommerce could not reproduce the agreed tax-inclusive wholesale price exactly. Leave the order unpaid and review tax settings.', 409, 'RECONCILIATION_REQUIRED');
   }
-  saveRemote(row, order) {
-    assertOrderIdentity(row, order);
-    const total = money(order.total);
+  saveRemote(row, order, actorId = 'system') {
+    this.assertRemoteIdentity(row, order);
+    const linked = this.db.prepare('SELECT id FROM sales WHERE woo_order_id=? AND id<>?').get(Number(order.id), row.id);
+    if (linked) throw new AppError('WooCommerce order is already linked to another POS sale. Review both receipts; do not collect payment.', 409, 'RECONCILIATION_REQUIRED');
+    const total = cents(order.total);
     const refunded = remoteRefunded(order);
+    if (!Number.isSafeInteger(total) || total < 1 || !Number.isSafeInteger(refunded) || refunded > total) {
+      throw new AppError('WooCommerce returned an invalid order/refund total. Review the order.', 409, 'RECONCILIATION_REQUIRED');
+    }
     const paid = remotePaid(order);
-    const currency = order.currency || this.config.currency;
+    const currency = order.currency || '';
     let status;
     let error = null;
     if (currency !== this.config.currency) {
       status = 'needs_reconciliation';
-      error = `The connected store returned ${currency}, not ${this.config.currency}. Review the WooCommerce order before recording payment.`;
+      error = `The connected store returned ${currency || 'no currency'}, not ${this.config.currency}. Review the WooCommerce order before recording payment.`;
     } else if (paid) {
-      status = refunded >= total && total > 0 ? 'refunded' : refunded > 0 ? 'partially_refunded' : 'paid';
+      status = refunded >= total ? 'refunded' : refunded > 0 ? 'partially_refunded' : 'paid';
+      if (order.status === 'refunded' && refunded === 0) {
+        status = 'needs_reconciliation';
+        error = 'WooCommerce says this order is refunded but returned no refund amounts. Review Woo and any actual cash payout.';
+      }
     } else if (['cancelled', 'trash', 'failed'].includes(order.status)) {
       status = 'cancelled';
     } else if (order.status === 'pending' && !remotePaidAt(order)) {
       status = 'awaiting_payment';
     } else {
       // A REST-created POS order is not automatically protected by Woo's
-      // checkout hold/cancellation hooks. In particular, an unpaid on-hold or
-      // custom status is not permission to collect cash or cancel remotely.
+      // checkout hold/cancellation hooks. Unpaid on-hold is not permission to
+      // collect cash, cancel remotely or release goods.
       status = 'needs_reconciliation';
       error = 'WooCommerce did not return an unpaid pending order or a confirmed paid order. Review its status before collecting payment or releasing goods.';
     }
     let verified = row.trade_verified_json;
+    let lineProblem = '';
     if (row.sale_type === 'trade') {
       const problem = wholesaleOrderProblem(row, order);
       const snapshot = !problem ? wholesaleVerifiedSnapshot(order) : null;
       const mismatch = verified && snapshot && verified !== snapshot;
       const paymentProblem = wholesalePaymentProblem(row, order);
-      if (problem || mismatch || paymentProblem || (paid && !verified)) {
+      lineProblem = problem || (mismatch ? 'WooCommerce line tax or net amount changed after the approved wholesale quote was verified. Review the order.' : '');
+      if (lineProblem || paymentProblem || (paid && !verified)) {
         status = 'needs_reconciliation';
-        error = problem || (mismatch ? 'WooCommerce line tax or net amount changed after the approved wholesale quote was verified. Review the order.' : paymentProblem || 'The wholesale quote was not verified before payment. Review the order.');
+        error = lineProblem || paymentProblem || 'The wholesale quote was not verified before payment. Review the order.';
       } else if (status === 'awaiting_payment' && !verified) {
         verified = snapshot;
       }
+    } else {
+      lineProblem = retailOrderProblem(row, order);
+      const paymentProblem = retailPaymentProblem(row, order);
+      if (lineProblem || paymentProblem) {
+        status = 'needs_reconciliation';
+        error = lineProblem || paymentProblem;
+      }
     }
+    if (isSettled(row.status) && !paid) {
+      status = 'needs_reconciliation';
+      error = 'A previously paid POS sale is no longer paid in WooCommerce. Review both records and the physical cash before changing anything.';
+    }
+    if (!isSettled(row.status) && refunded > 0) {
+      status = 'needs_reconciliation';
+      error = 'WooCommerce shows a refund before POS payment was confirmed. Review the external payment and cash before releasing goods.';
+    }
+    if (refunded < row.refunded) {
+      status = 'needs_reconciliation';
+      error = 'The WooCommerce refund total decreased. Review the original refund and cash payout before changing the POS record.';
+    }
+    if (row.prepared_total > 0 && total !== row.prepared_total) {
+      status = 'needs_reconciliation';
+      error = 'The WooCommerce gross total changed after preparation. Preserve the original receipt and review the order before further payment or fulfilment.';
+    }
+    const paidAt = paid ? remotePaidAt(order) : null;
+    if (row.paid_at && paidAt && paidAt !== row.paid_at) {
+      status = 'needs_reconciliation';
+      error = 'The WooCommerce payment timestamp changed after the POS receipt was recorded. Review both histories before changing the sale.';
+    }
+    if (!paid && row.payment_method) {
+      status = 'needs_reconciliation';
+      error = 'A previous POS payment attempt is not confirmed paid in WooCommerce. Review cash and the remote order before another attempt, even if Woo cancelled the order.';
+    }
+    const originals = JSON.parse(row.items_json || '[]');
     const items = (order.line_items || []).map(item => {
-      const original = JSON.parse(row.items_json || '[]').find(i => i.productId === item.product_id && i.variationId === (item.variation_id || 0));
+      const original = originals.find(i => i.productId === item.product_id && i.variationId === (item.variation_id || 0));
       return { productId: item.product_id, variationId: item.variation_id || 0, name: item.name, label: item.meta_data?.find(m => ['Size', 'size'].includes(m.key))?.value || original?.label || '', sku: item.sku || '', image: original?.image || '', price: money(item.price), quantity: item.quantity, total: money(item.total), tax: money(item.total_tax) };
     });
-    this.db.prepare('UPDATE sales SET woo_order_id=?,number=?,status=?,total=?,tax=?,subtotal=?,refunded=?,currency=?,items_json=?,trade_verified_json=?,prepared_total=?,updated_at=?,paid_at=?,error=? WHERE id=?')
-      .run(order.id, `${this.config.mode === 'live' ? 'WC' : 'STG'}-${order.number || order.id}`, status, total, money(order.total_tax), (order.line_items || []).reduce((sum, i) => sum + money(i.subtotal), 0), refunded, currency, JSON.stringify(items), verified,
-        row.sale_type === 'trade' && verified && !row.prepared_total ? total : row.prepared_total, now(), paid ? remotePaidAt(order) : null, error, row.id);
+    // A Woo refund can disappear or change remotely. Never lower an amount
+    // already observed in the POS ledger without a separately reviewed repair.
+    const recordedRefund = Math.max(row.refunded, refunded);
+    // The first verified Woo order snapshots the receipt. A later Woo edit or
+    // uncertain state must not silently replace its gross, lines, tax, number
+    // or original paid timestamp (especially after the sale shift has closed).
+    const preserveReceipt = Boolean(row.woo_order_id && row.total > 0 &&
+      (row.paid_at || isSettled(row.status) || status === 'needs_reconciliation'));
+    const recordedTotal = preserveReceipt ? row.total : total;
+    const changed = row.woo_order_id !== Number(order.id) || row.status !== status || row.total !== recordedTotal || row.refunded !== recordedRefund || row.error !== error;
+    localTransaction(this.db, () => {
+      this.db.prepare('UPDATE sales SET woo_order_id=?,number=?,status=?,total=?,tax=?,subtotal=?,refunded=?,currency=?,items_json=?,trade_verified_json=?,prepared_total=?,updated_at=?,paid_at=?,error=? WHERE id=?')
+        .run(Number(order.id), preserveReceipt ? row.number : `${this.config.mode === 'live' ? 'WC' : 'STG'}-${order.number || order.id}`,
+          status, recordedTotal, preserveReceipt ? row.tax : money(order.total_tax),
+          preserveReceipt ? row.subtotal : (order.line_items || []).reduce((sum, i) => sum + money(i.subtotal), 0),
+          recordedRefund, preserveReceipt ? row.currency : currency,
+          preserveReceipt || status === 'needs_reconciliation' ? row.items_json : JSON.stringify(items), verified,
+          status === 'awaiting_payment' && !row.prepared_total && (row.sale_type !== 'trade' || verified) ? total : row.prepared_total,
+          now(), row.paid_at || (isSettled(status) ? paidAt : null), error, row.id);
+      if (changed) saleEvent(this.db, row.id, 'woo.state_observed', actorId, { wooOrderId: Number(order.id), details: {
+        status, remoteStatus: ['pending', 'processing', 'completed', 'refunded', 'cancelled', 'failed', 'trash'].includes(order.status) ? order.status : 'other',
+        remoteTotalCents: total, remoteCurrency: /^[A-Z]{3}$/.test(currency) ? currency : 'invalid',
+      } });
+      if (refunded > row.refunded) saleEvent(this.db, row.id, 'refund.observed', actorId, { wooOrderId: Number(order.id), amountCents: refunded - row.refunded,
+        details: { totalRefundedCents: refunded, originalShiftId: row.shift_id || null, cashPayoutUnverified: row.payment_method === 'cash' } });
+      if (refunded < row.refunded && changed) saleEvent(this.db, row.id, 'refund.decreased_remotely', actorId, { wooOrderId: Number(order.id),
+        details: { remoteRefundedCents: refunded, preservedRefundedCents: row.refunded } });
+    });
     if (paid || isSettled(status)) this.catalog.invalidate();
     return this.get(row.id, { role: 'owner' });
   }
@@ -282,15 +436,22 @@ export class SalesService {
       const id = randomUUID();
       const time = now();
       const number = `DEMO-${id.slice(0, 8).toUpperCase()}`;
-      this.db.prepare('INSERT INTO sales(id,idempotency_key,fingerprint,number,status,currency,cashier_id,cashier_name,note,created_at,updated_at,shift_id,sale_type,buyer_id,buyer_name,trade_quote_json,trade_approved_by_id,trade_approved_by_name,trade_approved_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, input.idempotencyKey, hash, number, 'creating', this.config.currency, user.id, user.name, input.note, time, time, shift?.id || null,
-          // v4 has a `trade` CHECK constraint. Map the replacement workflow to
-          // that durable legacy discriminator so existing ledgers never lose data.
-          saleType === 'wholesale' ? 'trade' : 'retail', buyer?.id || null, buyerName, saleType === 'wholesale' ? JSON.stringify(items) : null,
-          saleType === 'wholesale' ? user.id : null, saleType === 'wholesale' ? user.name : null, saleType === 'wholesale' ? time : null);
+      localTransaction(this.db, () => {
+        this.db.prepare('INSERT INTO sales(id,idempotency_key,fingerprint,number,status,currency,cashier_id,cashier_name,note,created_at,updated_at,shift_id,sale_type,buyer_id,buyer_name,trade_quote_json,trade_approved_by_id,trade_approved_by_name,trade_approved_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .run(id, input.idempotencyKey, hash, number, 'creating', this.config.currency, user.id, user.name, input.note, time, time, shift?.id || null,
+            // v4's CHECK constraint uses `trade` for historical Wholesale.
+            saleType === 'wholesale' ? 'trade' : 'retail', buyer?.id || null, buyerName, saleType === 'wholesale' ? JSON.stringify(items) : null,
+            saleType === 'wholesale' ? user.id : null, saleType === 'wholesale' ? user.name : null, saleType === 'wholesale' ? time : null);
+        saleEvent(this.db, id, 'sale.prepare_intent', user.id, { amountCents: agreedTotal || null,
+          details: { saleType, shiftId: shift?.id || null, lineCount: items.length } });
+      });
+      let remoteAttempted = false;
       try {
         const lines = await this.catalog.fresh(items);
         validateAvailability(lines);
+        if (saleType === 'retail' && lines.some(line => !Number.isSafeInteger(line.price) || line.price < 1)) {
+          throw new AppError('A retail item has no positive WooCommerce price. Review it before preparing a cash order.', 409, 'PRICE_UNAVAILABLE');
+        }
         const quote = saleType === 'wholesale' ? items.map((item, index) => ({ ...item, catalogueUnitPrice: lines[index].price })) : null;
         if (quote?.some(item => !Number.isSafeInteger(item.catalogueUnitPrice) || item.catalogueUnitPrice < 0)) {
           throw new AppError('The current catalogue price could not be verified. Refresh the product before preparing a wholesale order.', 409);
@@ -299,12 +460,18 @@ export class SalesService {
           name: line.name, label: line.label, sku: line.sku, image: line.image, price: line.price, cataloguePrice: line.price }));
         // Save the catalogue snapshot and agreement before any remote write, so
         // an interrupted Woo response still has the exact approved terms.
-        this.db.prepare('UPDATE sales SET items_json=?,trade_quote_json=? WHERE id=?').run(JSON.stringify(draft), quote ? JSON.stringify(quote) : null, id);
+        localTransaction(this.db, () => {
+          this.db.prepare('UPDATE sales SET items_json=?,trade_quote_json=? WHERE id=?').run(JSON.stringify(draft), quote ? JSON.stringify(quote) : null, id);
+          saleEvent(this.db, id, 'sale.cart_verified', user.id, { details: { lineCount: draft.length } });
+        });
         if (this.config.mode === 'demo') {
           const agreed = new Map(quote?.map(item => [lineKey(item), item.agreedUnitPrice]));
           const savedLines = draft.map(line => ({ ...line, total: (saleType === 'wholesale' ? agreed.get(lineKey(line)) : line.price) * line.quantity, tax: 0 }));
           const total = savedLines.reduce((sum, line) => sum + line.total, 0);
-          this.db.prepare('UPDATE sales SET status=?,total=?,prepared_total=?,subtotal=?,items_json=? WHERE id=?').run('awaiting_payment', total, total, total, JSON.stringify(savedLines), id);
+          localTransaction(this.db, () => {
+            this.db.prepare('UPDATE sales SET status=?,total=?,prepared_total=?,subtotal=?,items_json=? WHERE id=?').run('awaiting_payment', total, total, total, JSON.stringify(savedLines), id);
+            saleEvent(this.db, id, 'sale.prepared', user.id, { amountCents: total, details: { mode: 'demo' } });
+          });
         } else {
           const row = this.get(id, user);
           const meta = [{ key: '_mansu_pos_key', value: input.idempotencyKey }, { key: '_mansu_pos_channel', value: 'mansu-pos' }, { key: '_mansu_pos_cashier', value: user.id }];
@@ -317,6 +484,8 @@ export class SalesService {
             { key: '_mansu_pos_wholesale_approved_at', value: time },
             { key: '_mansu_pos_quote_hash', value: quoteHash(row, quote) },
           );
+          saleEvent(this.db, id, 'woo.create_started', user.id, { details: { saleType } });
+          remoteAttempted = true;
           const created = await this.api.createOrder({
             status: 'pending', payment_method: '', payment_method_title: 'In-store payment pending',
             ...(buyerName ? { billing: { first_name: buyerName } } : {}),
@@ -327,18 +496,28 @@ export class SalesService {
               ] } : {}) })),
             shipping: [], customer_note: input.note, meta_data: meta,
           });
-          this.db.prepare('UPDATE sales SET woo_order_id=? WHERE id=?').run(created.id, id);
+          this.assertRemoteIdentity(row, created);
+          localTransaction(this.db, () => {
+            this.db.prepare('UPDATE sales SET woo_order_id=? WHERE id=?').run(Number(created.id), id);
+            saleEvent(this.db, id, 'woo.create_observed', user.id, { wooOrderId: Number(created.id) });
+          });
           const order = saleType === 'wholesale' ? await this.repriceWholesaleOrder(this.get(id, user), created) : created;
-          const saved = this.saveRemote(this.get(id, user), order);
+          const saved = this.saveRemote(this.get(id, user), order, user.id);
           if (saved.status !== 'awaiting_payment') throw new AppError(saved.error || 'WooCommerce did not return a payable pending order. Review Sales before retrying.', 409, 'RECONCILIATION_REQUIRED');
-          if (saleType !== 'wholesale') this.db.prepare('UPDATE sales SET prepared_total=? WHERE id=?').run(saved.total, id);
         }
-        audit(this.db, user.id, saleType === 'wholesale' ? 'sale.wholesale_prepared' : 'sale.prepared', id);
+        localTransaction(this.db, () => {
+          audit(this.db, user.id, saleType === 'wholesale' ? 'sale.wholesale_prepared' : 'sale.prepared', id);
+          if (this.config.mode !== 'demo') saleEvent(this.db, id, 'sale.prepared', user.id, { wooOrderId: this.get(id, user).woo_order_id });
+        });
         return saleView(this.get(id, user));
       } catch (error) {
-        const mayExistRemotely = Boolean(this.get(id, user).woo_order_id);
-        this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run(error.uncertain || mayExistRemotely ? 'needs_reconciliation' : 'failed', error.message, now(), id);
-        if (error instanceof AppError && !error.uncertain && !mayExistRemotely) throw error;
+        const mayExistRemotely = remoteAttempted || Boolean(this.get(id, user).woo_order_id);
+        localTransaction(this.db, () => {
+          this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run(mayExistRemotely ? 'needs_reconciliation' : 'failed', error.message, now(), id);
+          saleEvent(this.db, id, mayExistRemotely ? 'woo.create_uncertain' : 'sale.prepare_failed', user.id,
+            { details: { code: error.code || 'ERROR', remoteAttempted } });
+        });
+        if (error instanceof AppError && !mayExistRemotely) throw error;
         throw new AppError('Checkout was interrupted. Do not create another order; reconcile this sale from Sales first.', 502, 'RECONCILIATION_REQUIRED');
       }
     });
@@ -368,6 +547,7 @@ export class SalesService {
         this.db.prepare('UPDATE sales SET status=?,payment_method=?,payment_reference=?,tendered=?,change_due=?,paid_at=?,updated_at=?,error=NULL WHERE id=?')
           .run('paid', payment.method, reference, tendered, tendered - total, now(), now(), id);
         audit(this.db, user.id, 'sale.paid', `${id}:${payment.method}`);
+        saleEvent(this.db, id, 'payment.verified', user.id, { amountCents: total, details: { method: payment.method, mode: 'demo' } });
         return saleView(this.get(id, user));
       };
       if (this.config.mode === 'demo') {
@@ -384,62 +564,93 @@ export class SalesService {
           return result;
         } catch (error) { this.db.exec('ROLLBACK'); throw error; }
       }
+      let remoteAttempted = false;
       try {
         if (!row.woo_order_id) throw new AppError('This sale has no WooCommerce order to pay.', 409, 'RECONCILIATION_REQUIRED');
         const current = await this.api.order(row.woo_order_id);
-        assertOrderIdentity(row, current);
+        this.assertRemoteIdentity(row, current);
         if (current.currency !== this.config.currency) {
-          this.saveRemote(row, current);
+          this.saveRemote(row, current, user.id);
           throw new AppError(`The connected store returned ${current.currency}, not ${this.config.currency}. Reconcile this sale before recording payment.`, 409, 'RECONCILIATION_REQUIRED');
         }
         if (['cancelled', 'trash', 'failed'].includes(current.status)) {
-          this.saveRemote(row, current);
+          this.saveRemote(row, current, user.id);
           throw new AppError('WooCommerce shows this order as cancelled or failed. Do not record payment against it.', 409, 'ORDER_CANCELLED');
         }
-        if (!remotePaid(current) && (current.status !== 'pending' || remotePaidAt(current))) {
-          this.saveRemote(row, current);
+        if (remotePaid(current)) {
+          // Never manufacture a POS cash intent merely because someone else
+          // marked a Woo order paid. A prior saved intent + POS marker must
+          // match before an interrupted payment can be considered recovered.
+          const saved = this.saveRemote(row, current, user.id);
+          if (!isSettled(saved.status)) throw new AppError('WooCommerce payment has no matching prior POS intent. Review the actual cash before release.', 409, 'RECONCILIATION_REQUIRED');
+          localTransaction(this.db, () => {
+            saleEvent(this.db, id, 'payment.verified', user.id, { wooOrderId: row.woo_order_id, amountCents: saved.total, details: { recovered: true } });
+            audit(this.db, user.id, 'sale.paid', `${id}:${saved.payment_method}`);
+          });
+          return saleView(saved);
+        }
+        if (current.status !== 'pending' || remotePaidAt(current)) {
+          this.saveRemote(row, current, user.id);
           throw new AppError('WooCommerce does not show an unpaid pending order. Do not collect cash or release goods; review this order in WooCommerce.', 409, 'ORDER_NOT_PAYABLE');
         }
-        const currentTotal = money(current.total);
-        if (currentTotal !== total) {
-          this.saveRemote(row, current);
-          this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run('needs_reconciliation', `WooCommerce total changed from ${(total / 100).toFixed(2)} to ${(currentTotal / 100).toFixed(2)}. Review the order before recording payment.`, now(), id);
+        const currentTotal = cents(current.total);
+        if (!Number.isSafeInteger(currentTotal) || currentTotal !== total) {
+          if (Number.isSafeInteger(currentTotal)) this.saveRemote(row, current, user.id);
           throw new AppError('The WooCommerce total changed after preparation. Reconcile this sale before recording payment.', 409, 'TOTAL_CHANGED');
+        }
+        if (row.sale_type !== 'trade' && retailOrderProblem(row, current)) {
+          this.saveRemote(row, current, user.id);
+          throw new AppError('The WooCommerce product, option, or quantity changed. Do not collect payment.', 409, 'RETAIL_ORDER_CHANGED');
         }
         if (row.sale_type === 'trade' && (current.status !== 'pending' || !row.trade_verified_json ||
           wholesaleOrderProblem(row, current) || wholesaleVerifiedSnapshot(current) !== row.trade_verified_json || cents(current.total_tax) !== row.tax)) {
-          this.saveRemote(row, current);
+          this.saveRemote(row, current, user.id);
           throw new AppError('The wholesale order changed after price approval. Do not collect payment; reconcile it first.', 409, 'WHOLESALE_QUOTE_CHANGED');
         }
         validateAvailability(await this.catalog.fresh(JSON.parse(row.items_json).map(i => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }))));
         if (payment.method === 'cash' && payment.tendered < currentTotal) throw new AppError('Cash received must cover the WooCommerce order total.', 400);
-        // Persist the intended payment record before the remote write so a lost response can be reconciled.
-        this.db.prepare('UPDATE sales SET payment_method=?,payment_reference=?,tendered=?,change_due=? WHERE id=?').run(payment.method, reference, tendered, tendered - currentTotal, id);
-        if (remotePaid(current)) {
-          const saved = this.saveRemote(this.get(id, user), current);
-          if (!isSettled(saved.status)) throw new AppError('WooCommerce payment state needs review.', 409, 'RECONCILIATION_REQUIRED');
-          audit(this.db, user.id, 'sale.paid', `${id}:${payment.method}`);
-          return saleView(saved);
+        // Persist intent BEFORE the remote write. Do not overwrite a previous
+        // interrupted intent with different method, amount or reference.
+        if (row.payment_method && (row.payment_method !== payment.method || row.payment_reference !== reference || row.tendered !== tendered)) {
+          throw new AppError('A different payment attempt is already recorded. Review it before another payment.', 409, 'PAYMENT_INTENT_MISMATCH');
         }
+        localTransaction(this.db, () => {
+          this.db.prepare('UPDATE sales SET payment_method=?,payment_reference=?,tendered=?,change_due=? WHERE id=?').run(payment.method, reference, tendered, tendered - currentTotal, id);
+          saleEvent(this.db, id, 'payment.intent', user.id, { wooOrderId: row.woo_order_id, amountCents: currentTotal,
+            details: { method: payment.method, shiftId: row.shift_id || null } });
+          saleEvent(this.db, id, 'woo.payment_started', user.id, { wooOrderId: row.woo_order_id });
+        });
+        remoteAttempted = true;
         const order = await this.api.updateOrder(row.woo_order_id, {
           status: this.config.orderStatus, set_paid: true,
           payment_method: methodCodes[payment.method], payment_method_title: methodNames[payment.method],
           transaction_id: reference,
           meta_data: [{ key: '_mansu_pos_payment_recorded', value: 'externally-collected' }, { key: '_mansu_pos_paid_at', value: now() }],
         });
-        assertOrderIdentity(row, order);
-        const saved = this.saveRemote(this.get(id, user), order);
+        this.assertRemoteIdentity(row, order);
+        const saved = this.saveRemote(this.get(id, user), order, user.id);
         if (saved.currency !== this.config.currency || saved.total !== currentTotal || (payment.method === 'cash' && saved.tendered < saved.total)) {
-          this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run('needs_reconciliation', 'WooCommerce changed the order during payment confirmation. Owner must review the remote order before taking further payment.', now(), id);
           throw new AppError('Payment confirmation needs reconciliation. Do not collect a second payment or create a new order.', 502, 'RECONCILIATION_REQUIRED');
         }
         if (!isSettled(saved.status)) throw new AppError('WooCommerce has not confirmed payment. Reconcile this sale before retrying.', 409, 'RECONCILIATION_REQUIRED');
-        audit(this.db, user.id, 'sale.paid', `${id}:${payment.method}`);
+        localTransaction(this.db, () => {
+          saleEvent(this.db, id, 'payment.verified', user.id, { wooOrderId: row.woo_order_id, amountCents: saved.total, details: { method: payment.method } });
+          audit(this.db, user.id, 'sale.paid', `${id}:${payment.method}`);
+        });
         return saleView(saved);
       } catch (error) {
-        const status = error.code === 'ORDER_CANCELLED' ? 'cancelled' : 'needs_reconciliation';
-        this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run(status, error.message || 'Payment confirmation was interrupted. Check the WooCommerce order before taking another payment.', now(), id);
-        if (error instanceof AppError && ['TOTAL_CHANGED', 'ORDER_CANCELLED', 'WHOLESALE_QUOTE_CHANGED'].includes(error.code)) throw error;
+        const latest = this.get(id, user);
+        const hasPaymentIntent = Boolean(latest.payment_method);
+        const status = error.code === 'ORDER_CANCELLED' && !hasPaymentIntent && !remoteAttempted ? 'cancelled' : 'needs_reconciliation';
+        // saveRemote may already have recorded a more precise discrepancy. Do
+        // not replace it with a generic payment error on the same request.
+        const reviewError = latest.status === 'needs_reconciliation' && latest.error ? latest.error : error.message;
+        localTransaction(this.db, () => {
+          this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run(status, reviewError || 'Payment confirmation was interrupted. Check the WooCommerce order before taking another payment.', now(), id);
+          saleEvent(this.db, id, remoteAttempted ? 'woo.payment_uncertain' : 'payment.review_required', user.id,
+            { wooOrderId: row.woo_order_id, details: { code: error.code || 'ERROR', remoteAttempted } });
+        });
+        if (error instanceof AppError && ['TOTAL_CHANGED', 'ORDER_CANCELLED', 'WHOLESALE_QUOTE_CHANGED', 'RETAIL_ORDER_CHANGED', 'PAYMENT_INTENT_MISMATCH'].includes(error.code)) throw error;
         if (error instanceof AppError && !error.uncertain && error.code !== 'WOOCOMMERCE_ERROR' && error.code !== 'RECONCILIATION_REQUIRED') throw error;
         throw new AppError('Payment confirmation needs reconciliation. Do not collect a second payment or create a new order.', 502, 'RECONCILIATION_REQUIRED');
       }
@@ -449,23 +660,39 @@ export class SalesService {
     return this.exclusive(`sale:${id}`, async () => {
       const row = this.get(id, user);
       if (this.config.mode === 'demo') throw new AppError('Demo sales do not connect to WooCommerce.', 400);
+      if (this.config.liveReadOnly) throw new AppError('The catalogue pilot cannot inspect Woo orders or change sale records.', 403, 'CHECKOUT_LOCKED');
       try {
         const order = row.woo_order_id ? await this.api.order(row.woo_order_id) : await this.api.findOrderByKey(row.idempotency_key, row.created_at);
-        if (!order) {
-          this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run('needs_reconciliation', 'No matching WooCommerce order found in the recent search window. Owner must verify in WooCommerce before retrying.', now(), id);
-          throw new AppError('No matching order found. Do not retry checkout until the owner has verified WooCommerce.', 409, 'RECONCILIATION_REQUIRED');
-        }
-        assertOrderIdentity(row, order);
-        const saved = saleView(this.saveRemote(row, order));
-        audit(this.db, user.id, 'sale.reconciled', id);
+        if (!order) throw new AppError('No matching order found in the bounded search. Do not retry checkout until an owner has independently verified WooCommerce.', 409, 'RECONCILIATION_REQUIRED');
+        const saved = saleView(this.saveRemote(row, order, user.id));
+        if ((!isSettled(row.status) && isSettled(saved.status)) || user.id !== 'system') localTransaction(this.db, () => {
+          if (!isSettled(row.status) && isSettled(saved.status)) {
+            saleEvent(this.db, id, 'payment.verified', user.id, { wooOrderId: saved.wooOrderId, amountCents: saved.total, details: { recovered: true } });
+            audit(this.db, user.id, 'sale.paid', `${id}:${saved.paymentMethod}`);
+          }
+          if (user.id !== 'system') {
+            saleEvent(this.db, id, 'reconcile.checked', user.id, { wooOrderId: saved.wooOrderId, details: { status: saved.status } });
+            audit(this.db, user.id, saved.status !== row.status ? 'sale.reconciled' : 'sale.reconcile_checked', id);
+          }
+        });
         return saved;
+      } catch (error) {
+        localTransaction(this.db, () => {
+          if (!isSettled(row.status) || error.code === 'RECONCILIATION_REQUIRED') {
+            this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?')
+              .run('needs_reconciliation', 'Remote order identity or state could not be verified. Owner review required before retrying.', now(), id);
+          }
+          if (user.id !== 'system' || !isSettled(row.status)) saleEvent(this.db, id, 'reconcile.failed', user.id,
+            { wooOrderId: row.woo_order_id, details: { code: error.code || 'ERROR' } });
+        });
+        throw error;
       } finally {
         this.markReconcileAttempt(id);
       }
     });
   }
   async reconcilePending(user = { id: 'system', role: 'owner', name: 'System' }, limit = 20) {
-    if (this.config.mode === 'demo' || !this.config.configured) return { checked: 0, reconciled: 0, failed: 0 };
+    if (this.config.mode === 'demo' || this.config.liveReadOnly || !this.config.configured) return { checked: 0, reconciled: 0, failed: 0 };
     const paidBefore = new Date(Date.now() - 3600000).toISOString();
     const cooldown = new Date(Date.now() - 30000).toISOString();
     const rows = this.db.prepare(`SELECT id FROM sales WHERE (
@@ -488,6 +715,7 @@ export class SalesService {
       const row = this.get(id, user);
       if (row.status === 'cancelled') return saleView(row);
       if (!['awaiting_payment', 'failed'].includes(row.status)) throw new AppError('Only an unpaid, known order can be cancelled here. Handle paid orders and refunds in WooCommerce.', 409);
+      if (row.payment_method) throw new AppError('A POS payment attempt is recorded. Verify the Woo order and physical payment before cancelling.', 409, 'RECONCILIATION_REQUIRED');
       // Cancelling a pending Woo order is itself a remote write. Closing either
       // gate must not leave a path that still mutates the store.
       if (this.config.mode !== 'demo' && !this.config.writesEnabled) throw new AppError('WooCommerce writes are locked. Ask the owner to review the unpaid order in WooCommerce.', 403, 'CHECKOUT_LOCKED');
@@ -495,31 +723,39 @@ export class SalesService {
       if (this.config.mode !== 'demo' && row.woo_order_id) {
         try {
           const current = await this.api.order(row.woo_order_id);
-          assertOrderIdentity(row, current);
+          this.assertRemoteIdentity(row, current);
           if (remotePaid(current)) {
-            this.saveRemote(row, current);
+            this.saveRemote(row, current, user.id);
             throw new AppError('WooCommerce shows this order as paid. Handle refunds in WooCommerce instead of cancelling.', 409, 'ORDER_ALREADY_PAID');
           }
           if ((current.status !== 'pending' && current.status !== 'cancelled') || (current.status === 'pending' && remotePaidAt(current))) {
-            this.saveRemote(row, current);
+            this.saveRemote(row, current, user.id);
             throw new AppError('WooCommerce does not show an unpaid pending order. Do not cancel it from the POS; review payment and fulfilment in WooCommerce.', 409, 'ORDER_NOT_CANCELLABLE');
           }
+          let observed = current;
           if (current.status === 'pending') {
-            const cancelled = await this.api.updateOrder(row.woo_order_id, { status: 'cancelled' });
-            assertOrderIdentity(row, cancelled);
-            this.saveRemote(row, cancelled);
-            if (cancelled.status !== 'cancelled') throw new AppError('WooCommerce did not confirm cancellation. Review the remote order before retrying.', 409, 'RECONCILIATION_REQUIRED');
-          } else {
-            this.saveRemote(row, current);
+            saleEvent(this.db, id, 'woo.cancel_started', user.id, { wooOrderId: row.woo_order_id });
+            observed = await this.api.updateOrder(row.woo_order_id, { status: 'cancelled' });
+            this.assertRemoteIdentity(row, observed);
+          }
+          const saved = this.saveRemote(this.get(id, user), observed, user.id);
+          if (observed.status !== 'cancelled' || saved.status !== 'cancelled') {
+            throw new AppError('WooCommerce did not confirm an unchanged unpaid cancellation. Review the remote order before retrying.', 409, 'RECONCILIATION_REQUIRED');
           }
         } catch (error) {
           if (error instanceof AppError && ['ORDER_ALREADY_PAID', 'ORDER_NOT_CANCELLABLE'].includes(error.code)) throw error;
-          this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run('needs_reconciliation', 'Cancellation was interrupted. Reconcile the WooCommerce order before taking payment or creating another order.', now(), id);
+          localTransaction(this.db, () => {
+            this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run('needs_reconciliation', 'Cancellation was interrupted. Reconcile the WooCommerce order before taking payment or creating another order.', now(), id);
+            saleEvent(this.db, id, 'woo.cancel_uncertain', user.id, { wooOrderId: row.woo_order_id, details: { code: error.code || 'ERROR' } });
+          });
           throw new AppError('Cancellation needs reconciliation. Do not record payment against this sale until the remote order is verified.', 502, 'RECONCILIATION_REQUIRED');
         }
       }
-      this.db.prepare('UPDATE sales SET status=?,updated_at=?,error=NULL WHERE id=?').run('cancelled', now(), id);
-      audit(this.db, user.id, 'sale.cancelled', id);
+      localTransaction(this.db, () => {
+        this.db.prepare('UPDATE sales SET status=?,updated_at=?,error=NULL WHERE id=?').run('cancelled', now(), id);
+        saleEvent(this.db, id, 'sale.cancelled', user.id, { wooOrderId: row.woo_order_id });
+        audit(this.db, user.id, 'sale.cancelled', id);
+      });
       return saleView(this.get(id, user));
     });
   }

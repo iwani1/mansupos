@@ -1,12 +1,12 @@
 # Setup and safe deployment
 
-On the reported Contabo VPS with host Nginx/Next.js and no Docker, the requested **live WooCommerce catalogue, no-staging pilot** is [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md): localhost-only, Read-only Woo key, no order/payment writes. For a separate Woo staging clone and its own localhost-only service use [CONTABO-NATIVE.md](CONTABO-NATIVE.md). [CONTABO.md](CONTABO.md) is optional POS-only Compose only if an administrator installs Docker. The all-in-one Caddy example binds 80/443 and must not be started over the existing app. The remainder of this guide covers staging acceptance for eventual trading, **not** the live catalogue pilot.
+**Current decision (owner-stated handoff date 2026-11-14 UTC): the owner rejected a separate staging server/clone. The old staging setup examples below are archived, NOT instructions for this rollout.** Use the [Phase 1 HOLD/isolated-test record](PHASE1-ACCEPTANCE-REVIEW.md), independent Phase 1 restore review and explicit approval before bridge development; a later live installation needs another separate approval. Do not buy/provision infrastructure or start the old staging unit at pilot port 3187. The reported Contabo **live Woo catalogue pilot** is read-only; see [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md). Old optional [CONTABO-NATIVE.md](CONTABO-NATIVE.md)/Compose examples do not authorize trading or changing the other VPS app.
 
 ## 1. Read-only audit first
 
 The repository does not contain the WordPress installation or owner credentials. The public Store API was reachable, but this is **not** a completed site audit.
 
-Before staging installation/deployment, record:
+Before **any separately approved production change**, request redacted read-only evidence; do not follow the archived installation steps to gather it:
 
 - WordPress, WooCommerce, and PHP versions; hosting environment.
 - Active theme/child theme and relevant checkout, inventory, payment, cache, security, backup, and product plugins.
@@ -14,14 +14,14 @@ Before staging installation/deployment, record:
 - Product/variation counts; missing/duplicate SKUs; variation-level stock quality.
 - Whether Paystack or another gateway is installed. Do not assume it supports POS terminal collection.
 - Full backup location, date, access controls, and a tested restoration procedure.
-- Staging URL and how email, webhooks, fulfilment, analytics, and live payment side effects are isolated.
+- How optional **temporary local synthetic** fixtures block all live email, webhook, fulfilment, analytics and payment side effects; no staging hostname is required.
 - Exact computer/tablet OS and browser, scanner model/interface, printer model/paper width/interface, cash drawer, and terminal models.
 
 Use counts and configuration summaries, not customer records.
 
-## 2. Prepare staging
+## 2. Archived staging-template notes — not current setup
 
-Use a separate staging clone. The application rejects the production hostname when `POS_MODE=staging`.
+**Do not prepare a separate staging clone/server for this project.** The old checklist below describes settings from an earlier optional template; it is superseded by isolated **local** synthetic testing, not a purchase or installation instruction. The application rejects the production hostname when `POS_MODE=staging`, but that flag alone is not a security boundary.
 
 - Prefer sanitized customer/order data.
 - Disable real customer emails, live fulfilment, live payment capture, and production webhooks.
@@ -103,7 +103,7 @@ POS_OWNER_APPROVAL_REFERENCE=<written-approval-reference>
 
 The approval reference must be at least eight characters. This is a deployment guard, not a substitute for actual written approval. **Retail approval and legacy trade flags never enable Wholesale.** Wholesale also needs `POS_LIVE_WHOLESALE_APPROVED=true` (a distinct written owner decision) and an at-least-eight-character `POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE` pointing to a documented live acceptance plan/record. Staging's approval flag does not count toward live authorization. Leave the live wholesale flag false until a supervised, risk-reviewed live acceptance plan is approved; general Wholesale trading needs signed-off actual tax/stock/recovery results. The five dispatch-before-payment buyers remain a future, separately approved workflow.
 
-Before the first live sale, take fresh full WordPress and POS-ledger backups and verify off-host restore evidence. Prefer an isolated staging clone. Without staging, do not run synthetic test orders or use customer money merely as a test; first verify live pending-order side effects, then only conduct a separately authorized **genuine** cash sale under owner supervision. Live POS is cash-only; keep online Paystack separate. See [LIVE-CASH-ROLLOUT.md](LIVE-CASH-ROLLOUT.md).
+Before any separately approved live sale, independently verify full WordPress and POS-ledger backups, off-host restore evidence, actual service/database identity, rollback and incident response. Use isolated local synthetic tests and read-only installed-site hook/stock evidence; **no separate staging server**. If critical installed behavior cannot safely be verified, stay read-only. Never manufacture a real customer order or use customer money/stock merely as a test. A genuine controlled cash sale needs its **own** explicit approval after safety gates pass. Live POS is cash-only; keep online Paystack unchanged. See [LIVE-CASH-ROLLOUT.md](LIVE-CASH-ROLLOUT.md).
 
 ## 6. Backup and rollback
 

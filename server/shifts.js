@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AppError, now } from './errors.js';
 import { audit } from './db.js';
+import { localTransaction } from './sale-events.js';
 
 export const openShiftSchema = z.object({ openingFloat: z.number().int().min(0).max(100000000), note: z.string().trim().max(250).optional().default('') }).strict();
 export const closeShiftSchema = z.object({ closingCash: z.number().int().min(0).max(1000000000), note: z.string().trim().max(250).optional().default('') }).strict();
@@ -28,7 +29,12 @@ export class ShiftService {
     const shift = this.db.prepare('SELECT * FROM shifts WHERE id=?').get(shiftId);
     if (!shift) return 0;
     if (shift.status !== 'open') return shift.expected_cash ?? 0;
-    const sales = this.db.prepare("SELECT COALESCE(SUM(total - refunded),0) AS total FROM sales WHERE shift_id=? AND status IN ('paid','partially_refunded','refunded') AND payment_method='cash'").get(shiftId).total;
+    // Woo refunds and later review flags are NOT evidence that cash left the
+    // drawer. Keep previously confirmed cash in its original shift even if a
+    // remote discrepancy moves the sale from paid to needs_reconciliation.
+    // Only a separately recorded, reviewed cash-out reduces the drawer.
+    const sales = this.db.prepare(`SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE shift_id=? AND payment_method='cash'
+      AND (status IN ('paid','partially_refunded','refunded') OR (status='needs_reconciliation' AND paid_at IS NOT NULL))`).get(shiftId).total;
     const movements = this.db.prepare("SELECT COALESCE(SUM(CASE WHEN type='in' THEN amount ELSE -amount END),0) AS total FROM cash_movements WHERE shift_id=?").get(shiftId).total;
     // The physical-store collection shares the counted POS cash drawer, but
     // never shares WooCommerce sales, inventory, or the online reports.
@@ -37,13 +43,18 @@ export class ShiftService {
   }
   summary(shiftId) {
     const online = this.db.prepare(`SELECT COUNT(*) AS orders, COALESCE(SUM(total - refunded),0) AS net,
-      COALESCE(SUM(CASE WHEN payment_method='cash' THEN total - refunded ELSE 0 END),0) AS cash,
+      COALESCE(SUM(status='needs_reconciliation'),0) AS reviewRequiredOrders,
+      COALESCE(SUM(CASE WHEN payment_method='cash' THEN total ELSE 0 END),0) AS cash,
+      COALESCE(SUM(CASE WHEN payment_method='cash' THEN refunded ELSE 0 END),0) AS observedCashRefunds,
       COALESCE(SUM(CASE WHEN payment_method='momo' THEN total - refunded ELSE 0 END),0) AS momo,
       COALESCE(SUM(CASE WHEN payment_method='card' THEN total - refunded ELSE 0 END),0) AS card
-      FROM sales WHERE shift_id=? AND status IN ('paid','partially_refunded','refunded')`).get(shiftId);
+      FROM sales WHERE shift_id=? AND (status IN ('paid','partially_refunded','refunded')
+        OR (status='needs_reconciliation' AND paid_at IS NOT NULL))`).get(shiftId);
     const inStore = this.db.prepare('SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS cash FROM instore_sales WHERE shift_id=?').get(shiftId);
     return { orders: online.orders + inStore.orders, net: online.net + inStore.cash,
-      cash: online.cash + inStore.cash, momo: online.momo, card: online.card,
+      cash: online.cash + inStore.cash, reviewRequiredOrders: online.reviewRequiredOrders,
+      observedCashRefunds: online.observedCashRefunds,
+      momo: online.momo, card: online.card,
       inStoreOrders: inStore.orders, inStoreCash: inStore.cash };
   }
   view(row) {
@@ -60,37 +71,43 @@ export class ShiftService {
     };
   }
   open(user, input) {
-    if (this.current(user.id)) throw new AppError('You already have an open shift. Close it before opening another.', 409);
-    const id = randomUUID();
-    this.db.prepare('INSERT INTO shifts(id,user_id,user_name,opening_float,note,opened_at) VALUES (?,?,?,?,?,?)')
-      .run(id, user.id, user.name, input.openingFloat, input.note, now());
-    audit(this.db, user.id, 'shift.opened', id);
-    return this.view(this.db.prepare('SELECT * FROM shifts WHERE id=?').get(id));
+    return localTransaction(this.db, () => {
+      if (this.current(user.id)) throw new AppError('You already have an open shift. Close it before opening another.', 409);
+      const id = randomUUID();
+      this.db.prepare('INSERT INTO shifts(id,user_id,user_name,opening_float,note,opened_at) VALUES (?,?,?,?,?,?)')
+        .run(id, user.id, user.name, input.openingFloat, input.note, now());
+      audit(this.db, user.id, 'shift.opened', id);
+      return this.view(this.db.prepare('SELECT * FROM shifts WHERE id=?').get(id));
+    });
   }
   close(user, id, input) {
-    const row = this.get(id, user);
-    if (row.user_id !== user.id && user.role !== 'owner') throw new AppError('Only the cashier who opened the shift, or an owner, can close it.', 403);
-    if (row.status !== 'open') throw new AppError('This shift is already closed.', 409);
-    const pending = this.db.prepare("SELECT COUNT(*) AS n FROM sales WHERE shift_id=? AND status IN ('creating','awaiting_payment','needs_reconciliation')").get(id).n;
-    if (pending) throw new AppError(`${pending} sale(s) still need payment or reconciliation. Resolve them before closing the shift.`, 409);
-    const expected = this.expectedCash(id);
-    const variance = input.closingCash - expected;
-    const summary = this.summary(id);
-    this.db.prepare("UPDATE shifts SET status='closed',closing_cash=?,expected_cash=?,variance=?,note=?,closed_at=?,summary_json=? WHERE id=?")
-      .run(input.closingCash, expected, variance, input.note || row.note, now(), JSON.stringify(summary), id);
-    audit(this.db, user.id, 'shift.closed', `${id}:variance=${variance}`);
-    return this.view(this.db.prepare('SELECT * FROM shifts WHERE id=?').get(id));
+    return localTransaction(this.db, () => {
+      const row = this.get(id, user);
+      if (row.user_id !== user.id && user.role !== 'owner') throw new AppError('Only the cashier who opened the shift, or an owner, can close it.', 403);
+      if (row.status !== 'open') throw new AppError('This shift is already closed.', 409);
+      const pending = this.db.prepare("SELECT COUNT(*) AS n FROM sales WHERE shift_id=? AND status IN ('creating','awaiting_payment','needs_reconciliation')").get(id).n;
+      if (pending) throw new AppError(`${pending} sale(s) still need payment or reconciliation. Resolve them before closing the shift.`, 409);
+      const expected = this.expectedCash(id);
+      const variance = input.closingCash - expected;
+      const summary = this.summary(id);
+      this.db.prepare("UPDATE shifts SET status='closed',closing_cash=?,expected_cash=?,variance=?,note=?,closed_at=?,summary_json=? WHERE id=?")
+        .run(input.closingCash, expected, variance, input.note || row.note, now(), JSON.stringify(summary), id);
+      audit(this.db, user.id, 'shift.closed', `${id}:variance=${variance}`);
+      return this.view(this.db.prepare('SELECT * FROM shifts WHERE id=?').get(id));
+    });
   }
   movement(user, id, input) {
-    const row = this.get(id, user);
-    if (row.status !== 'open') throw new AppError('Cash movements can only be recorded against an open shift.', 409);
-    if (row.user_id !== user.id && user.role !== 'owner') throw new AppError('You can only record cash movements for your own shift.', 403);
-    if (input.type === 'out' && this.expectedCash(id) < input.amount) throw new AppError('Cash out cannot exceed the expected drawer cash.', 400);
-    const movementId = randomUUID();
-    this.db.prepare('INSERT INTO cash_movements(id,shift_id,user_id,type,amount,reason,created_at) VALUES (?,?,?,?,?,?,?)')
-      .run(movementId, id, user.id, input.type, input.amount, input.reason, now());
-    audit(this.db, user.id, `shift.cash_${input.type}`, `${id}:${input.amount}`);
-    return this.view(this.db.prepare('SELECT * FROM shifts WHERE id=?').get(id));
+    return localTransaction(this.db, () => {
+      const row = this.get(id, user);
+      if (row.status !== 'open') throw new AppError('Cash movements can only be recorded against an open shift.', 409);
+      if (row.user_id !== user.id && user.role !== 'owner') throw new AppError('You can only record cash movements for your own shift.', 403);
+      if (input.type === 'out' && this.expectedCash(id) < input.amount) throw new AppError('Cash out cannot exceed the expected drawer cash.', 400);
+      const movementId = randomUUID();
+      this.db.prepare('INSERT INTO cash_movements(id,shift_id,user_id,type,amount,reason,created_at) VALUES (?,?,?,?,?,?,?)')
+        .run(movementId, id, user.id, input.type, input.amount, input.reason, now());
+      audit(this.db, user.id, `shift.cash_${input.type}`, `${id}:${input.amount}`);
+      return this.view(this.db.prepare('SELECT * FROM shifts WHERE id=?').get(id));
+    });
   }
   list(user, days = 7) {
     const since = new Date(Date.now() - days * 86400000).toISOString();

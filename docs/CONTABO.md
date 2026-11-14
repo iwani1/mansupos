@@ -1,6 +1,6 @@
-# Contabo VPS: install alongside an existing application
+# Archived Contabo staging/Compose template — NOT the current rollout
 
-**Your reported VPS runs host Nginx and a Next.js app, but no Docker. For the owner-requested live WooCommerce catalogue connection without staging, use the native [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md) instead: Woo Read-only key, no checkout, no Docker.** For an independent Woo staging clone use native [CONTABO-NATIVE.md](CONTABO-NATIVE.md). This page is a *staging* alternative only if an administrator deliberately installs Docker and verifies its effect on the existing server.
+**Superseded (owner-stated handoff date 2026-11-14 UTC):** the owner rejected a separate staging server/clone, Docker provisioning and its ongoing maintenance. **Do not follow the install commands below** or change the reported VPS/Nginx/Next.js app. The [live catalogue pilot](CONTABO-LIVE-PILOT.md) remains read-only; the [Phase 1 HOLD guidance](PHASE1-RELIABILITY.md#isolated-verification-and-remaining-acceptance) uses isolated local databases and optionally temporary local synthetic Woo after separate approval. This page is historical template reference only.
 
 **This is a staging-first deployment, not approval to trade live.** Code and mocked/demo checks cannot establish compatibility with the real WooCommerce tax settings, stock concurrency, payment workflow, printer/scanner, or backups. Complete [ACCEPTANCE.md](ACCEPTANCE.md) and obtain distinct written live and Wholesale approval before enabling live writes. Never put passwords, Woo API keys, or customer data in chat, Git, a command transcript, or a public issue.
 

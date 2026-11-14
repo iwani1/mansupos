@@ -4,13 +4,14 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { demoProducts } from './demo-catalog.js';
 import { hashPassword, passwordProblem } from './passwords.js';
+import { assertLedgerIdentity, initializeLedgerIdentity, ledgerInfo } from './ledger-identity.js';
 
 // Preserve the public server API while the desktop ledger imports only the
 // password code, not demo products and the central database migrations.
 export { hashPassword, verifyPassword, passwordProblem } from './passwords.js';
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
-function migrate(db) {
+function migrate(db, targetVersion = SCHEMA_VERSION) {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);`);
   const current = db.prepare('SELECT COALESCE(MAX(version),0) AS version FROM schema_migrations').get().version;
   const migrations = [
@@ -153,9 +154,46 @@ function migrate(db) {
       );
       CREATE INDEX idx_offline_events_status ON offline_events(status,created_at);
     `),
+    // Do not repair historical orders by deleting or remapping them. Stop the
+    // upgrade for duplicate Woo links, invalid references or orphaned shifts;
+    // an operator must review the exact ledger on an isolated copy first.
+    () => {
+      const duplicate = db.prepare('SELECT woo_order_id AS id FROM sales WHERE woo_order_id IS NOT NULL GROUP BY woo_order_id HAVING COUNT(*)>1 LIMIT 1').get();
+      if (duplicate) throw new Error(`Duplicate Woo order link ${duplicate.id} in POS sales. Review both receipts before applying the v9 uniqueness constraint.`);
+      const invalid = db.prepare("SELECT id FROM sales WHERE woo_order_id IS NOT NULL AND (typeof(woo_order_id)!='integer' OR woo_order_id<=0) LIMIT 1").get();
+      if (invalid) throw new Error('Invalid Woo order ID in historical POS sales. Review the ledger before applying v9.');
+      const orphan = db.prepare('SELECT id FROM sales WHERE shift_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM shifts WHERE shifts.id=sales.shift_id) LIMIT 1').get();
+      if (orphan) throw new Error('Historical POS sale refers to a missing shift. Review the ledger before applying v9.');
+      const fk = db.prepare('PRAGMA foreign_key_check').get();
+      if (fk) throw new Error(`Historical POS ledger has an orphan reference in ${fk.table}. Review it before applying v9.`);
+      db.exec(`
+        CREATE UNIQUE INDEX idx_sales_one_woo_order ON sales(woo_order_id) WHERE woo_order_id IS NOT NULL;
+        CREATE TABLE sale_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sale_id TEXT NOT NULL REFERENCES sales(id),
+          event TEXT NOT NULL CHECK(length(event) BETWEEN 3 AND 64),
+          actor_id TEXT NOT NULL, woo_order_id INTEGER,
+          amount_cents INTEGER CHECK(amount_cents IS NULL OR amount_cents >= 0),
+          detail_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(detail_json)),
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_sale_events_sale ON sale_events(sale_id,id);
+        CREATE TRIGGER audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'Audit is append-only'); END;
+        CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'Audit is append-only'); END;
+        CREATE TRIGGER sale_events_no_update BEFORE UPDATE ON sale_events BEGIN SELECT RAISE(ABORT,'Sale events are append-only'); END;
+        CREATE TRIGGER sale_events_no_delete BEFORE DELETE ON sale_events BEGIN SELECT RAISE(ABORT,'Sale events are append-only'); END;
+        CREATE TRIGGER cash_movements_no_update BEFORE UPDATE ON cash_movements BEGIN SELECT RAISE(ABORT,'Cash movements are append-only'); END;
+        CREATE TRIGGER cash_movements_no_delete BEFORE DELETE ON cash_movements BEGIN SELECT RAISE(ABORT,'Cash movements are append-only'); END;
+        CREATE TRIGGER closed_shift_no_cash_insert BEFORE INSERT ON cash_movements
+          WHEN EXISTS (SELECT 1 FROM shifts WHERE id=NEW.shift_id AND status='closed')
+          BEGIN SELECT RAISE(ABORT,'Closed shifts cannot receive cash movements'); END;
+        CREATE TRIGGER closed_shifts_no_update BEFORE UPDATE ON shifts WHEN OLD.status='closed' BEGIN SELECT RAISE(ABORT,'Closed shifts are immutable'); END;
+        CREATE TRIGGER closed_shifts_no_delete BEFORE DELETE ON shifts WHEN OLD.status='closed' BEGIN SELECT RAISE(ABORT,'Closed shifts are immutable'); END;
+      `);
+    },
   ];
   if (current > migrations.length) throw new Error('POS ledger schema is newer than this application. Do not downgrade a trading ledger.');
-  for (let version = current + 1; version <= migrations.length; version++) {
+  for (let version = current + 1; version <= targetVersion; version++) {
     db.exec('BEGIN IMMEDIATE');
     try {
       migrations[version - 1]();
@@ -168,48 +206,62 @@ function migrate(db) {
 export function openDatabase(config) {
   fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
   const file = path.join(config.dataDir, `pos-${config.mode}.db`);
+  const existing = fs.existsSync(file) && fs.statSync(file).size > 0;
   const db = new DatabaseSync(file);
-  // Check the marker before any migrations or demo-stock changes. Older v1/v2
-  // ledgers have no app_meta table and are checked for demo records below.
-  const hasMetadata = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_meta'").get();
-  const ledgerMode = hasMetadata ? db.prepare("SELECT value FROM app_meta WHERE key='mode'").get()?.value : null;
-  if (ledgerMode && ledgerMode !== config.mode) {
-    db.close();
-    throw new Error('POS ledger mode does not match this service. Do not reuse a demo or pilot ledger for trading.');
-  }
-  db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL;`);
-  migrate(db);
-  try { fs.chmodSync(file, 0o600); } catch {}
-  if (config.mode === 'demo') {
-    const insert = db.prepare('INSERT OR IGNORE INTO demo_stock(line_key,stock) VALUES (?,?)');
-    for (const p of demoProducts) {
-      if (p.type === 'simple') insert.run(`${p.id}:0`, p.stock);
-      for (const v of p.variations) insert.run(`${p.id}:${v.id}`, v.stock);
+  try {
+    // Check identity BEFORE migrations, cache/stock cleanup or user creation.
+    // A copied legacy pilot ledger must not silently become a trading ledger.
+    const identity = ledgerInfo(db);
+    assertLedgerIdentity(identity, config, { existing });
+    // Refuse before ANY migration, seeding, owner bootstrap or session write.
+    // A backup restored into an empty volume cannot reveal later revocations;
+    // only the explicit stopped-service owner recovery can clear this marker.
+    if (existing && db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_meta'").get() &&
+        db.prepare("SELECT 1 FROM app_meta WHERE key='restored_accounts_locked'").get()) {
+      throw new Error('Restored POS accounts are locked. Stop this service; obtain approval for offline owner recovery with a new password before signing in or migrating.');
     }
-    const add = db.prepare('INSERT OR IGNORE INTO users(id,username,name,role,password_hash,created_at) VALUES (?,?,?,?,?,?)');
-    add.run('demo-owner', 'demo.owner', 'Demo Owner', 'owner', hashPassword(randomUUID()), new Date().toISOString());
-    if (!db.prepare('SELECT id FROM sales LIMIT 1').get()) seedDemoSales(db);
-  } else {
-    // Never reuse a demo ledger for live/staging sales. Older versions inserted
-    // demo_stock rows even in non-demo ledgers; remove only those unused rows,
-    // preserving all owners, sessions, catalogue cache and real sales.
-    if (db.prepare("SELECT 1 FROM users WHERE id='demo-owner' LIMIT 1").get() ||
-        db.prepare("SELECT 1 FROM sales WHERE id LIKE 'demo-seed-%' LIMIT 1").get()) {
-      db.close();
-      throw new Error('Demo records found in a non-demo POS ledger. Stop and use a separate private trading ledger.');
+    try { fs.chmodSync(file, 0o600); } catch {}
+    db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL;');
+    // A fully migrated v9 ledger must always have an identity, including after
+    // a later bootstrap/seed error. Bind new or legacy non-live ledgers BEFORE
+    // the v9 step; legacy live ledgers require the separate offline review.
+    migrate(db, SCHEMA_VERSION - 1);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare('INSERT OR IGNORE INTO app_meta(key,value) VALUES (?,?)').run('mode', config.mode);
+      initializeLedgerIdentity(db, config);
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+    migrate(db);
+    if (config.mode === 'demo') {
+      const insert = db.prepare('INSERT OR IGNORE INTO demo_stock(line_key,stock) VALUES (?,?)');
+      for (const p of demoProducts) {
+        if (p.type === 'simple') insert.run(`${p.id}:0`, p.stock);
+        for (const v of p.variations) insert.run(`${p.id}:${v.id}`, v.stock);
+      }
+      const add = db.prepare('INSERT OR IGNORE INTO users(id,username,name,role,password_hash,created_at) VALUES (?,?,?,?,?,?)');
+      add.run('demo-owner', 'demo.owner', 'Demo Owner', 'owner', hashPassword(randomUUID()), new Date().toISOString());
+      if (!db.prepare('SELECT id FROM sales LIMIT 1').get()) seedDemoSales(db);
+    } else {
+      // Never reuse a demo ledger for live/staging sales. Older versions inserted
+      // demo_stock rows even in non-demo ledgers; remove only those unused rows,
+      // preserving all owners, sessions, catalogue cache and real sales.
+      if (db.prepare("SELECT 1 FROM users WHERE id='demo-owner' LIMIT 1").get() ||
+          db.prepare("SELECT 1 FROM sales WHERE id LIKE 'demo-seed-%' LIMIT 1").get()) {
+        throw new Error('Demo records found in a non-demo POS ledger. Stop and use a separate private trading ledger.');
+      }
+      db.prepare('DELETE FROM demo_stock').run();
+      if (config.ownerUsername && config.ownerPassword && !db.prepare("SELECT id FROM users WHERE role='owner' LIMIT 1").get()) {
+        const problem = passwordProblem(config.ownerPassword, config.ownerUsername);
+        if (problem) throw new Error(`POS_OWNER_PASSWORD: ${problem}`);
+        db.prepare('INSERT INTO users(id,username,name,role,password_hash,created_at,must_change_password) VALUES (?,?,?,?,?,?,1)')
+          .run(randomUUID(), config.ownerUsername, 'Store Owner', 'owner', hashPassword(config.ownerPassword), new Date().toISOString());
+      }
     }
-    db.prepare('DELETE FROM demo_stock').run();
-    if (config.ownerUsername && config.ownerPassword && !db.prepare("SELECT id FROM users WHERE role='owner' LIMIT 1").get()) {
-      const problem = passwordProblem(config.ownerPassword, config.ownerUsername);
-      if (problem) throw new Error(`POS_OWNER_PASSWORD: ${problem}`);
-      db.prepare('INSERT INTO users(id,username,name,role,password_hash,created_at,must_change_password) VALUES (?,?,?,?,?,?,1)')
-        .run(randomUUID(), config.ownerUsername, 'Store Owner', 'owner', hashPassword(config.ownerPassword), new Date().toISOString());
-    }
-  }
-  db.prepare('INSERT INTO app_meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('mode', config.mode);
-  db.prepare('INSERT INTO app_meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('schema_version', String(SCHEMA_VERSION));
-  db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
-  return db;
+    db.prepare('INSERT INTO app_meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('schema_version', String(SCHEMA_VERSION));
+    db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
+    return db;
+  } catch (error) { db.close(); throw error; }
 }
 
 function seedDemoSales(db) {

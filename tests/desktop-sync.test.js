@@ -28,8 +28,8 @@ function fixture(t){
   // the temporary directory (Linux otherwise masks this cleanup bug).
   t.after(()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
   const owner=db.prepare("SELECT id,username,name,role FROM users WHERE role='owner'").get();
-  let pluginCalls=0,orderCalls=0;
-  const orders=new Map();
+  let pluginCalls=0,orderCalls=0,nextOrderId=9000;
+  const orders=new Map(),saleOrderIds=new Map();
   const woo={ async products(){return {pages:1,total:1,data:[{id:101,type:'simple',name:'Shirt',status:'publish',sku:'SHIRT',price:'12.00',
     images:[],categories:[],manage_stock:true,stock_quantity:4,stock_status:'instock',backorders:'no',purchasable:true}]};},
     async order(id){orderCalls++;return orders.get(id);}, async createOrder(){throw new Error('Legacy Woo POST must never import offline sales.');}};
@@ -38,12 +38,14 @@ function fixture(t){
     async allocate(input){return {deviceId:input.deviceId,stockKey:'101:0',grant:{stockKey:'101:0',productId:101,variationId:0,
       remaining:2,revision:1,expiresAt:expiration}};},
     async sync(event){pluginCalls++;
-      if(event.kind==='return')orders.get(9001).refunds=[{id:42,total:(-event.amount/100).toFixed(2)}];
-      if(event.kind==='sale')orders.set(9001,{id:9001,currency:'GHS',total:(event.total/100).toFixed(2),total_tax:'0.00',refunds:[],
+      if(event.kind==='sale' && !saleOrderIds.has(event.id))saleOrderIds.set(event.id,++nextOrderId);
+      const orderId=saleOrderIds.get(event.kind==='return'?event.saleId:event.id);
+      if(event.kind==='return')orders.get(orderId).refunds=[{id:42,total:(-event.amount/100).toFixed(2)}];
+      if(event.kind==='sale')orders.set(orderId,{id:orderId,currency:'GHS',total:(event.total/100).toFixed(2),total_tax:'0.00',refunds:[],
         line_items:event.items.map(i=>({product_id:i.productId,variation_id:i.variationId,quantity:i.quantity})),
         meta_data:[{key:'_mansu_offline_sale_id',value:event.id},{key:'_mansu_offline_device_id',value:event.deviceId}],
         status:event.paymentMethod==='cash'?'completed':'pending',date_paid:event.paymentMethod==='cash'?new Date().toISOString():null});
-      return {id:event.id,fingerprint:hash(event),orderId:9001,...(event.kind==='return'?{refundId:42,amount:event.amount}:{})}; },
+      return {id:event.id,fingerprint:hash(event),orderId,...(event.kind==='return'?{refundId:42,amount:event.amount}:{})}; },
   };
   const catalog=new Catalog(db,woo,config);
   const service=new DesktopSyncService(db,config,catalog,woo,reservations,{async list(){return {prices:[]};}});

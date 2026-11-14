@@ -256,6 +256,20 @@ test('an unnamed wholesale quote refuses a remotely added buyer or altered billi
   }
 });
 
+test('duplicate Woo quote metadata is not accepted as a single wholesale approval', async t => {
+  const h = await harness(t, 'staging', { env: { POS_STAGING_WHOLESALE_APPROVED: 'true' } });
+  const { sale } = (await prepare(h, wholesaleWithoutBuyer())).data;
+  const order = h.api.state.orders[0];
+  const hashMeta = order.meta_data.find(meta => meta.key === '_mansu_pos_quote_hash');
+  order.meta_data.push({ key: hashMeta.key, value: hashMeta.value });
+  const payment = await h.request(`/sales/${sale.id}/pay`, { method: 'POST', token: h.token,
+    body: { method: 'cash', tendered: 9200, confirmed: true } });
+  assert.equal(payment.status, 409);
+  assert.equal(payment.data.code, 'WHOLESALE_QUOTE_CHANGED');
+  assert.equal(h.api.state.payments, 0);
+  assert.equal(h.sales.get(sale.id, { role: 'owner' }).status, 'needs_reconciliation');
+});
+
 test('wholesale price drift, metadata drift and unrepresentable tax-included amounts never become payable', async t => {
   const h = await harness(t, 'staging', { env: { POS_STAGING_WHOLESALE_APPROVED: 'true' } });
   const prepared = await prepare(h, wholesale(h));
@@ -573,6 +587,9 @@ test('schema upgrade keeps previous paid retail receipts unchanged and introduce
       password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
     CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL);
     CREATE TABLE demo_stock (line_key TEXT PRIMARY KEY, stock INTEGER NOT NULL);
+    CREATE TABLE shifts (id TEXT PRIMARY KEY);
+    CREATE TABLE cash_movements (id TEXT PRIMARY KEY);
+    CREATE TABLE audit (id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL, subject TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE sales (id TEXT PRIMARY KEY, idempotency_key TEXT UNIQUE NOT NULL, fingerprint TEXT NOT NULL,
       number TEXT NOT NULL, woo_order_id INTEGER, status TEXT NOT NULL, payment_method TEXT, payment_reference TEXT,
       total INTEGER NOT NULL DEFAULT 0, tax INTEGER NOT NULL DEFAULT 0, subtotal INTEGER NOT NULL DEFAULT 0,
@@ -582,6 +599,7 @@ test('schema upgrade keeps previous paid retail receipts unchanged and introduce
       paid_at TEXT, error TEXT, shift_id TEXT, prepared_total INTEGER NOT NULL DEFAULT 0,
       last_reconciled_at TEXT, reconcile_attempts INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE app_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    INSERT INTO app_meta(key,value) VALUES ('mode','demo');
     INSERT INTO sales(id,idempotency_key,fingerprint,number,status,payment_method,total,tax,subtotal,currency,cashier_id,cashier_name,items_json,created_at,updated_at,paid_at,prepared_total)
       VALUES ('old-retail','old-key','old-hash','DEMO-OLD','paid','cash',19900,0,19900,'GHS','demo-owner','Demo Owner',
         '[{"productId":7331,"variationId":0,"name":"Demo fan","price":19900,"quantity":1,"total":19900}]',

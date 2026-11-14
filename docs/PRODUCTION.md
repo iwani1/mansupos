@@ -1,20 +1,20 @@
 # Production deployment runbook
 
-This application includes production-oriented controls. The code blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) have been remediated and regression-tested. **A live-catalogue *read-only* pilot is possible without Woo staging, but it does not authorize checkout.** Woo-backed trading requires acceptance of the actual store's tax/stock/recovery behavior, hardware verification, tested off-host backups and written owner approval. The owner declined a separate staging clone; use the controlled [Woo Retail/Wholesale cash-only live acceptance plan](LIVE-CASH-ROLLOUT.md), which is not a go-live authorization. Physical [In-store collection](INSTORE-COLLECTION.md) is currently a historical source view only: its former POS-only cash/stock path is retired in non-test services because the owner wants these goods on **the same Woo stock pool**. See the [shared-stock plan](SHARED-WOO-STOCK.md). Do not paste secrets into chat or commit them.
+This application includes production-oriented controls. The code blockers in [AUDIT-2026-11-04.md](AUDIT-2026-11-04.md) have been remediated and regression-tested. **A live-catalogue *read-only* pilot is possible without Woo staging, but it does not authorize checkout.** Woo-backed trading requires acceptance of the actual store's tax/stock/recovery behavior, hardware verification, tested off-host backups and written owner approval. The owner rejected a separate staging server/clone; use isolated local databases, simulated Woo and (if separately authorized) a temporary local Woo installation subject to the [Phase 1 HOLD and isolated-verification constraints](PHASE1-RELIABILITY.md#isolated-verification-and-remaining-acceptance). An installed-site behavior unsafe to verify is a live-sale blocker. The [cash-only live acceptance plan](LIVE-CASH-ROLLOUT.md) requires separate approval and is **not** a substitute for shared-stock safety or a go-live authorization. Physical [In-store collection](INSTORE-COLLECTION.md) is currently a historical source view only: its former POS-only cash/stock path is retired in non-test services because the owner wants these goods on **the same Woo stock pool**. See the [shared-stock plan](SHARED-WOO-STOCK.md). Do not paste secrets into chat or commit them.
 
 ## 1. Prerequisites
 
 - A private Linux host or Docker host with a persistent volume.
 - Node.js 22.13+ if not using Docker.
 - A dedicated HTTPS hostname, for example `pos.mansutrendzgh.com`.
-- For live **checkout** acceptance, a separate WooCommerce staging clone is strongly recommended. The read-only pilot does not need one and must not be used to conduct real test orders.
+- No separate staging server/clone is required or recommended for this project. Use isolated **local** synthetic tests and redacted read-only installed-site review; keep live POS gates off if critical installed behavior cannot safely be verified. The read-only pilot must never conduct experimental orders.
 - WooCommerce REST API credentials stored in a server-side secret manager or root-owned environment file.
 - Verified business receipt details, physical printer/scanner acceptance (see [HARDWARE.md](HARDWARE.md)), and external MoMo/card workflow.
 - A tested WordPress files/database backup and a POS-ledger backup location.
 
 ## 2. Configure
 
-**This section is for a distinct Woo staging clone, not the live read-only pilot.** For the pilot use `.env.live-pilot.example` and its enforced systemd unit in [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md). For staging, copy `.env.production.example` to a private `.env` on the server. Set:
+**Archived staging-template example, NOT part of the current rollout; do not provision a clone/server or follow these commands on the pilot.** For the read-only pilot consult [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md). The example below documents the old mode/config shape only, not a current instruction to create or start an environment:
 
 ```dotenv
 NODE_ENV=production
@@ -41,11 +41,11 @@ npm run build
 npm run preflight
 ```
 
-Preflight checks configuration, sample `.example` hostnames, build output, data directory, credential presence, first-owner access, and approval gates. It does not replace staging tests.
+Preflight checks configuration, sample `.example` hostnames, build output, data directory, credential presence, first-owner access, the **restored-account quarantine** and approval gates. It does not replace local synthetic tests, independent review or production acceptance.
 
 ## 3. VPS with another application: choose an isolated deployment
 
-**For the reported Contabo VPS (host Nginx on 80/443, Next.js on 3000, no Docker), the owner-requested live-catalogue/no-staging path is [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md)**. `/usr/bin/node` 22.23.3 was reported available and port 3187 unused when checked; independently verify the POS hostname's current DNS/HTTPS before use. The separate native pilot unit forces `127.0.0.1:3187`, its own ledger, a live **Read-only** Woo key and all order/payment write gates off. For an independent Woo **staging** clone instead, follow [CONTABO-NATIVE.md](CONTABO-NATIVE.md), never pointing its staging unit at the live store. Do not install both units on port 3187 simultaneously.
+**For the reported Contabo VPS (host Nginx on 80/443, Next.js on 3000, no Docker), the owner-requested live-catalogue/no-staging path is [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md)**. `/usr/bin/node` 22.23.3 was reported available and port 3187 unused when checked; independently verify the POS hostname's current DNS/HTTPS before use. The separate native pilot unit forces `127.0.0.1:3187`, its own ledger, a live **Read-only** Woo key and all order/payment write gates off. The old [CONTABO-NATIVE.md](CONTABO-NATIVE.md) staging-unit guide is **archived**; do not install it or start its port-3187 service, which would conflict with the pilot. This project uses isolated local tests rather than a new server.
 
 If an administrator deliberately chooses to install Docker instead, follow [CONTABO.md](CONTABO.md). Do **not** run the bundled `deploy/docker-compose.yml` on this shared VPS: its Caddy service claims ports 80 and 443. `deploy/docker-compose.existing-proxy.yml` starts **only** the POS under a separate Compose project, requires an explicitly chosen unused `POS_HOST_PORT`, and binds it to the VPS's `127.0.0.1`. The administrator adds a separate HTTPS hostname to the existing **host-level** proxy; no existing app/port is changed. If the existing proxy itself runs inside a container or the existing app binds 80/443 directly, stop and plan a private Docker network/shared proxy route instead of publicly exposing the POS.
 
@@ -78,15 +78,14 @@ sudo systemctl enable --now mansu-pos
 sudo systemctl status mansu-pos
 ```
 
-## 6. Staging acceptance
+## 6. Isolated local acceptance (no staging-server requirement)
 
-1. Set `POS_STAGING_APPROVED=true` only after owner approval for staging tests. Wholesale has a **separate** staging-test gate: `POS_STAGING_WHOLESALE_APPROVED=true` only after explicit approval to test negotiated tax-inclusive amounts on the isolated staging clone. Enabling this flag authorizes a test, not a live release or a claim that tax acceptance passed.
-2. Sign in as owner, change the temporary password, create named cashier/manager accounts.
-3. Run `docs/ACCEPTANCE.md` against test products and simulated external payments.
-4. Verify scanner, printer, paper width, shift open/close, cash movements, reports, audit log, backup, and restore.
-5. Establish a WooCommerce-side stock safeguard shared by online/POS sales, or an owner-approved operational control; verify it prevents concurrent last-item overselling on staging. Fresh POS stock reads followed by Woo order updates are not atomic. Also verify interrupted-order reconciliation.
-6. Exercise the separate wholesale acceptance checklist: no required buyer selection, optional typed name and unnamed sales, plus owner/manager approval; one or multiple individually priced goods; tax-inclusive final unit amounts under the actual Woo tax settings; no extra tax or fee; full externally verified payment and no credit dispatch. A Woo tax/total mismatch must leave the order unpaid and under review.
-7. Record evidence without customer secrets.
+The older `POS_STAGING_APPROVED` and Wholesale staging flags are **not live approvals** and do not require provisioning a separate server. Do not start the old staging unit or use it on the pilot port. Instead:
+
+1. Independently review the Phase 1 restore-security repair and [updated acceptance report](PHASE1-ACCEPTANCE-REVIEW.md). Keep all live gates off.
+2. Run isolated local SQLite/automated tests with simulated Woo responses; only with separate approval, use a temporary local synthetic WordPress/Woo installation to test shared stock-owner holds, concurrent last-unit checkout, expiry/cancellation, interrupted requests and tax-inclusive Retail/Wholesale. No live credentials, customer records or payment/email/webhook egress.
+3. Obtain redacted read-only installed Woo/WP/PHP/Paystack hook, HPOS, product/variation identity, stock ownership and backup/service identity evidence. If a critical installed-site behavior is unsafe to verify, record **HOLD** rather than claiming a fixture pass or experimenting with a real order.
+4. A separate approved bridge-development decision precedes any bridge code; independent code review and **another** approval precede live plugin installation. Verify rollback/incident recovery, WordPress/POS backups, operator roles and hardware before any separately authorized controlled live check. No approval is implied by this document.
 
 ## 7. Live WooCommerce order approval gate (not the physical-stock cash gate)
 
@@ -103,7 +102,7 @@ POS_ALLOW_LIVE_WRITES=true
 POS_OWNER_APPROVAL_REFERENCE=<written-approval-reference>
 ```
 
-Take fresh WordPress and POS backups. Prefer a separate staging clone for acceptance. If the owner declines staging, follow [LIVE-CASH-ROLLOUT.md](LIVE-CASH-ROLLOUT.md) before even a **supervised genuine sale**: verify pending/paid order side effects first; never use fake orders or a customer payment merely as a test. Live POS payment recording is **cash only** for both Retail and Wholesale; Paystack remains for the separate online checkout. Wholesale stays **off** until the distinct owner authorization (`POS_LIVE_WHOLESALE_APPROVED=true`) and a reference to the documented live Wholesale acceptance plan/record (`POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE`, at least eight characters) are available. `POS_STAGING_WHOLESALE_APPROVED` is only for an actual staging clone; never set it in live to claim tests passed. A reference and flags do not prove acceptance or permit general staff access before sign-off. Keep the five dispatch-before-payment customers outside this workflow.
+**Do not set these example live-write flags now.** Independently verify fresh WordPress and POS backups, service/database identity and a rollback/incident plan. The owner rejected a separate staging server: follow the [isolated Phase 1 review/Phase 2 prerequisite record](PHASE1-ACCEPTANCE-REVIEW.md), then request **separate explicit approval** before any live bridge installation or [controlled genuine-sale acceptance](LIVE-CASH-ROLLOUT.md). If critical installed behavior cannot safely be verified, live selling stays disabled; never use a customer order, stock or payment merely as a test. Live POS payment recording is **cash only** for both Retail and Wholesale; Paystack remains for the online checkout. Wholesale stays **off** until distinct owner authorization (`POS_LIVE_WHOLESALE_APPROVED=true`) and a documented live Wholesale acceptance-plan reference (`POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE`, at least eight characters) are available. `POS_STAGING_WHOLESALE_APPROVED` is an old **non-live** flag; never set it in live to claim acceptance. A reference and flags do not prove acceptance or permit general staff access before sign-off. Keep the five dispatch-before-payment customers outside this workflow.
 
 ## 8. Emergency stop
 

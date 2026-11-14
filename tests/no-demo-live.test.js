@@ -63,8 +63,8 @@ test('a renamed demo database is refused as a live ledger without deleting its r
   const copied = new DatabaseSync(path.join(dir, 'pos-live.db'));
   copied.prepare("DELETE FROM app_meta WHERE key='mode'").run();
   copied.close();
-  assert.throws(() => openDatabase(readConfig(envFor('live', dir))), /Demo records found/,
-    'Even a legacy demo ledger without a mode marker must be refused before sample-stock cleanup.');
+  assert.throws(() => openDatabase(readConfig(envFor('live', dir))), /service identity does not match/,
+    'A renamed demo ledger with no mode marker is still rejected by its bound service identity before cleanup.');
   const refused = new DatabaseSync(path.join(dir, 'pos-live.db'), { readOnly: true });
   assert.equal(refused.prepare('SELECT COUNT(*) AS n FROM sales').get().n, sampleCount);
   assert.ok(refused.prepare('SELECT COUNT(*) AS n FROM demo_stock').get().n > 0);

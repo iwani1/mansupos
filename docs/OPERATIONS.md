@@ -1,6 +1,6 @@
 # Daily operations
 
-**Not for the live catalogue pilot.** [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md) connects to the real store with a Read-only Woo key: checkout, payments and cash shifts are disabled. The steps below apply only after a separately reviewed trading deployment and acceptance. The pilot's local owner/session/audit/catalogue cache still needs a verified backup.
+**Not for the live catalogue pilot or an approval to deploy Phase 1.** [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md) connects to the real store with a Read-only Woo key: checkout, payments and cash shifts are disabled. The steps below apply only after a separately reviewed trading deployment and acceptance. The pilot's local owner/session/audit/catalogue cache still needs a verified backup. See the [Phase 1 reliability draft](PHASE1-RELIABILITY.md) for the proposed v9 identity, backup, recovery and unresolved refund rules; none have been installed on the pilot.
 
 ## Opening the register
 
@@ -20,7 +20,7 @@
 
 ## Physical In-store collection (separate acceptance)
 
-The deployed pilot shows this collection **read-only** and cannot open a cash shift or sell. The steps below apply only after the distinct in-store gate and a separate trading ledger are approved (see [INSTORE-COLLECTION.md](INSTORE-COLLECTION.md)):
+The deployed pilot shows this collection **read-only** and cannot open a cash shift or sell. **The former POS-only stock/cash workflow below is historical and retired for the owner's shared-Woo-stock target; it cannot be enabled in non-test services.** Do not use it as a future rollout checklist or sell these goods from a second stock pool. See [SHARED-WOO-STOCK.md](SHARED-WOO-STOCK.md) and [INSTORE-COLLECTION.md](INSTORE-COLLECTION.md). For historical receipt review only, the former workflow was:
 
 1. Open a counted shift and open **In-store collection → Collection**. Search by name/SKU/group; most goods have no barcode. Check the actual POS balance, final all-in GHS unit amount and physical goods. Never sell the 41 quarantined negative/unknown-unit/missing-SKU/fractional-cent items, even if a PDF number looks positive.
 2. Add eligible goods, enter and **count cash already received**, confirm the exact gross total, then record the sale once. The POS creates a paid cash receipt and deducts **only its private physical stock** atomically. It neither creates a Woo order nor changes online stock or Paystack. Print the separate 58/80 mm/A4 gross-only receipt; do not claim tax is zero.
@@ -47,7 +47,7 @@ This iteration is for payment before goods are taken from the shop. Do not use i
 
 ## Cash movements
 
-Record cash in/out against the open shift with a reason. Cash out cannot exceed expected drawer cash. MoMo and Card are not drawer cash.
+Record ordinary cash in/out against the open shift with a reason. Cash out cannot exceed expected drawer cash; a Woo refund is **not** itself a cash-out. MoMo and Card are not drawer cash. A cash-refund payout and any later-shift treatment need the owner's separate decision; do not backdate a movement into a closed shift.
 
 ## Closing the shift
 
@@ -59,7 +59,7 @@ Record cash in/out against the open shift with a reason. Cash out cannot exceed 
 
 ## Refunds
 
-For Woo-backed Retail/Wholesale only, initiate refunds in WooCommerce and reconcile the POS sale so its net report updates. **Physical In-store collection has no return/refund/void flow yet**; do not issue a Woo refund for a POS-only cash receipt. Arrange an owner-approved return and stock/cash procedure before live use. The POS does not issue payment refunds.
+For Woo-backed Retail/Wholesale, a WooCommerce refund can be observed by POS reconciliation and changes **net-sales reporting**, but it is **not evidence that cash was paid out**. The POS does not issue payment refunds. Do not use a Woo refund to infer an original- or later-shift drawer deduction; closed shifts remain frozen, and open shifts count gross cash received unless an actual movement is separately recorded. **The owner has not decided the authorization, proof and shift attribution for a cash payout, particularly after the sale shift closes.** Preserve the physical count and Woo/POS evidence; do not use the generic cash-out button as an approved refund rule until the owner has documented one. See [PHASE1-RELIABILITY.md](PHASE1-RELIABILITY.md). **Physical In-store collection has no return/refund/void flow**; do not issue a Woo refund for a POS-only historical receipt or revive its retired cash gate.
 
 ## Backups
 
@@ -67,17 +67,17 @@ For Woo-backed Retail/Wholesale only, initiate refunds in WooCommerce and reconc
 npm run backup -- /private/backup/directory
 ```
 
-This creates an integrity-checked SQLite backup of the POS ledger **only when the command has the correct `POS_MODE`/`POS_DATA_DIR` environment**. On the host-Nginx Contabo installations, the private settings live in a systemd EnvironmentFile rather than the Git checkout: use `mansu-pos-live-pilot-backup.service` in [CONTABO-LIVE-PILOT.md](CONTABO-LIVE-PILOT.md) for the live-read-only pilot, or `mansu-pos-staging-backup.service` in [CONTABO-NATIVE.md](CONTABO-NATIVE.md) for staging. Do not run a bare `npm run backup` with demo defaults. WordPress files/database require separate host-level backups. Store backups off-host and restrict access.
+On the **isolated Phase 1 code**, this creates a consistent SQLite `.db` snapshot and a matching `.db.manifest.json` with identity, integrity and SHA-256 metadata. Preserve **both files together**. It backs up the POS ledger **only when the command has the correct `POS_MODE`/`POS_DATA_DIR` and live-pilot/trading service flags**. The already-installed pilot's older backup program has not been upgraded by this draft; do not follow these commands on that service without an approved identity/migration plan. On host-Nginx Contabo installations, private settings live in systemd EnvironmentFiles rather than the Git checkout: after a future separately approved rollout, use the role-specific backup unit, not a bare `npm run backup` with demo defaults. WordPress files/database require separate host-level backups. Encrypt/store backups off-host, restrict access and perform an isolated restore drill. The generic `deploy/backup.sh` wrapper now retains local snapshots by default; its optional positive `RETENTION_DAYS` deletes **manifested pairs only** and must not be set before an owner-reviewed off-host/retention policy. The role-specific backup units invoke `server/backup.js` directly and do not prune. No backup retention/pruning policy is approved by Phase 1; monitor storage rather than silently discarding historical backups.
 
 ## Restore
 
-Stop the POS service first. Then:
+**Reference for an approved, isolated restore drill only; do not run this on the current pilot or future trading ledger without a separate owner-reviewed recovery plan.** Stop the intended POS service and verify the environment, snapshot and matching manifest first. In the isolated environment:
 
 ```bash
 npm run restore -- /private/backup/pos-live-DATE.db --confirm-restore
 ```
 
-The restore command verifies integrity, preserves the existing database, and restores the backup. On Contabo, a bare command from the Git checkout does **not** inherit the private systemd staging environment; an administrator must stop the staging POS and run restore with the correct staging mode/data directory under that protected environment. Restore refuses a running POS on the same ledger. After Woo trading, reconcile WooCommerce orders and stock before resuming. After physical-stock sales, also reconcile **POS in-store receipts, stock movements, and drawer cash**; restoring an older ledger would erase newer sales. Do not blindly restore over any new trading data.
+The repaired **isolated** Phase 1 tool checks integrity, checksum, required schema, service class and ledger UUID, and refuses a running POS on the same data volume. It stages the verified image, but **refuses replacement when active protected rows differ from backup rows in either direction**: changed/newer records or backup-only deleted/revoked accounts, receipts and other protected history. There is no force option. If comparison passes, it makes a **verified safety copy plus manifest** before replacement; all backed-up sessions are cleared. **Real restored users and their old password hashes are disabled in the restored image, even when the target was empty. The service will not start until a separately approved stopped-service owner recovery using a NEW private temporary password.** Do not just restart and expect staff to sign in. Follow the numbered [offline recovery procedure](PHASE1-RELIABILITY.md#offline-owner-recovery-after-an-approved-restore--not-normal-startup); reauthorize other staff individually after reset and reconcile outstanding business effects first. A different-UUID ledger is not a valid target. On Contabo, a bare checkout command does **not** inherit the private systemd environment; a reviewed administrator must use the intended protected mode/data directory/service flags. This local comparison cannot discover Woo-only orders, external payment events or actual cash payouts; verify them independently and preserve the backup and safety copy. Do not use restore to clear an uncertain sale or bypass a refusal. Historical POS-only physical receipts/stock (if any) also require separate reconciliation; never merge their stock into Woo by a second deduction. These are **instructions for an approved isolated drill**, not permission to restore the pilot or a live ledger.
 
 ## Health checks
 

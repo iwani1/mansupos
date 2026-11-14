@@ -73,14 +73,19 @@ export class WooCommerce {
       error.retryable = method === 'GET' && SAFE_RETRY_STATUS.has(response.status);
       throw error;
     }
-    const total = Number(response.headers.get('x-wp-total') || 0);
+    const totalHeader = response.headers.get('x-wp-total');
+    const pagesHeader = response.headers.get('x-wp-totalpages') ?? response.headers.get('x-wp-total-pages');
+    const total = Number(totalHeader ?? 0);
     // WordPress/WooCommerce uses X-WP-TotalPages (no hyphen before Pages).
     // Infer a minimum from X-WP-Total if a proxy drops or misreports that header.
-    const reportedPages = Number(response.headers.get('x-wp-totalpages') || response.headers.get('x-wp-total-pages') || 1);
+    const reportedPages = Number(pagesHeader ?? 1);
     const perPage = Number(url.searchParams.get('per_page'));
     const minimumPages = Number.isSafeInteger(total) && Number.isSafeInteger(perPage) && perPage > 0
       ? Math.ceil(total / perPage) : 1;
-    return { data, total, pages: Math.max(1, Number.isSafeInteger(reportedPages) ? reportedPages : 1, minimumPages) };
+    const paginationKnown = pagesHeader !== null && Number.isSafeInteger(reportedPages) && reportedPages > 0 ||
+      totalHeader !== null && Number.isSafeInteger(total) && total >= 0;
+    return { data, total, pages: Math.max(1, Number.isSafeInteger(reportedPages) ? reportedPages : 1, minimumPages),
+      paginationKnown, totalKnown: totalHeader !== null && Number.isSafeInteger(total) && total >= 0 };
   }
   async products(page = 1) { return this.request('products', { query: { page, per_page: 100, status: 'publish', orderby: 'date', order: 'desc' } }); }
   async variations(productId, page = 1) { return this.request(`products/${productId}/variations`, { query: { page, per_page: 100 } }); }
@@ -90,14 +95,36 @@ export class WooCommerce {
   async createOrder(body) { return (await this.request('orders', { method: 'POST', body: { ...body, created_via: 'mansu-pos' } })).data; }
   async updateOrder(id, body) { return (await this.request(`orders/${id}`, { method: 'PUT', body })).data; }
   async findOrderByKey(key, createdAt) {
-    const after = new Date(new Date(createdAt).getTime() - 300000).toISOString();
+    const started = new Date(createdAt).getTime();
+    if (!Number.isFinite(started)) throw new RemoteError('POS checkout time is invalid. Review the ledger before searching for an order.', 409);
+    const after = new Date(started - 300000).toISOString();
+    let match = null;
+    let expectedPages = null;
+    let expectedTotal = null;
     for (let page = 1; page <= 10; page++) {
       const result = await this.request('orders', { query: { after, per_page: 100, page, orderby: 'date', order: 'asc', status: 'any' } });
-      const match = result.data.find(order => order.meta_data?.some(meta => meta.key === '_mansu_pos_key' && meta.value === key));
-      if (match) return match;
-      if (page >= result.pages) break;
+      // A returned match is not proof of uniqueness if another reported page is
+      // missing or the result set changes beneath pagination. Require Woo's
+      // total count, and account for every row on every reported page.
+      const validTotal = result.totalKnown === true && Number.isSafeInteger(result.total) && result.total >= 0;
+      const pageCount = validTotal ? Math.min(100, Math.max(0, result.total - (page - 1) * 100)) : -1;
+      if (!Array.isArray(result.data) || result.data.length !== pageCount ||
+          !Number.isSafeInteger(result.pages) || result.pages !== Math.max(1, Math.ceil(result.total / 100)) || result.pages < page ||
+          result.paginationKnown === false || expectedPages !== null && result.pages !== expectedPages ||
+          expectedTotal !== null && result.total !== expectedTotal) {
+        throw new RemoteError('WooCommerce returned an incomplete order search. Do not create another sale.', 502);
+      }
+      expectedPages = result.pages;
+      expectedTotal = result.total;
+      for (const order of result.data) {
+        if (!order.meta_data?.some(meta => meta.key === '_mansu_pos_key' && meta.value === key)) continue;
+        if (match) throw new RemoteError('Multiple WooCommerce orders use this POS checkout key. Do not collect payment; an owner must review both orders.', 409);
+        match = order;
+      }
+      if (page >= result.pages) return match;
     }
-    return null;
+    // Never treat a truncated search as evidence that a POST did not happen.
+    throw new RemoteError('WooCommerce order search exceeded ten pages. Manual reconciliation required; do not retry checkout.', 409);
   }
 }
 
@@ -174,16 +201,18 @@ export async function fetchLiveCatalog(api, { maxPages = 100 } = {}) {
 }
 export async function freshLine(api, productId, variationId) {
   const p = await api.product(productId);
-  if (p.status !== 'publish' || !['simple', 'variable'].includes(p.type)) throw new RemoteError('This product is not available for POS checkout.', 409);
+  if (Number(p?.id) !== productId || p.status !== 'publish' || !['simple', 'variable'].includes(p.type)) throw new RemoteError('This product identity is not available for POS checkout.', 409);
   const mapped = mapProduct(p);
   let variant;
   if (p.type === 'variable') {
     if (!variationId) throw new RemoteError('A product variation is required.', 400);
     const v = await api.variation(productId, variationId);
+    if (Number(v?.id) !== variationId || (v.parent_id != null && Number(v.parent_id) !== productId) ||
+        (v.status && v.status !== 'publish')) throw new RemoteError('This variation does not belong to the selected published WooCommerce product.', 409);
     variant = mapVariation(v, p);
   } else if (variationId) throw new RemoteError('A simple product cannot have a variation.', 400);
   const source = variant || mapped;
-  if (!source.purchasable) throw new RemoteError(`${p.name} is not purchasable.`, 409);
+  if (!source.purchasable || !Number.isSafeInteger(source.price) || source.price < 0) throw new RemoteError('This WooCommerce product or option has no valid POS price. Refresh and review it before selling.', 409);
   return {
     key: `${productId}:${variationId || 0}`, stockKey: variant?.stockSource === 'parent' ? `${productId}:0` : `${productId}:${variationId || 0}`,
     productId, variationId: variationId || 0, name: p.name, label: variant?.label || '',

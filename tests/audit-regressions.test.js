@@ -15,7 +15,7 @@ function fakeApi(opts = {}) {
   const variations = opts.variations || [variation];
   state.product = product;
   state.variations = variations;
-  const view = o => ({ ...o, line_items: o.line_items.map(i => ({ ...i, name: 'Probe Dress', sku: 'DRESS-M', price: 100, subtotal: '100.00', total: '100.00', total_tax: '15.00', meta_data: [{ key: 'Size', value: 'M' }] })), refunds: state.refunds });
+  const view = o => ({ ...o, line_items: o.line_items.map(i => ({ ...i, name: 'Probe Dress', sku: 'DRESS-M', price: 100, subtotal: (i.quantity * 100).toFixed(2), total: (i.quantity * 100).toFixed(2), total_tax: (i.quantity * 15).toFixed(2), meta_data: [{ key: 'Size', value: 'M' }] })), refunds: state.refunds });
   return {
     state,
     async request() { return { data: [product], total: 1, pages: 1 }; },
@@ -23,7 +23,7 @@ function fakeApi(opts = {}) {
     async variations() { return { data: variations, total: variations.length, pages: 1 }; },
     async product() { return product; },
     async variation(_productId, id) { const found = variations.find(v => v.id === id); if (!found) throw new Error('Unexpected variation'); return found; },
-    async createOrder(body) { state.creates++; const o = { ...body, id: 500 + state.creates, number: String(500 + state.creates), currency: 'GHS', total: '115.00', total_tax: '15.00', date_paid: null }; state.orders.push(o); return view(o); },
+    async createOrder(body) { state.creates++; const quantity = body.line_items.reduce((sum, item) => sum + item.quantity, 0); const o = { ...body, id: 500 + state.creates, number: String(500 + state.creates), currency: 'GHS', total: (quantity * 115).toFixed(2), total_tax: (quantity * 15).toFixed(2), date_paid: null }; state.orders.push(o); return view(o); },
     async updateOrder(id, body) {
       state.updates++;
       if (body.status === 'cancelled' && state.failCancel) throw new RemoteError('timeout after remote cancel', 502, true);
@@ -87,7 +87,10 @@ test('currency drift during payment confirmation is blocked', async t => {
   assert.equal(pay.status, 502);
   const sale = h.sales.get(p.data.sale.id, { role: 'owner' });
   assert.equal(sale.status, 'needs_reconciliation');
-  assert.equal(sale.currency, 'USD');
+  assert.equal(sale.currency, 'GHS', 'Keep the originally prepared receipt currency for review.');
+  assert.match(sale.error, /USD/, 'Expose the remote currency discrepancy without rewriting history.');
+  const observation = h.db.prepare("SELECT detail_json FROM sale_events WHERE sale_id=? AND event='woo.state_observed' ORDER BY id DESC LIMIT 1").get(sale.id);
+  assert.equal(JSON.parse(observation.detail_json).remoteCurrency, 'USD');
 });
 
 test('uncertain cancellation blocks subsequent payment', async t => {
@@ -191,7 +194,7 @@ test('parent-managed variations share stock before order creation and on payment
   assert.equal(exact.status, 201);
   assert.equal(h.api.state.creates, 1);
   h.api.state.product.stock_quantity = 2; // another channel used one unit after prepare
-  const payment = await h.request(`/sales/${exact.data.sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 11500, confirmed: true } });
+  const payment = await h.request(`/sales/${exact.data.sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 34500, confirmed: true } });
   assert.equal(payment.status, 409);
   assert.equal(payment.data.code, 'INSUFFICIENT_STOCK');
   assert.equal(h.api.state.updates, 0, 'do not mark the Woo order paid after stock changes');

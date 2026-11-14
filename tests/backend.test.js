@@ -169,7 +169,8 @@ test('interrupted create can be reconciled without creating a duplicate order',a
   assert.equal(retry.status,409);
   h.api.state.failCreate=false;
   // Simulate a response lost after the remote order was committed.
-  const order=await h.api.createOrder({status:'pending',line_items:cart.items,meta_data:[{key:'_mansu_pos_key',value:cart.idempotencyKey}]});
+  const cashierId=h.db.prepare('SELECT cashier_id FROM sales WHERE id=?').get(id).cashier_id;
+  const order=await h.api.createOrder({status:'pending',line_items:cart.items.map(i=>({product_id:i.productId,variation_id:i.variationId,quantity:i.quantity})),meta_data:[{key:'_mansu_pos_key',value:cart.idempotencyKey},{key:'_mansu_pos_channel',value:'mansu-pos'},{key:'_mansu_pos_cashier',value:cashierId}]});
   const reconciled=await h.request(`/sales/${id}/reconcile`,{method:'POST',token:h.token,body:{}});
   assert.equal(reconciled.data.sale.wooOrderId,order.id);
   assert.equal(reconciled.data.sale.status,'awaiting_payment');
@@ -183,7 +184,7 @@ test('interrupted payment confirmation reconciles to the existing paid order',as
   const failed=await h.request(`/sales/${sale.id}/pay`,{method:'POST',token:h.token,body:{method:'card',reference:'TERMINAL-001',confirmed:true}});
   assert.equal(failed.data.code,'RECONCILIATION_REQUIRED');
   h.api.state.failUpdate=false;
-  await h.api.updateOrder(sale.wooOrderId,{status:'completed',set_paid:true,payment_method:'pos_card',transaction_id:'TERMINAL-001'});
+  await h.api.updateOrder(sale.wooOrderId,{status:'completed',set_paid:true,payment_method:'pos_card',transaction_id:'TERMINAL-001',meta_data:[{key:'_mansu_pos_payment_recorded',value:'externally-collected'}]});
   const reconciled=await h.request(`/sales/${sale.id}/reconcile`,{method:'POST',token:h.token,body:{}});
   assert.equal(reconciled.data.sale.status,'paid');
   assert.equal(reconciled.data.sale.paymentReference,'TERMINAL-001');
