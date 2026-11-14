@@ -225,4 +225,42 @@ $assert( (int) wc_get_product( $late_product->get_id() )->get_stock_quantity() =
 $assert( mansu_online_row( $key_late )['state'] === 'cash_intent',
     'The original cash liability was lost instead of remaining available for review.' );
 
+// 7. Reverse late-callback ordering: the POS succeeds BEFORE an old website
+// gateway confirms a checkout whose original hold expired. This is a known
+// release blocker: POS cannot make an online gateway atomic by checking Woo
+// availability just before its own cash action. Observe the real pinned Woo
+// behavior on this DISPOSABLE database and do not claim a passed CI build
+// proves live online payment safety. No Paystack or real customer is contacted.
+$reverse_product = $make_simple();
+$reverse_old_web = $website_hold( $reverse_product );
+$reverse_expired = $wpdb->update( $wpdb->wc_reserved_stock,
+    array( 'expires' => gmdate( 'Y-m-d H:i:s', time() - 30 ) ),
+    array( 'order_id' => $reverse_old_web->get_id() ) );
+$assert( $reverse_expired === 1 && (int) $reserve->get_reserved_stock( $reverse_product ) === 0,
+    'Reverse delayed-callback test did not expire the original website hold.' );
+$reverse_key = '11ec976f-dab3-4c75-b21e-27d318f315f0';
+$reverse_pos = $attempt( $reverse_product, $reverse_key );
+$assert( ! is_wp_error( $reverse_pos ) && $reverse_pos['reservationVerified'],
+    'POS did not receive the available last-unit hold after website expiry.' );
+$reverse_intent = mansu_online_cash_intent( $cash_request( $reverse_key, 'cash-intent' ) );
+$assert( ! is_wp_error( $reverse_intent ) && $reverse_intent['cashIntentVerified'],
+    'POS did not verify the original reverse-race cash intent.' );
+$reverse_paid = mansu_online_pay( $cash_request( $reverse_key, 'pay' ) );
+$assert( ! is_wp_error( $reverse_paid ) && $reverse_paid['paymentVerified'] &&
+    (int) wc_get_product( $reverse_product->get_id() )->get_stock_quantity() === 0,
+    'POS did not complete once-only Woo stock reduction in the reverse race.' );
+$reverse_callback = $reverse_old_web->payment_complete();
+$reverse_quantity = (int) wc_get_product( $reverse_product->get_id() )->get_stock_quantity();
+$assert( $reverse_quantity <= 0, 'Delayed original gateway callback unexpectedly replenished stock.' );
+$assert( (int) wc_get_product( $reverse_product->get_id() )->get_stock_quantity() === $reverse_quantity,
+    'Unexpected stock change during readback of the reverse gateway race.' );
+if ( $reverse_callback && $reverse_quantity < 0 ) {
+    echo 'DISPOSABLE_WOO_LATE_GATEWAY_RELEASE_BLOCKER: A paid late website order reduced last-unit stock to ' .
+        $reverse_quantity . '. A Woo/Paystack-side admission and recovery policy is required BEFORE production POS checkout.' . PHP_EOL;
+} else {
+    echo 'DISPOSABLE_WOO_LATE_GATEWAY_NOT_PROVEN_SAFE: delayed website payment status=' .
+        ( $reverse_callback ? 'paid' : 'unconfirmed' ) . ', stock=' . $reverse_quantity .
+        '. Installed gateway and shared-last-unit acceptance remain blocked.' . PHP_EOL;
+}
+
 echo 'DISPOSABLE_WOO_CORE_OK ' . $checks . ' assertions; real pinned Woo core, MySQL/InnoDB, checkout/POS holds, cash-intent, once-only Woo payment, delayed gateway race; NO real store.' . PHP_EOL;
