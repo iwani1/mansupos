@@ -55,7 +55,11 @@ jobs:
           mkdir -p "$WP_PATH/wp-content/plugins/mansu-online-bridge"
           cp woocommerce/mansu-online-bridge/mansu-online-bridge.php "$WP_PATH/wp-content/plugins/mansu-online-bridge/"
           php "$RUNNER_TEMP/wp-cli.phar" plugin activate mansu-online-bridge --path="$WP_PATH" --quiet
+          # Pin actual public Paystack gateway; no website plugin or key is accessed.
+          php "$RUNNER_TEMP/wp-cli.phar" plugin install woo-paystack --version=5.8.6 --activate --path="$WP_PATH" --quiet
+          php -l "$GITHUB_WORKSPACE/tests/woocommerce-real-paystack-conformance.php"
           php "$RUNNER_TEMP/wp-cli.phar" eval-file "$GITHUB_WORKSPACE/tests/woocommerce-real-stock-conformance.php" --path="$WP_PATH" --skip-themes
+          php "$RUNNER_TEMP/wp-cli.phar" eval-file "$GITHUB_WORKSPACE/tests/woocommerce-real-paystack-conformance.php" --path="$WP_PATH" --skip-themes
           php -l "$GITHUB_WORKSPACE/tests/woocommerce-race-worker.php"
           node --check "$GITHUB_WORKSPACE/tests/woocommerce-race-runner.mjs"
           MANSU_CI_WP_PATH="$WP_PATH" \
