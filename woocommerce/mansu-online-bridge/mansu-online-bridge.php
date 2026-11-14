@@ -769,10 +769,22 @@ function mansu_online_website_review( $order, $reason ) {
         $order->add_order_note( 'Mansu stock safety: delayed or unverified website gateway payment. Retain gateway proof; do not fulfil, restock, retry a POS sale or issue an automatic refund. Owner/Manager review required. Reason: ' . $reason );
     }
 }
+// A native payment_complete() call that started with a valid Woo hold must
+// not be quarantined later in the SAME request just because Woo releases
+// that hold while transitioning the order status. Never persist this as an
+// evergreen authorization: a later callback must verify a NEW live hold.
+function mansu_online_website_payment_seen( $order_id, $mark = false ) {
+    static $verified = array();
+    if ( $mark ) { $verified[ (int) $order_id ] = true; }
+    return isset( $verified[ (int) $order_id ] );
+}
 function mansu_online_pre_website_payment( $order_id, $transaction_id = '' ) {
     $order = wc_get_order( (int) $order_id );
     if ( ! mansu_online_website_order( $order ) || $order->get_date_paid() ) { return; }
-    if ( mansu_online_website_hold_safe( $order ) ) { return; }
+    if ( mansu_online_website_hold_safe( $order ) ) {
+        mansu_online_website_payment_seen( $order_id, true );
+        return;
+    }
     mansu_online_website_review( $order, 'payment callback without a valid original stock hold' );
     // Woo WC_Order::payment_complete() catches this exception, leaving the
     // original order and real gateway transfer available for human review.
@@ -805,6 +817,7 @@ function mansu_online_website_status_review( $order_id, $from, $to, $order ) {
     static $reviewing = false;
     if ( $reviewing || ! in_array( $to, array( 'processing', 'completed' ), true ) ||
          ! mansu_online_website_order( $order ) ||
+         mansu_online_website_payment_seen( $order_id ) ||
          mansu_online_website_items_reduced( $order ) ||
          mansu_online_website_hold_safe( $order ) ) {
         return;
