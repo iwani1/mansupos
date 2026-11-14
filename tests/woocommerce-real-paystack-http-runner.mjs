@@ -34,6 +34,8 @@ const match = setup.match(/^DISPOSABLE_PAYSTACK_HTTP_SETUP (.+)$/m);
 assert.ok(match, 'Fixture setup did not return synthetic orders');
 const cases = JSON.parse(match[1]);
 const server = spawn('php', ['-S', '127.0.0.1:8091', '-t', wp], {
+  // Real concurrent child requests, not sequential single-worker PHP.
+  env: { ...process.env, PHP_CLI_SERVER_WORKERS: '4' },
   stdio: ['ignore', 'ignore', 'pipe'],
 });
 let serverErrors = '';
@@ -123,8 +125,15 @@ try {
   process.stdout.write(wpCli('return-reference-mismatch'));
   await webhook('webhook_verify_failed');
   process.stdout.write(wpCli('webhook-verify-failed'));
+  // A PHP worker sleeps 10s in upstream webhook processing. The other
+  // worker must still be able to reach the same verified transaction before
+  // either one proceeds. The mock's on-disk barrier proves genuine overlap.
+  await Promise.all([webhook('race_valid'), redirected('race_valid')]);
+  process.stdout.write(wpCli('race-valid'));
+  await Promise.all([webhook('race_late'), redirected('race_late')]);
+  process.stdout.write(wpCli('race-late'));
   process.stdout.write('DISPOSABLE_REAL_PAYSTACK_HTTP_OK: signed/invalid/replayed webhooks, ' +
-    'valid/late return callbacks, wrong-currency and underpaid last-unit safety; synthetic local HTTP only.\n');
+    'valid/late returns, verified transaction identity and two-worker same-order races; synthetic local HTTP only.\n');
 } finally {
   server.kill('SIGTERM');
 }
