@@ -36,6 +36,9 @@ if ( $phase === 'setup' ) {
         'return_late' => array( 'checkout', true, 'exact' ),
         'webhook_mismatch' => array( 'store-api', true, 'wrong-currency' ),
         'webhook_underpaid' => array( 'checkout', true, 'underpaid' ),
+        // The return URL contains a valid, synthetic Paystack transaction,
+        // but it does not match the reference originally saved on the order.
+        'return_reference_mismatch' => array( 'store-api', false, 'reference-mismatch' ),
     ) as $name => $spec ) {
         $product = new WC_Product_Simple();
         $product->set_name( 'SYNTHETIC HTTP PAYSTACK ' . $name );
@@ -52,7 +55,8 @@ if ( $phase === 'setup' ) {
         $order->set_billing_email( 'synthetic@example.invalid' );
         $order->calculate_totals( false );
         $ref = $order->get_id() . '_synthetic_http_' . $name;
-        $order->update_meta_data( '_paystack_txn_ref', $ref );
+        $order->update_meta_data( '_paystack_txn_ref',
+            $spec[2] === 'reference-mismatch' ? $ref . '_different_attempt' : $ref );
         $order->save();
         $reserve->reserve_stock_for_order( $order, 10 );
         $assert( (int) $reserve->get_reserved_stock( $product ) === 1,
@@ -152,6 +156,18 @@ switch ( $phase ) {
         break;
     case 'webhook-mismatch':
         $late( 'webhook_mismatch', 'on-hold' );
+        break;
+    case 'return-reference-mismatch':
+        list( $order, $product, $reduced ) = $case( 'return_reference_mismatch' );
+        $assert( $order->has_status( 'on-hold' ) &&
+            $order->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
+            ! $order->get_date_paid() &&
+            (int) $product->get_stock_quantity() === 1 && $reduced === 0,
+            'Paystack return accepted a transaction not bound to the original order: ' .
+                'status=' . $order->get_status() .
+                ' review=' . $order->get_meta( '_mansu_website_stock_review', true ) .
+                ' stock=' . $product->get_stock_quantity() .
+                ' reduced=' . $reduced );
         break;
     default:
         throw new RuntimeException( 'Unknown Paystack synthetic HTTP phase.' );
