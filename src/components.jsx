@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef } from 'react';
-import { X, LoaderCircle, Check, AlertCircle, ShoppingBag, Shirt, Banknote, Smartphone, CreditCard, SearchX } from 'lucide-react';
+import { X, LoaderCircle, Check, AlertCircle, ShoppingBag, Shirt, Banknote, Smartphone, CreditCard, SearchX, FileText, LayoutDashboard, Package, Tags, Boxes, Store, ReceiptText, ScrollText, ShieldCheck, Users, ChartNoAxesCombined, Settings2, PanelTop, UserRound, History } from 'lucide-react';
 import { money, methodLabel, statusLabel } from './api.js';
 
 export function IconButton({ icon: Icon, label, className = '', ...props }) { return <button className={`icon-button ${className}`} title={label} aria-label={label} {...props}><Icon size={19} strokeWidth={1.8} /></button>; }
@@ -38,7 +38,25 @@ export function Modal({ title, subtitle, children, onClose, wide = false, busy =
   return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}><section ref={ref} className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-labelledby={titleId}><div className="modal-header"><div><h2 id={titleId}>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><IconButton icon={X} label="Close dialog" onClick={onClose} disabled={busy} /></div>{children}</section></div>;
 }
 export function Notice({ children, tone = 'info', icon: Icon = AlertCircle }) { return <div className={`notice ${tone}`} role={tone === 'error' ? 'alert' : undefined}><Icon size={18} /><div>{children}</div></div>; }
-export function PageHeading({ eyebrow, title, description, children }) { return <div className="page-heading"><div>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h1 tabIndex={-1}>{title}</h1>{description && <p>{description}</p>}</div>{children && <div className="heading-actions">{children}</div>}</div>; }
+const pageIconMap = {
+  Overview:LayoutDashboard, 'Point of sale':ShoppingBag,
+  'Wholesale management':Store, Products:Package, Categories:Tags,
+  Inventory:Boxes, 'Sales history':ReceiptText, Orders:ScrollText,
+  'Recovery queue':ShieldCheck, Customers:UserRound, 'Shifts & drawer':Banknote,
+  'Reports & analytics':ChartNoAxesCombined, 'Staff & permissions':Users,
+  'Audit log':History, 'Settings & connection':Settings2,
+  'Physical source review':PanelTop,
+};
+export function PageHeading({ eyebrow, title, description, children }) {
+  const Icon = pageIconMap[title] || FileText;
+  return <div className="page-heading"><div className="page-heading-copy">
+    {eyebrow && <span className="eyebrow">{eyebrow}</span>}
+    <div className="page-title-row">
+      <span className="page-icon" aria-hidden="true"><Icon size={23} strokeWidth={1.7}/></span>
+      <div><h1 tabIndex={-1}>{title}</h1>{description && <p>{description}</p>}</div>
+    </div>
+  </div>{children && <div className="heading-actions">{children}</div>}</div>;
+}
 export function Stat({ label, value, detail, tone = '' }) { return <div className={`stat-card ${tone}`}><div className="stat-top">{label}</div><strong>{value}</strong>{detail && <p>{detail}</p>}</div>; }
 export function Toast({ toast, onClose }) { useEffect(() => { if (!toast) return; const t = setTimeout(onClose, 5000); return () => clearTimeout(t); }, [toast, onClose]); return toast ? <div className={`toast ${toast.tone || 'success'}`} role={toast.tone === 'error' ? 'alert' : 'status'}>{toast.tone === 'error' ? <AlertCircle size={20} /> : <Check size={20} />}<span>{toast.message}</span><button aria-label="Dismiss notification" onClick={onClose}><X size={16} /></button></div> : null; }
 export function NoResults({ clear }) { return <Empty icon={SearchX} title="No matching products" action={<button className="button secondary" onClick={clear}>Clear filters</button>}>Try another name, SKU, or category.</Empty>; }
