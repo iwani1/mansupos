@@ -133,7 +133,7 @@ input[type=checkbox] { accent-color:#374151; }
   display:flex; align-items:center; gap:6px;
   min-height:29px; width:calc(100% - 9px);
   margin:3px 4px 2px; padding:4px 7px;
-  text-align:left; color:#777b7e;
+  text-align:left; color:#5a5e62;
   letter-spacing:.025em; text-transform:none;
   font-size:10.5px; font-weight:650; border-radius:5px;
 }
