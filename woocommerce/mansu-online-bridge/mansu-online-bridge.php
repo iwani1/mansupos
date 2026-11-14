@@ -787,10 +787,25 @@ function mansu_online_can_reduce_website_stock( $can, $order ) {
     mansu_online_website_review( $order, 'unverified original hold before stock reduction' );
     return false;
 }
+// Woo wc_maybe_reduce_stock_levels() marks the order-level stock flag TRUE
+// even if another plugin's woocommerce_can_reduce_order_stock filter denied
+// the actual item reduction. Never treat that boolean alone as proof.
+function mansu_online_website_items_reduced( $order ) {
+    $lines = $order->get_items( 'line_item' );
+    if ( ! $lines ) { return false; }
+    foreach ( $lines as $line ) {
+        $quantity = (int) $line->get_quantity();
+        if ( $quantity < 1 || (int) $line->get_meta( '_reduced_stock', true ) !== $quantity ) {
+            return false;
+        }
+    }
+    return true;
+}
 function mansu_online_website_status_review( $order_id, $from, $to, $order ) {
     static $reviewing = false;
     if ( $reviewing || ! in_array( $to, array( 'processing', 'completed' ), true ) ||
-         ! mansu_online_website_order( $order ) || $order->get_data_store()->get_stock_reduced( $order_id ) ||
+         ! mansu_online_website_order( $order ) ||
+         mansu_online_website_items_reduced( $order ) ||
          mansu_online_website_hold_safe( $order ) ) {
         return;
     }
