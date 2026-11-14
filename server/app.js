@@ -308,7 +308,9 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
       } catch { throw new AppError('Invalid recovery cursor.', 400); }
     }
     const rows = db.prepare(`SELECT sales.id,sales.number,sales.status,sales.woo_order_id,sales.payment_method,
-      sales.refunded,sales.shift_id,sales.updated_at,shifts.status AS original_shift_status
+      sales.total,sales.refunded,sales.paid_at,sales.shift_id,sales.updated_at,
+      EXISTS (SELECT 1 FROM sale_events WHERE sale_id=sales.id AND event='online.cash_accepted') AS cash_custody_event,
+      shifts.status AS original_shift_status
       FROM sales LEFT JOIN shifts ON shifts.id=sales.shift_id
       WHERE (sales.status IN ('creating','needs_reconciliation','awaiting_payment')
          OR (sales.refunded>0 AND sales.payment_method='cash'))
@@ -321,6 +323,8 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     res.json({ sales: page.map(row => ({ id: row.id, number: row.number, status: row.status,
       wooOrderId: row.woo_order_id, paymentMethod: row.payment_method, refundedCents: row.refunded,
       originalShiftId: row.shift_id, originalShiftStatus: row.original_shift_status || null,
+      cashCustodyUnresolved: Boolean(row.cash_custody_event) && row.paid_at == null,
+      cashHeldCents: Boolean(row.cash_custody_event) && row.paid_at == null ? row.total : 0,
       cashPayoutUnverified: row.refunded > 0 && row.payment_method === 'cash', updatedAt: row.updated_at })),
     hasMore, nextCursor: hasMore && last ? Buffer.from(JSON.stringify({ updatedAt: last.updated_at, id: last.id })).toString('base64url') : null,
     note: 'Woo refunds are observations, not proof of a cash payout. Original closed shifts stay frozen. Cash payout/approval and later-shift treatment await an owner decision.' });

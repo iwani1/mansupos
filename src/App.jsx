@@ -10,6 +10,7 @@ import Customers from './Customers.jsx';
 import { WorkspaceSidebar, WorkspaceHeader } from './WorkspaceChrome.jsx';
 import { Sales, Inventory, Reports, Staff, Connection, Help, Shifts, Audit } from './Pages.jsx';
 import { Checkout, Receipt } from './Checkout.jsx';
+import RecoveryQueue from './RecoveryQueue.jsx';
 import { Spinner, Toast, Notice, Modal } from './components.jsx';
 
 const navigation = [
@@ -21,6 +22,7 @@ const navigation = [
   { id:'inventory', label:'Inventory', short:'Stock', icon:Boxes, group:'Catalogue' },
   { id:'sales', label:'Sales history', short:'Sales', icon:ReceiptText, group:'Operations' },
   { id:'orders', label:'Orders', short:'Orders', icon:ScrollText, group:'Operations' },
+  { id:'recovery', label:'Recovery queue', short:'Review', icon:ShieldCheck, group:'Operations', roles:['owner','manager'] },
   { id:'customers', label:'Customers', short:'Buyers', icon:Users, group:'Operations', roles:['owner','manager'] },
   { id:'shifts', label:'Shifts & drawer', short:'Drawer', icon:Banknote, group:'Operations' },
   { id:'reports', label:'Reports & analytics', short:'Reports', icon:ChartNoAxesCombined, group:'Operations', roles:['owner','manager'] },
@@ -163,6 +165,7 @@ export default function App() {
           {(page==='sales'||page==='orders')&&<Sales key={page} view={page} sales={sales} config={config} refresh={refresh} onReceipt={setReceipt} onPay={setPending} notify={notify} hasMore={salesHasMore} loadingMore={salesLoadingMore} onLoadMore={loadMoreSales}/>}
           {page==='inventory'&&<Inventory catalog={catalog} config={config} user={user} active={page==='inventory'} refresh={refresh} notify={notify}/>}
           {page==='customers'&&user.role!=='cashier'&&<Customers refreshKey={refreshKey}/>}
+          {page==='recovery'&&user.role!=='cashier'&&<RecoveryQueue/>}
           {page==='shifts'&&<Shifts config={config} user={user} shift={shift} refresh={refresh} notify={notify}/>}
           {page==='reports'&&user.role!=='cashier'&&<Reports config={config} notify={notify} refreshKey={refreshKey}/>}
           {page==='staff'&&user.role==='owner'&&<Staff config={config} user={user} notify={notify}/>}
