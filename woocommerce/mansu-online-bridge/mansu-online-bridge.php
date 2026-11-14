@@ -788,11 +788,26 @@ function mansu_online_website_payment_seen( $order_id, $mark = false ) {
 function mansu_online_pre_website_payment( $order_id, $transaction_id = '' ) {
     $order = wc_get_order( (int) $order_id );
     if ( ! mansu_online_website_order( $order ) || $order->get_date_paid() ) { return; }
-    if ( mansu_online_website_hold_safe( $order ) ) {
+    // The public Paystack return handler derives the Woo order ID from the
+    // verified transaction reference, but does not itself compare it to
+    // _paystack_txn_ref on the original order. A valid hold alone must NOT
+    // authorize a payment from a different payment attempt. Fail closed for
+    // the specifically inspected Paystack gateway; other gateways retain
+    // the native hold check and require separate installed-site acceptance.
+    $reference_safe = true;
+    if ( $order->get_payment_method() === 'paystack' ) {
+        $expected_ref = $order->get_meta( '_paystack_txn_ref', true );
+        $reference_safe = is_string( $expected_ref ) && $expected_ref !== '' &&
+            is_string( $transaction_id ) && $transaction_id !== '' &&
+            hash_equals( $expected_ref, $transaction_id );
+    }
+    if ( $reference_safe && mansu_online_website_hold_safe( $order ) ) {
         mansu_online_website_payment_seen( $order_id, true );
         return;
     }
-    mansu_online_website_review( $order, 'payment callback without a valid original stock hold' );
+    mansu_online_website_review( $order, $reference_safe ?
+        'payment callback without a valid original stock hold' :
+        'Paystack payment reference does not match the order original attempt' );
     // The external payment may already have settled. Keep it in a review-only
     // Woo status, not 'pending': Paystack exits on repeat callbacks for an
     // on-hold order, avoiding repeated success notifications. Our stock
