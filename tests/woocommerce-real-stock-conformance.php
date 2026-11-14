@@ -222,7 +222,7 @@ $assert( ! is_wp_error( $late_intent ) && $late_intent['cashIntentVerified'],
 $assert( $old_web->payment_complete() === false,
     'Expired website gateway callback was incorrectly admitted as a paid Woo order.' );
 $old_web = wc_get_order( $old_web->get_id() );
-$assert( $old_web->has_status( 'pending' ) &&
+$assert( $old_web->has_status( 'on-hold' ) &&
     $old_web->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
     ! $old_web->get_date_paid(), 'Unverified website gateway payment was not quarantined.' );
 $assert( (int) wc_get_product( $late_product->get_id() )->get_stock_quantity() === 1,
@@ -324,7 +324,7 @@ $assert( $block_late->payment_complete() === false &&
     $block_late->payment_complete() === false,
     'Late Store API website payment or duplicate callback bypassed review.' );
 $block_late = wc_get_order( $block_late->get_id() );
-$assert( $block_late->has_status( 'pending' ) &&
+$assert( $block_late->has_status( 'on-hold' ) &&
     $block_late->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
     (int) wc_get_product( $block_late_product->get_id() )->get_stock_quantity() === 0,
     'Duplicate Store API callback corrupted paid status or shared stock.' );
@@ -374,7 +374,7 @@ $reserve->reserve_stock_for_order( $reheld_website, 10 );
 $assert( (int) $reserve->get_reserved_stock( $reheld_product ) === 1,
     'Rehold fixture failed to create a fresh valid native Woo hold.' );
 $assert( $reheld_website->payment_complete() === false &&
-    $reheld_website->has_status( 'pending' ) &&
+    $reheld_website->has_status( 'on-hold' ) &&
     $reheld_website->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
     (int) wc_get_product( $reheld_product->get_id() )->get_stock_quantity() === 1,
     'A fresh Woo reservation incorrectly re-authorised a quarantined gateway payment.' );
