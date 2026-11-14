@@ -147,4 +147,48 @@ $assert( $blue_rejected, 'Website BLUE variation oversold POS-held RED parent st
 $assert( (int) $parent->get_stock_quantity() === 1,
     'Parent on-hand stock changed before payment.' );
 
-echo 'DISPOSABLE_WOO_CORE_OK ' . $checks . ' assertions; real pinned Woo core, MySQL/InnoDB, checkout/POS holds; NO real store.' . PHP_EOL;
+// 4. Complete the ORIGINAL POS cash-intent/payment flow using real Woo order
+// and stock hooks. There is no physical cash or external gateway in CI.
+$cash_request = static function ( $key, $operation ) {
+    $request = new WP_REST_Request( 'POST', '/mansu-pos/v1/attempts/' . $key . '/' . $operation );
+    $request->set_param( 'key', $key );
+    $request->set_header( 'content-type', 'application/json' );
+    $request->set_body( '{}' );
+    return $request;
+};
+$intent_request = $cash_request( $key_pos, 'cash-intent' );
+$cash_intent = mansu_online_cash_intent( $intent_request );
+$assert( ! is_wp_error( $cash_intent ) && $cash_intent['state'] === 'cash_intent' &&
+    $cash_intent['cashIntentVerified'] && ! $cash_intent['paymentVerified'],
+    'Woo did not durably acknowledge the original cash intent.' );
+$assert( (int) $reserve->get_reserved_stock( $simple ) === 1 &&
+    (int) wc_get_product( $simple->get_id() )->get_stock_quantity() === 1,
+    'Acknowledging cash intent incorrectly changed website stock.' );
+$pay_request = $cash_request( $key_pos, 'pay' );
+$paid = mansu_online_pay( $pay_request );
+$assert( ! is_wp_error( $paid ) && $paid['state'] === 'paid' &&
+    $paid['paymentVerified'] && $paid['orderIdentityVerified'],
+    'Real Woo payment, one-time stock reduction or paid identity was not verified.' );
+$assert( (int) $reserve->get_reserved_stock( $simple ) === 0 &&
+    (int) wc_get_product( $simple->get_id() )->get_stock_quantity() === 0,
+    'Woo did not release original POS hold and deduct one physical stock unit.' );
+$repeat_paid = mansu_online_pay( $pay_request );
+$assert( ! is_wp_error( $repeat_paid ) && $repeat_paid['paymentVerified'] &&
+    (int) wc_get_product( $simple->get_id() )->get_stock_quantity() === 0,
+    'Same-key Woo payment replay deducted the same unit again.' );
+
+// 5. Confirm that parent-managed variation cash completion deducts the
+// SINGLE shared parent stock owner and cannot make BLUE independently sellable.
+$variant_intent = mansu_online_cash_intent( $cash_request( $key_variant, 'cash-intent' ) );
+$assert( ! is_wp_error( $variant_intent ) && $variant_intent['cashIntentVerified'],
+    'Parent-managed variation cash intent was not verified.' );
+$variant_paid = mansu_online_pay( $cash_request( $key_variant, 'pay' ) );
+$assert( ! is_wp_error( $variant_paid ) && $variant_paid['paymentVerified'],
+    'Parent-managed variation Woo payment was not verified.' );
+$assert( (int) wc_get_product( $parent->get_id() )->get_stock_quantity() === 0 &&
+    (int) $reserve->get_reserved_stock( $children[1] ) === 0,
+    'Variation payment did not reduce the shared parent stock exactly once.' );
+$assert( (int) wc_get_product( $parent->get_id() )->get_stock_quantity() === 0,
+    'Parent stock was inadvertently replenished by failed website checkout.' );
+
+echo 'DISPOSABLE_WOO_CORE_OK ' . $checks . ' assertions; real pinned Woo core, MySQL/InnoDB, checkout/POS holds, cash-intent, once-only Woo payment; NO real store.' . PHP_EOL;
