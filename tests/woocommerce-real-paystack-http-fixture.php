@@ -40,6 +40,9 @@ if ( $phase === 'setup' ) {
         // but it does not match the reference originally saved on the order.
         'return_reference_mismatch' => array( 'store-api', false, 'reference-mismatch' ),
         'webhook_verify_failed' => array( 'checkout', false, 'verify-failed' ),
+        // True two-worker HTTP races use the same synthetic payment reference.
+        'race_valid' => array( 'store-api', false, 'race-valid' ),
+        'race_late' => array( 'checkout', true, 'race-late' ),
     ) as $name => $spec ) {
         $product = new WC_Product_Simple();
         $product->set_name( 'SYNTHETIC HTTP PAYSTACK ' . $name );
@@ -75,6 +78,11 @@ if ( $phase === 'setup' ) {
             'id' => $order->get_id(), 'product' => $product->get_id(),
             'ref' => $ref, 'mode' => $spec[2],
         );
+    }
+    // Barrier markers are owned by the throwaway WordPress directory only.
+    foreach ( array( 'race-valid', 'race-late' ) as $mode ) {
+        $dir = WP_CONTENT_DIR . '/mansu-ci-paystack-' . $mode;
+        $assert( ! is_dir( $dir ) && wp_mkdir_p( $dir ), 'Could not prepare synthetic race barrier.' );
     }
     update_option( 'mansu_ci_paystack_http_cases', $cases, false );
     echo 'DISPOSABLE_PAYSTACK_HTTP_SETUP ' . wp_json_encode( $cases ) . PHP_EOL;
@@ -157,6 +165,32 @@ switch ( $phase ) {
         break;
     case 'webhook-mismatch':
         $late( 'webhook_mismatch', 'on-hold' );
+        break;
+    case 'race-valid':
+        $valid( 'race_valid' );
+        list( $order ) = $case( 'race_valid' );
+        $notes = wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 100 ) );
+        $success_notes = array_filter( $notes, static function ( $note ) {
+            return strpos( $note->content, 'Payment via Paystack successful' ) !== false;
+        } );
+        $assert( count( $success_notes ) === 1,
+            'Concurrent valid webhook/return callbacks generated multiple Paystack success notes; count=' . count( $success_notes ) );
+        $race_markers = glob( WP_CONTENT_DIR . '/mansu-ci-paystack-race-valid/verify-*' );
+        $assert( count( $race_markers ) === 2,
+            'Valid callback race was not reached independently by two PHP workers.' );
+        break;
+    case 'race-late':
+        $late( 'race_late' );
+        list( $order ) = $case( 'race_late' );
+        $notes = wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 100 ) );
+        $success_notes = array_filter( $notes, static function ( $note ) {
+            return strpos( $note->content, 'Payment via Paystack successful' ) !== false;
+        } );
+        $assert( count( $success_notes ) === 1,
+            'Concurrent late webhook/return callbacks generated multiple Paystack success notes; count=' . count( $success_notes ) );
+        $race_markers = glob( WP_CONTENT_DIR . '/mansu-ci-paystack-race-late/verify-*' );
+        $assert( count( $race_markers ) === 2,
+            'Late callback race was not reached independently by two PHP workers.' );
         break;
     case 'webhook-verify-failed':
         list( $order, $product, $reduced ) = $case( 'webhook_verify_failed' );
