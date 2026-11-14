@@ -46,6 +46,30 @@ add_filter( 'pre_http_request', static function ( $preempt, $args, $url ) {
             // goes to the real Paystack API and no state should advance.
             return new WP_Error( 'ci_paystack_verification_failed', 'Synthetic verification unavailable.' );
         }
+        if ( in_array( $entry['mode'], array( 'race-valid', 'race-late' ), true ) ) {
+            // Real simultaneous HTTP requests from two distinct PHP workers
+            // must both reach verified Paystack response before either proceeds.
+            // This barrier ONLY exists in the CI fixture; production has none.
+            $dir = WP_CONTENT_DIR . '/mansu-ci-paystack-' . $entry['mode'];
+            if ( ! is_dir( $dir ) ) {
+                return new WP_Error( 'ci_race_missing', 'Synthetic race directory missing.' );
+            }
+            $marker = $dir . '/verify-' . getmypid();
+            if ( file_put_contents( $marker, (string) microtime( true ), LOCK_EX ) === false ) {
+                return new WP_Error( 'ci_race_marker', 'Synthetic race barrier write failed.' );
+            }
+            $deadline = microtime( true ) + 22;
+            $arrivals = glob( $dir . '/verify-*' );
+            while ( count( $arrivals ) < 2 && microtime( true ) < $deadline ) {
+                usleep( 75000 );
+                $arrivals = glob( $dir . '/verify-*' );
+            }
+            if ( count( $arrivals ) !== 2 ) {
+                return new WP_Error( 'ci_race_timeout', 'Both callback workers did not reach verification barrier.' );
+            }
+            // Keep both Woo order objects stale until the gateway admission.
+            usleep( 250000 );
+        }
         $amount = (int) round( (float) $order->get_total() * 100 );
         if ( $entry['mode'] === 'underpaid' ) { $amount -= 100; }
         $currency = $entry['mode'] === 'wrong-currency' ? 'NGN' : 'GHS';
