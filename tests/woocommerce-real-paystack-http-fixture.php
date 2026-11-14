@@ -91,7 +91,7 @@ $valid = static function ( $name ) use ( $case, $assert ) {
         (int) $product->get_stock_quantity() === 0 && $reduced === 1,
         'Genuine Paystack endpoint did not complete valid held ' . $name );
 };
-$late = static function ( $name, $status = 'pending' ) use ( $case, $assert ) {
+$late = static function ( $name, $status = 'on-hold' ) use ( $case, $assert ) {
     list( $order, $product, $reduced ) = $case( $name );
     $assert( $order->has_status( $status ) &&
         $order->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
@@ -138,12 +138,8 @@ switch ( $phase ) {
                 ++$paystack_notes;
             }
         }
-        $assert( $paystack_notes >= 1,
-            'Repeated expired-hold webhook did not retain Paystack success reconciliation evidence.' );
-        if ( $paystack_notes > 1 ) {
-            echo 'PAYSTACK_LATE_REPLAY_DUPLICATE_SUCCESS_NOTES_OBSERVED count=' .
-                $paystack_notes . '; fulfillment must stay blocked; no production acceptance.' . PHP_EOL;
-        }
+        $assert( $paystack_notes === 1,
+            'Repeated expired-hold webhook generated duplicate Paystack success evidence.' );
         break;
     case 'webhook-underpaid':
         $late( 'webhook_underpaid', 'on-hold' );
