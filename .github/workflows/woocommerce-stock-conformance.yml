@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - audit/lock-legacy-live-checkout-20261114
+      - phase2/stock-safety-audit-20261114
   workflow_dispatch:
 
 permissions:
