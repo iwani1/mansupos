@@ -21,6 +21,16 @@ The pure analyzer `server/phase2-stock-audit.js` identifies, among others:
 
 Every response includes `checkoutAuthorized: false` and `sharedLastUnitGuardVerified: false`, **even if the reported issue count is zero**. A Woo catalogue fetch is only a snapshot. This code does not make a stock reservation, inspect online gateway callbacks or certify the installed Woo checkout hooks.
 
+## Owner/Manager stock safety screen
+
+The existing workspace now includes **Catalogue → Stock safety review** for live POS Owner and Manager accounts. It reads `GET /api/stock-safety/audit` when opened or explicitly refreshed, displays the snapshot age, distinct tracked stock pools, issue categories and up to 20 product/variation identifiers, and provides no button to sell, reserve, edit stock or approve refunds. Its warning explicitly remains visible when there are **zero audit findings**. A synthetic browser regression uses the isolated demo server with a mocked live-pilot session and mocked GET response; no live website or order is accessed.
+
+## Reverse late-website-payment release blocker
+
+The disposable real WooCommerce/MySQL conformance exercise now tests **both orderings** after a website payment's hold expires: (1) the late website payment consumes the last unit before POS payment, which the bridge currently blocks as a POS stock change, and (2) POS completes while the old website order is still unpaid, then an asynchronous website gateway callback completes the old order. The second race can cause a paid order to consume stock already sold by POS. CI prints an explicit `DISPOSABLE_WOO_LATE_GATEWAY_RELEASE_BLOCKER` when it observes negative stock. A passing conformance test is therefore **not** a live-release approval. Do not attempt to solve the second race by retrying POS writes, changing Woo stock manually or assuming the 60-minute Hold stock option prevents late gateway callbacks. A separately reviewed Woo/Paystack-side admission and paid/refund/fulfilment recovery mechanism is required.
+
+The additional test is strictly on the GitHub Actions ephemeral `WP_ENVIRONMENT_TYPE=local` WordPress installation with pinned WooCommerce 11.0.1, disposable MySQL, a synthetic product and zero actual transactions. It must not be executed on GreenGeeks/Contabo. The installed website's actual plugins, Paystack notifications and callbacks remain unverified.
+
 ## Separate acceptance gates before selling (not done by this change)
 
 1. Verify the exact installed Woo version, checkout type, HPOS, database engine, Paystack gateway callback paths, custom hooks, plugin stock adjustments and `wc_reserved_stock` reservation behavior in an isolated environment. The Woo Online Bridge already in the repository is a **disabled-by-default prototype**, not an installed or signed-off service.
@@ -36,6 +46,7 @@ node --test tests/phase2-stock-audit.test.js
 npm test
 npm run lint
 npm run build:live
+# GitHub Actions also runs browser regressions and disposable real Woo/MySQL conformance on the Phase 2 branch.
 ```
 
 Tests use synthetic products, local ephemeral SQLite and mocked Woo calls. Passing tests is **not** evidence of production Woo/Paystack atomicity, receipt/tax correctness or authorization for live selling. Do not merge, deploy, install a WordPress bridge, rotate API keys or enable a checkout gate on the strength of this audit alone.
