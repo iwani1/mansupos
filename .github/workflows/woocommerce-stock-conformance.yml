@@ -60,6 +60,9 @@ jobs:
           php -l "$GITHUB_WORKSPACE/tests/woocommerce-real-paystack-conformance.php"
           php "$RUNNER_TEMP/wp-cli.phar" eval-file "$GITHUB_WORKSPACE/tests/woocommerce-real-stock-conformance.php" --path="$WP_PATH" --skip-themes
           php "$RUNNER_TEMP/wp-cli.phar" eval-file "$GITHUB_WORKSPACE/tests/woocommerce-real-paystack-conformance.php" --path="$WP_PATH" --skip-themes
+          php -l "$GITHUB_WORKSPACE/tests/woocommerce-real-paystack-http-fixture.php"
+          php -l "$GITHUB_WORKSPACE/tests/fixtures/mansu-ci-paystack-http-mock.php"
+          node --check "$GITHUB_WORKSPACE/tests/woocommerce-real-paystack-http-runner.mjs"
           php -l "$GITHUB_WORKSPACE/tests/woocommerce-race-worker.php"
           node --check "$GITHUB_WORKSPACE/tests/woocommerce-race-runner.mjs"
           MANSU_CI_WP_PATH="$WP_PATH" \
