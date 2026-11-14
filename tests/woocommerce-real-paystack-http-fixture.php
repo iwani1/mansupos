@@ -39,6 +39,7 @@ if ( $phase === 'setup' ) {
         // The return URL contains a valid, synthetic Paystack transaction,
         // but it does not match the reference originally saved on the order.
         'return_reference_mismatch' => array( 'store-api', false, 'reference-mismatch' ),
+        'webhook_verify_failed' => array( 'checkout', false, 'verify-failed' ),
     ) as $name => $spec ) {
         $product = new WC_Product_Simple();
         $product->set_name( 'SYNTHETIC HTTP PAYSTACK ' . $name );
@@ -156,6 +157,18 @@ switch ( $phase ) {
         break;
     case 'webhook-mismatch':
         $late( 'webhook_mismatch', 'on-hold' );
+        break;
+    case 'webhook-verify-failed':
+        list( $order, $product, $reduced ) = $case( 'webhook_verify_failed' );
+        $notes = wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 50 ) );
+        $success_notes = array_filter( $notes, static function ( $note ) {
+            return strpos( $note->content, 'Payment via Paystack successful' ) !== false;
+        } );
+        $assert( $order->has_status( 'pending' ) && ! $order->get_date_paid() &&
+            $order->get_meta( '_mansu_website_stock_review', true ) !== 'required' &&
+            (int) $product->get_stock_quantity() === 1 && $reduced === 0 &&
+            count( $success_notes ) === 0,
+            'Failed Paystack verification wrongly completed or reduced a healthy pending order.' );
         break;
     case 'return-reference-mismatch':
         list( $order, $product, $reduced ) = $case( 'return_reference_mismatch' );
