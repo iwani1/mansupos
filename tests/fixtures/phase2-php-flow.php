@@ -59,6 +59,8 @@ function current_user_can( $cap ) { return $cap === 'mansu_online_bridge'; }
 function is_ssl() { return false; }
 function register_activation_hook( $file, $handler ) {}
 function add_action( $hook, $handler, $priority = 10, $arguments = 1 ) {}
+// Registered in actual WordPress; synthetic fixtures invoke only their explicit stubs.
+function add_filter( $hook, $handler, $priority = 10, $arguments = 1 ) {}
 function wp_json_encode( $value ) { return json_encode( $value ); }
 function current_time( $type, $gmt ) { return gmdate( 'Y-m-d H:i:s' ); }
 function get_option( $key, $default = false ) {
