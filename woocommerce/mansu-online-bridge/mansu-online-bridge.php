@@ -402,7 +402,13 @@ function mansu_online_health( $request ) {
         'service' => MANSU_ONLINE_BRIDGE_SERVICE, 'ledgerId' => MANSU_ONLINE_BRIDGE_LEDGER_ID,
         'siteId' => MANSU_ONLINE_BRIDGE_SITE_ID, 'wooVersion' => WC_VERSION,
         'corePrerequisitesOk' => true, 'cashOnly' => true, 'taxEnabled' => (bool) wc_tax_enabled(),
-        'hposEnabled' => (bool) $hpos );
+        'hposEnabled' => (bool) $hpos,
+        // CI on pinned Woo 11.0.1 reproduces negative stock when an old online
+        // gateway payment arrives AFTER its hold expires and POS sells the
+        // last unit. This is permanently FALSE until a separately reviewed
+        // Woo/Paystack-side admission and recovery guard actually exists.
+        // Never turn it on via a copied environment flag or owner approval.
+        'lateGatewayGuardVerified' => false );
 }
 function mansu_online_attempt( $request ) {
     global $wpdb;
