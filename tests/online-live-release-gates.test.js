@@ -201,11 +201,21 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
   assert.ok(identity.ledgerId);
   const base = `http://127.0.0.1:${server.address().port}/api`;
   const login = await fetch(`${base}/auth/login`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: liveEnv.POS_PUBLIC_ORIGIN },
     body: JSON.stringify({ username: 'owner', password: 'H9!blue-orchid-concept-passphrase' }),
   });
   assert.equal(login.status, 200);
   const { token } = await login.json();
+  // Production bootstraps a temporary owner password. Do not bypass its
+  // mandatory rotation merely to make the release-health test pass.
+  const rotated = await fetch(`${base}/auth/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: liveEnv.POS_PUBLIC_ORIGIN,
+      Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ currentPassword: 'H9!blue-orchid-concept-passphrase',
+      newPassword: 'Q7!silver-maple-isolated-owner-passphrase' }),
+  });
+  assert.equal(rotated.status, 200);
   const diagnostics = async () => {
     const response = await fetch(`${base}/connection/diagnostics`, {
       headers: { Authorization: `Bearer ${token}` },
