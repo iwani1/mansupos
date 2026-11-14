@@ -87,7 +87,9 @@ if ( $phase === 'cross-setup' ) {
     $cash_req->set_param( 'key', $key );
     $intent = mansu_online_cash_intent( $cash_req );
     $check( ! is_wp_error( $intent ) && $intent['state'] === 'cash_intent' &&
-        $intent['cashIntentVerified'] === true, 'POS cash-intent was not durably recorded.' );
+        $intent['cashIntentVerified'] === true,
+        'POS cash-intent was not durably recorded: ' .
+        ( is_wp_error( $intent ) ? $intent->get_error_code() : wp_json_encode( $intent ) ) );
     $dir = WP_CONTENT_DIR . '/mansu-ci-cross-payment';
     $check( ! is_dir( $dir ) && wp_mkdir_p( $dir ), 'Could not create synthetic cross-channel barrier.' );
     $data = array( 'websiteId' => $website->get_id(),
