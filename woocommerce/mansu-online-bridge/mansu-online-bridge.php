@@ -873,6 +873,65 @@ function mansu_online_website_status_review( $order_id, $from, $to, $order ) {
         $reviewing = false;
     }
 }
+/**
+ * DRAFT ONLY: serialize the actual Paystack v5.8.6 WC-API entry points for
+ * each website order, BEFORE upstream code fetches its order object.
+ *
+ * Two PHP workers can both verify one payment and then use stale pending
+ * WC_Order snapshots. The native Woo pre-payment/stock hooks alone cannot
+ * prevent a later stale callback from overwriting a legitimately paid order
+ * with on-hold/review, even when only one stock unit was deducted.
+ *
+ * MySQL GET_LOCK is scoped to this request's DB connection, covers both
+ * webhook and return URL, and is explicitly released on PHP shutdown. This
+ * relies on the same connection surviving for the duration of the gateway
+ * handler. The installed Paystack version/settings are NOT verified; the
+ * release flag remains false and this must never enable production writes.
+ */
+function mansu_online_paystack_route_lock() {
+    if ( ! mansu_online_enabled() || ! function_exists( 'wc_get_order' ) ) { return; }
+    $is_webhook = current_filter() === 'woocommerce_api_tbz_wc_paystack_webhook';
+    $reference = '';
+    if ( $is_webhook ) {
+        if ( ( $_SERVER['REQUEST_METHOD'] ?? '' ) !== 'POST' ) { return; }
+        // php://input is seekable/re-readable in supported PHP 8.x. Only
+        // inspect the claimed order ID to serialize; real Paystack must still
+        // verify HMAC, remote transaction, amount and reference itself.
+        $event = json_decode( file_get_contents( 'php://input' ) );
+        if ( ! is_object( $event ) || ( $event->event ?? '' ) !== 'charge.success' ||
+             ! isset( $event->data->reference ) || ! is_string( $event->data->reference ) ) { return; }
+        $reference = $event->data->reference;
+    } else {
+        // Public Paystack return accepts either query key.
+        $raw_reference = $_REQUEST['paystack_txnref'] ?? $_REQUEST['reference'] ?? null;
+        if ( ! is_string( $raw_reference ) ) { return; }
+        $reference = sanitize_text_field( wp_unslash( $raw_reference ) );
+    }
+    if ( ! preg_match( '/^([1-9][0-9]{0,11})_/', $reference, $matches ) ) { return; }
+    $order_id = (int) $matches[1];
+    global $wpdb;
+    $lock_name = 'mansu-paystack-order-' . $order_id;
+    // MySQL advisory lock is shared by all PHP workers using this DB. A
+    // timed-out request MUST NOT run the upstream gateway on stale state.
+    $locked = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, 20 ) );
+    if ( (string) $locked !== '1' ) {
+        status_header( 503 );
+        exit;
+    }
+    $order = wc_get_order( $order_id );
+    if ( ! mansu_online_website_order( $order ) || $order->get_payment_method() !== 'paystack' ) {
+        $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+        return;
+    }
+    // Both Paystack handlers terminate via exit. PHP shutdown still releases
+    // the lock, so a second verified callback sees final persisted order state.
+    register_shutdown_function( static function () use ( $wpdb, $lock_name ) {
+        $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+    } );
+}
+add_action( 'woocommerce_api_tbz_wc_paystack_webhook', 'mansu_online_paystack_route_lock', 0 );
+add_action( 'woocommerce_api_wc_gateway_paystack', 'mansu_online_paystack_route_lock', 0 );
+
 add_action( 'woocommerce_pre_payment_complete', 'mansu_online_pre_website_payment', 1, 2 );
 add_filter( 'woocommerce_can_reduce_order_stock', 'mansu_online_can_reduce_website_stock', 1, 2 );
 add_action( 'woocommerce_order_status_changed', 'mansu_online_website_status_review', 1, 4 );
