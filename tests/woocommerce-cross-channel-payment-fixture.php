@@ -54,6 +54,15 @@ $notes = static function ( $order ) {
     ) );
 };
 if ( $phase === 'cross-setup' ) {
+    // The cross-channel suite can run first and fail fast before the longer
+    // signed webhook regression. No installed-site settings are consulted.
+    update_option( 'woocommerce_paystack_settings', array(
+        'enabled' => 'yes', 'testmode' => 'yes',
+        'test_public_key' => 'pk_test_synthetic_ci_no_real_account',
+        'test_secret_key' => 'sk_test_synthetic_ci_no_real_account',
+        'payment_page' => 'redirect', 'autocomplete_order' => 'no',
+        'saved_cards' => 'no',
+    ) );
     $product = $make_product( 'last-item' );
     list( $website, $ref ) = $make_website( $product, 'late_vs_pos_cash' );
     $expired = $wpdb->update( $wpdb->wc_reserved_stock,
