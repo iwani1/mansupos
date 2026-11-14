@@ -735,7 +735,11 @@ function mansu_online_website_order( $order ) {
 }
 function mansu_online_website_hold_safe( $order ) {
     global $wpdb;
-    if ( ! $order || ! $order->get_id() ) { return false; }
+    // A previously quarantined gateway payment must NEVER be auto-admitted
+    // merely because a later job/manual edit created another Woo reservation.
+    // The original payment needs audited Owner/Manager reconciliation first.
+    if ( ! $order || ! $order->get_id() ||
+         $order->get_meta( '_mansu_website_stock_review', true ) === 'required' ) { return false; }
     $expected = array();
     $items = $order->get_items( 'line_item' );
     if ( ! $items || ! is_array( $items ) ) { return false; }
