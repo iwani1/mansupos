@@ -36,15 +36,22 @@ const setup = wpCli('setup');
 const match = setup.match(/^DISPOSABLE_PAYSTACK_HTTP_SETUP (.+)$/m);
 assert.ok(match, 'Fixture setup did not return synthetic orders');
 const cases = JSON.parse(match[1]);
-const server = spawn('php', ['-S', '127.0.0.1:8091', '-t', wp], {
-  // Real concurrent child requests, not sequential single-worker PHP.
-  env: { ...process.env, PHP_CLI_SERVER_WORKERS: '4' },
+// Two independent loopback server processes share the SAME disposable Woo DB.
+// Distinct listener ports guarantee that overlapping callbacks are processed
+// by separate PHP workers; one multiworker server may accept two sockets on
+// the same worker and deadlock a deterministic entry barrier.
+const primaryServer = spawn('php', ['-S', '127.0.0.1:8091', '-t', wp], {
+  stdio: ['ignore', 'ignore', 'pipe'],
+});
+const secondaryServer = spawn('php', ['-S', '127.0.0.1:8092', '-t', wp], {
   stdio: ['ignore', 'ignore', 'pipe'],
 });
 let serverErrors = '';
-server.stderr.on('data', d => { serverErrors = (serverErrors + d.toString()).slice(-5000); });
+for (const server of [primaryServer, secondaryServer]) {
+  server.stderr.on('data', d => { serverErrors = (serverErrors + d.toString()).slice(-5000); });
+}
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-async function call(method, endpoint, body = undefined, signature = undefined) {
+async function call(method, endpoint, body = undefined, signature = undefined, port = 8091) {
   // Use an explicit loopback-only HTTP/1.1 client with connection close.
   // Avoid keepalive/parser ambiguity when Paystack's WC-API handlers call exit.
   return new Promise((resolve, reject) => {
@@ -55,7 +62,7 @@ async function call(method, endpoint, body = undefined, signature = undefined) {
     }
     if (signature) headers['x-paystack-signature'] = signature;
     const request = http.request({
-      hostname: '127.0.0.1', port: 8091, path: endpoint,
+      hostname: '127.0.0.1', port, path: endpoint,
       method, headers, timeout: 70_000,
     }, response => {
       const chunks = [];
@@ -77,7 +84,7 @@ async function call(method, endpoint, body = undefined, signature = undefined) {
     request.end(body);
   });
 }
-async function webhook(key, validSignature = true) {
+async function webhook(key, validSignature = true, port = 8091) {
   const payload = JSON.stringify({
     event: 'charge.success',
     data: { reference: cases[key].ref },
@@ -85,26 +92,29 @@ async function webhook(key, validSignature = true) {
   const signature = validSignature
     ? createHmac('sha512', syntheticSecret).update(payload).digest('hex')
     : '0'.repeat(128);
-  const res = await call('POST', '/?wc-api=tbz_wc_paystack_webhook', payload, signature);
+  const res = await call('POST', '/?wc-api=tbz_wc_paystack_webhook', payload, signature, port);
   assert.equal(res.status, 200, 'Synthetic Paystack webhook must return 200');
 }
-async function redirected(key) {
+async function redirected(key, port = 8091) {
   const ref = encodeURIComponent(cases[key].ref);
-  const res = await call('GET', '/?wc-api=wc_gateway_paystack&reference=' + ref);
+  const res = await call('GET', '/?wc-api=wc_gateway_paystack&reference=' + ref, undefined, undefined, port);
   assert.ok(res.status === 302 || res.status === 303,
     'Synthetic Paystack return must redirect, not fail');
 }
 try {
-  let started = false;
-  for (let i = 0; i < 40; i++) {
-    if (server.exitCode !== null) break;
-    try {
-      const resp = await call('GET', '/');
-      if (resp.status < 500) { started = true; break; }
-    } catch {}
-    await sleep(250);
+  for (const [server, port] of [[primaryServer, 8091], [secondaryServer, 8092]]) {
+    let started = false;
+    for (let i = 0; i < 40; i++) {
+      if (server.exitCode !== null) break;
+      try {
+        const resp = await call('GET', '/', undefined, undefined, port);
+        if (resp.status < 500) { started = true; break; }
+      } catch {}
+      await sleep(250);
+    }
+    assert.ok(started, 'Local synthetic WordPress HTTP server on ' + port +
+      ' did not start: ' + serverErrors);
   }
-  assert.ok(started, 'Local synthetic WordPress HTTP server did not start: ' + serverErrors);
 
   await webhook('webhook_late', false);
   process.stdout.write(wpCli('invalid-hmac'));
@@ -131,12 +141,13 @@ try {
   // A PHP worker sleeps 10s in upstream webhook processing. The other
   // worker must still be able to reach the same verified transaction before
   // either one proceeds. The mock's on-disk barrier proves genuine overlap.
-  await Promise.all([webhook('race_valid'), redirected('race_valid')]);
+  await Promise.all([webhook('race_valid', true, 8091), redirected('race_valid', 8092)]);
   process.stdout.write(wpCli('race-valid'));
-  await Promise.all([webhook('race_late'), redirected('race_late')]);
+  await Promise.all([webhook('race_late', true, 8091), redirected('race_late', 8092)]);
   process.stdout.write(wpCli('race-late'));
   process.stdout.write('DISPOSABLE_REAL_PAYSTACK_HTTP_OK: signed/invalid/replayed webhooks, ' +
     'valid/late returns, verified transaction identity and two-worker same-order races; synthetic local HTTP only.\n');
 } finally {
-  server.kill('SIGTERM');
+  primaryServer.kill('SIGTERM');
+  secondaryServer.kill('SIGTERM');
 }
