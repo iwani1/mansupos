@@ -370,6 +370,11 @@ $assert( $reheld_expired === 1 && $reheld_website->payment_complete() === false 
     $reheld_website->get_meta( '_mansu_website_stock_review', true ) === 'required',
     'Rehold fixture did not quarantine the original expired website payment.' );
 wc_release_stock_for_order( $reheld_website );
+// Deliberately model an unauthorized/admin reset of a quarantined on-hold
+// order back to pending before trying to obtain a new reservation. This
+// must never clear the permanent dispute marker or permit auto-payment.
+$reheld_website = wc_get_order( $reheld_website->get_id() );
+$reheld_website->update_status( 'pending', 'Synthetic operator reset; must not clear stock safety review.' );
 $reserve->reserve_stock_for_order( $reheld_website, 10 );
 $assert( (int) $reserve->get_reserved_stock( $reheld_product ) === 1,
     'Rehold fixture failed to create a fresh valid native Woo hold.' );
