@@ -169,12 +169,14 @@ switch ( $phase ) {
     case 'race-valid':
         list( $order, $product, $reduced ) = $case( 'race_valid' );
         $race_markers = glob( WP_CONTENT_DIR . '/mansu-ci-paystack-race-valid/verify-*' );
+        $race_arrivals = glob( WP_CONTENT_DIR . '/mansu-ci-paystack-race-valid/arrival-*' );
         $debug_notes = wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 100 ) );
         $debug_success = array_filter( $debug_notes, static function ( $note ) {
             return strpos( $note->content, 'Payment via Paystack successful' ) !== false;
         } );
         echo 'PAYSTACK_RACE_VALID_DIAGNOSTICS ' . wp_json_encode( array(
             'workers_at_verifier' => count( $race_markers ),
+            'workers_at_entry' => count( $race_arrivals ),
             'status' => $order->get_status(),
             'paid_date_present' => (bool) $order->get_date_paid(),
             'review' => $order->get_meta( '_mansu_website_stock_review', true ),
@@ -182,8 +184,8 @@ switch ( $phase ) {
             'line_reduced' => $reduced,
             'success_notes' => count( $debug_success ),
         ) ) . PHP_EOL;
-        $assert( count( $race_markers ) === 2,
-            'Valid callback race did not reach verifier in two workers.' );
+        $assert( count( $race_arrivals ) === 2 && count( $race_markers ) === 2,
+            'Valid callback race did not start in two workers and verify both requests.' );
         $valid( 'race_valid' );
         list( $order ) = $case( 'race_valid' );
         $notes = wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 100 ) );
@@ -199,15 +201,17 @@ switch ( $phase ) {
     case 'race-late':
         list( $order, $product, $reduced ) = $case( 'race_late' );
         $race_markers = glob( WP_CONTENT_DIR . '/mansu-ci-paystack-race-late/verify-*' );
+        $race_arrivals = glob( WP_CONTENT_DIR . '/mansu-ci-paystack-race-late/arrival-*' );
         echo 'PAYSTACK_RACE_LATE_DIAGNOSTICS ' . wp_json_encode( array(
             'workers_at_verifier' => count( $race_markers ),
+            'workers_at_entry' => count( $race_arrivals ),
             'status' => $order->get_status(),
             'review' => $order->get_meta( '_mansu_website_stock_review', true ),
             'stock' => $product->get_stock_quantity(),
             'line_reduced' => $reduced,
         ) ) . PHP_EOL;
-        $assert( count( $race_markers ) === 2,
-            'Late callback race did not reach verifier in two workers.' );
+        $assert( count( $race_arrivals ) === 2 && count( $race_markers ) === 2,
+            'Late callback race did not start in two workers and verify both requests.' );
         $late( 'race_late' );
         list( $order ) = $case( 'race_late' );
         $notes = wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 100 ) );
