@@ -41,6 +41,11 @@ add_filter( 'pre_http_request', static function ( $preempt, $args, $url ) {
              $order->get_meta( '_paystack_txn_ref', true ) !== $ref ) ) {
             return new WP_Error( 'ci_paystack_ref_mismatch', 'Synthetic reference mismatch.' );
         }
+        if ( $entry['mode'] === 'verify-failed' ) {
+            // Synthetic network/transaction verification failure. No request
+            // goes to the real Paystack API and no state should advance.
+            return new WP_Error( 'ci_paystack_verification_failed', 'Synthetic verification unavailable.' );
+        }
         $amount = (int) round( (float) $order->get_total() * 100 );
         if ( $entry['mode'] === 'underpaid' ) { $amount -= 100; }
         $currency = $entry['mode'] === 'wrong-currency' ? 'NGN' : 'GHS';
