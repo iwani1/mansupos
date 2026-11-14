@@ -190,7 +190,7 @@ export class SalesService {
   hasOnlineHistory() { return Boolean(this.db.prepare("SELECT 1 FROM sale_events WHERE event='online.intent' LIMIT 1").get()); }
   assertLegacySale(id, { readOnly = false } = {}) {
     if (this.isOnlineSale(id)) throw new AppError('This sale belongs to the separately gated online reservation bridge. Never use legacy Woo writes on it.', 403, 'CHECKOUT_LOCKED');
-    if (this.config.onlineBridgeLocalTest || !readOnly && (this.config.onlineBridgeQuarantined || this.hasOnlineHistory())) {
+    if (this.config.onlineBridgeEnabled || !readOnly && (this.config.onlineBridgeQuarantined || this.hasOnlineHistory())) {
       throw new AppError('Legacy Woo checkout is locked while online bridge attempts share this ledger.', 403, 'CHECKOUT_LOCKED');
     }
   }
@@ -413,7 +413,7 @@ export class SalesService {
     }
   }
   async prepare(user, input) {
-    if (this.config.onlineBridgeLocalTest || this.config.onlineBridgeQuarantined || this.hasOnlineHistory()) {
+    if (this.config.onlineBridgeEnabled || this.config.onlineBridgeQuarantined || this.hasOnlineHistory()) {
       throw new AppError('Legacy Woo checkout cannot create unreserved orders in this online-bridge ledger.', 403, 'CHECKOUT_LOCKED');
     }
     if (this.config.mode !== 'demo' && !this.config.writesEnabled) throw new AppError('Checkout is locked. Complete the documented acceptance checks and approved server-side write gate first.', 403, 'CHECKOUT_LOCKED');
@@ -716,7 +716,7 @@ export class SalesService {
     // Woo order inspection on a bridge ledger. Use individual, original-key
     // read-only reconciliation after separate owner review instead.
     if (this.config.mode === 'demo' || this.config.liveReadOnly || !this.config.configured ||
-        this.config.onlineBridgeLocalTest || this.config.onlineBridgeQuarantined || this.hasOnlineHistory()) {
+        this.config.onlineBridgeEnabled || this.config.onlineBridgeQuarantined || this.hasOnlineHistory()) {
       return { checked: 0, reconciled: 0, failed: 0 };
     }
     const paidBefore = new Date(Date.now() - 3600000).toISOString();

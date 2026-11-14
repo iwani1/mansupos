@@ -68,7 +68,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   // Turning OFF the experimental bridge must never fall back to unreserved
   // legacy Woo checkout in the SAME ledger. Keep history readable, but lock
   // all checkout writes until a separately reviewed recovery is authorised.
-  if (!config.onlineBridgeLocalTest && db.prepare("SELECT 1 FROM sale_events WHERE event='online.intent' LIMIT 1").get()) {
+  if (!config.onlineBridgeEnabled && db.prepare("SELECT 1 FROM sale_events WHERE event='online.intent' LIMIT 1").get()) {
     config.onlineBridgeQuarantined = true;
     config.writesEnabled = false;
     config.wholesaleWritesEnabled = false;
@@ -81,7 +81,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     injectedReservations || new OfflineReservations(config), wholesalePrices);
   const sales = new SalesService(db, catalog, api, config);
   // No bridge client, routes, plugin writes or new SQLite schema when OFF.
-  const online = config.onlineBridgeLocalTest
+  const online = config.onlineBridgeEnabled
     ? new OnlineSalesService(db, catalog, injectedBridge || new OnlineBridgeClient(config), config)
     : null;
   const shifts = new ShiftService(db, config);

@@ -9,7 +9,7 @@ const digest = body => createHash('sha256').update(body).digest('hex');
 // logger. HTTP is permitted ONLY to a literal loopback address in NODE_ENV=test.
 export class OnlineBridgeClient {
   constructor(config, fetchImpl = fetch) {
-    if (!config.onlineBridgeLocalTest) throw new Error('The local bridge is disabled.');
+    if (!config.onlineBridgeEnabled) throw new Error('The Woo reservation bridge is disabled.');
     this.config = config;
     this.fetch = fetchImpl;
   }
@@ -52,7 +52,7 @@ export class OnlineBridgeClient {
       throw new AppError('Local Woo bridge refused or could not verify the attempt. Inspect its original Woo order and stock hold.', 502, 'BRIDGE_UNCERTAIN');
     }
     if (!result || typeof result !== 'object' || Array.isArray(result) ||
-        result.service !== 'staging' || result.siteId !== this.config.bridgeSiteId ||
+        result.service !== this.config.bridgeService || result.siteId !== this.config.bridgeSiteId ||
         !states.has(result.state) || typeof result.key !== 'string' ||
         typeof result.fingerprint !== 'string' || typeof result.ledgerId !== 'string' ||
         (result.orderId !== null && (!Number.isSafeInteger(result.orderId) || result.orderId < 1)) ||

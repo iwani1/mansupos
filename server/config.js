@@ -35,6 +35,19 @@ export function readConfig(env = process.env) {
   }
   const configured = Boolean(env.WOO_CONSUMER_KEY && env.WOO_CONSUMER_SECRET);
   const approvalReference = (env.POS_OWNER_APPROVAL_REFERENCE || '').trim();
+  // Live bridge activation is a separate release switch. Old POS write approval
+  // alone is never enough to turn on the unreserved legacy checkout.
+  if (env.POS_ONLINE_BRIDGE_LIVE_ENABLED && !['true', 'false'].includes(env.POS_ONLINE_BRIDGE_LIVE_ENABLED)) {
+    throw new Error('POS_ONLINE_BRIDGE_LIVE_ENABLED must be true or false.');
+  }
+  const onlineBridgeLiveEnabled = env.POS_ONLINE_BRIDGE_LIVE_ENABLED === 'true';
+  const liveBridgeAcceptance = (env.POS_ONLINE_BRIDGE_LIVE_ACCEPTANCE_REFERENCE || '').trim();
+  if (onlineBridgeLiveEnabled && (mode !== 'live' || !production || liveReadOnly || !configured ||
+      env.POS_ALLOW_LIVE_WRITES !== 'true' || approvalReference.length < 8 ||
+      liveBridgeAcceptance.length < 12 || liveBridgeAcceptance === approvalReference ||
+      env.POS_REQUIRE_SHIFT !== 'true')) {
+    throw new Error('The live Woo bridge requires a dedicated trading service, mandatory shifts and separate documented owner and bridge acceptance; never the read-only pilot.');
+  }
   // A legacy REST-created POS order does NOT atomically reserve WooCommerce
   // checkout stock. Production may never turn this old write path on via env
   // approvals while the replacement Woo reservation bridge is still unaccepted.
@@ -42,7 +55,8 @@ export function readConfig(env = process.env) {
   const legacyLiveCheckoutBlocked = mode === 'live' && production;
   const writesEnabled = mode === 'staging'
     ? configured && env.POS_STAGING_APPROVED === 'true'
-    : mode === 'live' && !legacyLiveCheckoutBlocked && !liveReadOnly && configured && env.POS_ALLOW_LIVE_WRITES === 'true' && approvalReference.length >= 8;
+    : mode === 'live' && (!production || onlineBridgeLiveEnabled) && !liveReadOnly && configured &&
+      env.POS_ALLOW_LIVE_WRITES === 'true' && approvalReference.length >= 8;
   // Wholesale is a separate, explicitly approved write path. Staging approval
   // is only for staging; a no-staging live rollout must not pretend it passed
   // staging tests. Require a distinct reference to documented live acceptance.
@@ -57,6 +71,9 @@ export function readConfig(env = process.env) {
   // ordinary Woo POS write approval and is never valid on the catalogue pilot.
   const desktopRequested = env.POS_DESKTOP_RESERVATION_APPROVED === 'true';
   const desktopSetupRequested = env.POS_DESKTOP_SETUP_APPROVED === 'true';
+  if (onlineBridgeLiveEnabled && (desktopRequested || desktopSetupRequested || env.POS_INSTORE_CASH_APPROVED === 'true')) {
+    throw new Error('The first live online release cannot activate offline or POS-only local-stock sales.');
+  }
   for (const key of ['POS_DESKTOP_SETUP_APPROVED','POS_DESKTOP_RESERVATION_APPROVED']) {
     if (env[key] && !['true', 'false'].includes(env[key])) throw new Error(`${key} must be true or false.`);
   }
@@ -108,6 +125,22 @@ export function readConfig(env = process.env) {
   }
   const onlineBridgeLocalTest = env.POS_ONLINE_BRIDGE_LOCAL_TEST === 'true';
   const bridgeUrl = env.POS_ONLINE_BRIDGE_URL || '';
+  if (onlineBridgeLiveEnabled && onlineBridgeLocalTest) {
+    throw new Error('Live and local bridge profiles are mutually exclusive.');
+  }
+  if (onlineBridgeLiveEnabled) {
+    const pinned = httpsOrigin(bridgeUrl, 'POS_ONLINE_BRIDGE_URL');
+    if (!pinned || pinned !== storeUrl || !PRODUCTION_HOSTS.includes(new URL(pinned).hostname)) {
+      throw new Error('Live bridge URL must match the approved HTTPS WooCommerce store origin exactly.');
+    }
+    if (!env.POS_ONLINE_BRIDGE_APP_USER || !env.POS_ONLINE_BRIDGE_APP_PASSWORD ||
+        (env.POS_ONLINE_BRIDGE_SECRET || '').length < 32 ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(env.POS_ONLINE_BRIDGE_SITE_ID || '')) {
+      throw new Error('Live bridge requires dedicated WordPress credentials, a 32+ character secret and a bound site UUID.');
+    }
+  }
+  const onlineBridgeEnabled = onlineBridgeLocalTest || onlineBridgeLiveEnabled;
+  const bridgeService = onlineBridgeLiveEnabled ? 'live-trading' : 'staging';
   if (onlineBridgeLocalTest) {
     let parsed;
     try { parsed = new URL(bridgeUrl); } catch { throw new Error('Online bridge local test requires a loopback URL.'); }
@@ -140,11 +173,12 @@ export function readConfig(env = process.env) {
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
     desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',
-    onlineBridgeLocalTest, bridgeUrl: onlineBridgeLocalTest ? new URL(bridgeUrl).origin : '',
-    bridgeSiteId: onlineBridgeLocalTest ? env.POS_ONLINE_BRIDGE_SITE_ID.toLowerCase() : '',
-    bridgeAppUser: onlineBridgeLocalTest ? env.POS_ONLINE_BRIDGE_APP_USER : '',
-    bridgeAppPassword: onlineBridgeLocalTest ? env.POS_ONLINE_BRIDGE_APP_PASSWORD : '',
-    bridgeSecret: onlineBridgeLocalTest ? env.POS_ONLINE_BRIDGE_SECRET : '',
+    onlineBridgeLocalTest, onlineBridgeLiveEnabled, onlineBridgeEnabled, bridgeService,
+    bridgeUrl: onlineBridgeEnabled ? new URL(bridgeUrl).origin : '',
+    bridgeSiteId: onlineBridgeEnabled ? env.POS_ONLINE_BRIDGE_SITE_ID.toLowerCase() : '',
+    bridgeAppUser: onlineBridgeEnabled ? env.POS_ONLINE_BRIDGE_APP_USER : '',
+    bridgeAppPassword: onlineBridgeEnabled ? env.POS_ONLINE_BRIDGE_APP_PASSWORD : '',
+    bridgeSecret: onlineBridgeEnabled ? env.POS_ONLINE_BRIDGE_SECRET : '',
     consumerKey: env.WOO_CONSUMER_KEY || '', consumerSecret: env.WOO_CONSUMER_SECRET || '',
     dataDir: env.POS_DATA_DIR || path.resolve('.data'),
     port, bindHost, production, publicOrigin,
@@ -170,7 +204,7 @@ export function readConfig(env = process.env) {
 // have a separate guard in SalesService.
 export function shouldRunReconcileTimer(config) {
   return config.mode !== 'demo' && !config.liveReadOnly &&
-    !config.onlineBridgeLocalTest && !config.onlineBridgeQuarantined && config.configured &&
+    !config.onlineBridgeEnabled && !config.onlineBridgeQuarantined && config.configured &&
     (config.mode !== 'live' || config.writesEnabled);
 }
 
@@ -180,6 +214,8 @@ export function publicConfig(config) {
     liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
     onlineBridgeLocalTest: config.onlineBridgeLocalTest,
+    onlineBridgeLiveEnabled: config.onlineBridgeLiveEnabled,
+    onlineBridgeEnabled: config.onlineBridgeEnabled,
     onlineBridgeQuarantined: Boolean(config.onlineBridgeQuarantined),
     currency: config.currency,
     lowStockThreshold: config.lowStockThreshold, receiptFooter: config.receiptFooter,

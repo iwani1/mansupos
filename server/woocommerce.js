@@ -37,7 +37,7 @@ export class WooCommerce {
     }
     // Defence in depth: a future caller must not bypass the checkout-service
     // gate and mutate WooCommerce from demo or locked staging/live deployments.
-    if (!['GET', 'HEAD'].includes(method) && !this.config.writesEnabled) {
+    if (!['GET', 'HEAD'].includes(method) && (!this.config.writesEnabled || this.config.onlineBridgeEnabled)) {
       throw new RemoteError('WooCommerce writes are locked for this POS instance. No order or stock change was attempted.', 403);
     }
     let response;

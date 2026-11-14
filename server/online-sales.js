@@ -17,7 +17,7 @@ const eventExists = (db, id, event) => Boolean(db.prepare('SELECT 1 FROM sale_ev
 // writes to Woo stock tables or retries a possibly executed remote mutation.
 export class OnlineSalesService {
   constructor(db, catalog, bridge, config) {
-    if (!config.onlineBridgeLocalTest || !bridge) throw new Error('The online bridge local test is disabled.');
+    if (!config.onlineBridgeEnabled || !bridge) throw new Error('The Woo reservation bridge is disabled.');
     this.db = db;
     this.catalog = catalog;
     this.bridge = bridge;
@@ -25,8 +25,9 @@ export class OnlineSalesService {
     this.shifts = new ShiftService(db, config);
     this.locks = new Set();
     const identity = ledgerInfo(db);
-    if (identity.service !== serviceIdentity(config) || identity.service !== 'staging' || !identity.ledgerId || identity.version !== 9) {
-      throw new Error('The local online test requires its own bound v9 staging ledger.');
+    if (identity.service !== serviceIdentity(config) || identity.service !== config.bridgeService ||
+        !identity.ledgerId || identity.version !== 9) {
+      throw new Error('The Woo bridge requires its own bound v9 ledger; pilot and trading databases must stay separate.');
     }
     this.ledgerId = identity.ledgerId;
   }
@@ -53,7 +54,7 @@ export class OnlineSalesService {
   }
   assertRemote(row, remote, { lines = true } = {}) {
     if (!remote || remote.key !== row.idempotency_key || remote.fingerprint !== row.fingerprint ||
-        remote.service !== 'staging' || remote.ledgerId !== this.ledgerId || remote.siteId !== this.config.bridgeSiteId ||
+        remote.service !== this.config.bridgeService || remote.ledgerId !== this.ledgerId || remote.siteId !== this.config.bridgeSiteId ||
         (row.woo_order_id && remote.orderId !== row.woo_order_id) ||
         (row.prepared_total && remote.totalCents !== row.prepared_total)) {
       throw new AppError('Woo attempt identity, total or site did not match this bound POS ledger.', 409, 'RECONCILIATION_REQUIRED');
@@ -139,7 +140,7 @@ export class OnlineSalesService {
         this.db.prepare(`INSERT INTO sales(id,idempotency_key,fingerprint,number,status,currency,cashier_id,cashier_name,note,
           items_json,created_at,updated_at,shift_id,sale_type,buyer_id,buyer_name,trade_quote_json,
           trade_approved_by_id,trade_approved_by_name,trade_approved_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, input.idempotencyKey, fingerprint, `STG-${id.slice(0, 8).toUpperCase()}`,
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, input.idempotencyKey, fingerprint, `${this.config.onlineBridgeLiveEnabled ? 'POS' : 'STG'}-${id.slice(0, 8).toUpperCase()}`,
             'creating', 'GHS', user.id, user.name, input.note, '[]', time, time, shift.id,
             type === 'wholesale' ? 'trade' : 'retail', buyer?.id || null, buyerName,
             type === 'wholesale' ? JSON.stringify(items) : null,
@@ -171,7 +172,7 @@ export class OnlineSalesService {
           saleEvent(this.db, id, 'online.cart_verified', user.id, { amountCents: total, details: { lineCount: snapshot.length } });
           saleEvent(this.db, id, 'online.reserve_started', user.id, { details: { siteId: this.config.bridgeSiteId } });
         });
-        const payload = { service: 'staging', ledgerId: this.ledgerId, key: input.idempotencyKey, fingerprint,
+        const payload = { service: this.config.bridgeService, ledgerId: this.ledgerId, key: input.idempotencyKey, fingerprint,
           cashierId: user.id, shiftId: shift.id, saleType: type,
           ...(quote ? { quoteHash, approvedBy: user.id, approvedAt: time, buyerId: buyer?.id || '', buyerName } : {}),
           items: snapshot.map(line => ({ productId: line.productId, variationId: line.variationId, quantity: line.quantity,
@@ -190,7 +191,7 @@ export class OnlineSalesService {
         localTransaction(this.db, () => {
           const changed = this.db.prepare(`UPDATE sales SET woo_order_id=?,number=?,status='awaiting_payment',total=?,prepared_total=?,tax=?,subtotal=?,
             items_json=?,updated_at=?,error=NULL WHERE id=? AND status='creating' AND woo_order_id IS NULL`)
-            .run(remote.orderId, `STG-${remote.orderId}`, total, total, remote.taxCents, total - remote.taxCents,
+            .run(remote.orderId, `${this.config.onlineBridgeLiveEnabled ? 'POS' : 'STG'}-${remote.orderId}`, total, total, remote.taxCents, total - remote.taxCents,
               JSON.stringify(priced), now(), id);
           if (changed.changes !== 1) throw new AppError('Original attempt changed before Woo reservation was saved.', 409, 'RECONCILIATION_REQUIRED');
           saleEvent(this.db, id, 'online.hold_verified', user.id, { wooOrderId: remote.orderId, amountCents: total,
@@ -288,7 +289,7 @@ export class OnlineSalesService {
           return { ...line, total: observed.grossCents - observed.taxCents, tax: observed.taxCents };
         });
         const changed = this.db.prepare('UPDATE sales SET woo_order_id=?,number=?,total=?,prepared_total=?,tax=?,subtotal=?,items_json=? WHERE id=? AND woo_order_id IS NULL')
-          .run(remote.orderId, `STG-${remote.orderId}`, remote.totalCents, remote.totalCents,
+          .run(remote.orderId, `${this.config.onlineBridgeLiveEnabled ? 'POS' : 'STG'}-${remote.orderId}`, remote.totalCents, remote.totalCents,
             remote.taxCents, remote.totalCents - remote.taxCents, JSON.stringify(priced), id);
         if (changed.changes !== 1) throw new AppError('Recovered Woo identity could not be linked to the original sale.', 409, 'RECONCILIATION_REQUIRED');
         saleEvent(this.db, id, 'online.order_recovered', user.id, { wooOrderId: remote.orderId, amountCents: remote.totalCents });
