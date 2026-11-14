@@ -23,6 +23,7 @@ jobs:
           php -l woocommerce/mansu-online-bridge/mansu-online-bridge.php
           php -l woocommerce/mansu-offline-reservations/mansu-offline-reservations.php
           php -l tests/fixtures/phase2-php-flow.php
+          php -l tests/fixtures/phase2-php-live-gate.php
       - name: Exercise online Woo bridge against synthetic PHP WP/Woo callbacks
         run: node tests/online-bridge-php-native.mjs
       - run: npm run build:live

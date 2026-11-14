@@ -24,6 +24,24 @@ try {
     throw new Error('The synthetic PHP bridge callback flow failed or did not complete all required checks.');
   }
   console.log('Synthetic PHP callbacks passed; NOT a real WordPress/MySQL last-unit or Paystack test.');
+  const gateFixture = fs.readFileSync('tests/fixtures/phase2-php-live-gate.php', 'utf8');
+  if (gateFixture.split('/* @INSERT_BRIDGE_PLUGIN@ */').length !== 2) {
+    throw new Error('The live-gate fixture insertion marker is missing or repeated.');
+  }
+  const gateFile = path.join(directory, 'synthetic-live-gates.php');
+  fs.writeFileSync(gateFile, gateFixture.replace('/* @INSERT_BRIDGE_PLUGIN@ */', plugin), { mode: 0o600 });
+  for (const scenario of ['valid', 'unaccepted', 'wrong-service', 'short-reference', 'wrong-host',
+    'site-mismatch', 'wrong-environment', 'no-tls']) {
+    const check = spawnSync('php', [gateFile], {
+      encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024,
+      env: { ...process.env, MANSU_BRIDGE_GATE_CASE: scenario },
+    });
+    if (check.error) throw check.error;
+    if (check.status !== 0 || !check.stdout?.includes(`LIVE_BRIDGE_GATE_OK ${scenario}`)) {
+      throw new Error(`Synthetic WordPress live bridge gate failed ${scenario}: ${check.stderr || check.stdout}`);
+    }
+  }
+  console.log('Eight synthetic WordPress live-activation gates passed; this does NOT approve production installation.');
 } finally {
   fs.rmSync(directory, { recursive: true, force: true });
 }
