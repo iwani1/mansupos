@@ -459,6 +459,48 @@ test('a paid replay checks Woo again and blocks a stale receipt without another 
   assert.equal(h.bridge.state.payments, 1, 'recovery uses status only');
 });
 
+test('shift cannot close over an unresolved cash intent with stale failed or forged paid sale status', async t => {
+  const h = await harness(t);
+  const sale = (await prepare(h, cart())).data.sale;
+  const shiftId = h.db.prepare('SELECT shift_id FROM sales WHERE id=?').get(sale.id).shift_id;
+  localTransaction(h.db, () => {
+    saleEvent(h.db, sale.id, 'online.cash_intent_started', 'system', {
+      wooOrderId: sale.wooOrderId, amountCents: sale.total,
+    });
+    h.db.prepare("UPDATE sales SET status='failed' WHERE id=?").run(sale.id);
+  });
+  const first = await h.request('/shifts/current', { token: h.token });
+  assert.equal(first.status, 200);
+  assert.equal(first.data.shift.summary.pendingCashIntentOrders, 1);
+  assert.equal(first.data.shift.expectedCash, 5000, 'intent alone does not mean cash was collected');
+  assert.equal((await post(h, `/shifts/${shiftId}/close`, { closingCash: 5000 })).status, 409);
+  // A changed status/date still does not prove that the physical money was
+  // received or Woo stock/payment reached the original verified paid order.
+  h.db.prepare("UPDATE sales SET status='paid',paid_at=?,payment_method='cash' WHERE id=?")
+    .run(new Date().toISOString(), sale.id);
+  const second = await h.request('/shifts/current', { token: h.token });
+  assert.equal(second.data.shift.summary.pendingCashIntentOrders, 1);
+  assert.equal((await post(h, `/shifts/${shiftId}/close`, { closingCash: 15000 })).status, 409);
+  assert.equal(h.db.prepare('SELECT status FROM shifts WHERE id=?').get(shiftId).status, 'open');
+});
+
+test('a fully verified Woo cash sale permits closing its original shift exactly once', async t => {
+  const h = await harness(t);
+  const sale = (await prepare(h, cart())).data.sale;
+  const shiftId = h.db.prepare('SELECT shift_id FROM sales WHERE id=?').get(sale.id).shift_id;
+  const completed = await pay(h, sale.id);
+  assert.equal(completed.status, 200);
+  assert.equal(completed.data.sale.status, 'paid');
+  const before = await h.request('/shifts/current', { token: h.token });
+  assert.equal(before.data.shift.summary.pendingCashIntentOrders, 0);
+  assert.equal(before.data.shift.expectedCash, 15000);
+  const closed = await post(h, `/shifts/${shiftId}/close`, { closingCash: 15000 });
+  assert.equal(closed.status, 200);
+  assert.equal(closed.data.shift.status, 'closed');
+  assert.equal(closed.data.shift.summary.pendingCashIntentOrders, 0);
+  assert.equal((await post(h, `/shifts/${shiftId}/close`, { closingCash: 15000 })).status, 409);
+});
+
 test('Woo downtime before cash does not count funds, after cash it blocks shift close, repeat pay and auto-cancel', async t => {
   const h = await harness(t);
   const sale = (await prepare(h, cart())).data.sale;

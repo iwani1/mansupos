@@ -42,6 +42,18 @@ export class ShiftService {
     const inStore = this.db.prepare('SELECT COALESCE(SUM(total),0) AS total FROM instore_sales WHERE shift_id=?').get(shiftId).total;
     return shift.opening_float + sales + inStore + movements;
   }
+  unresolvedCashIntentCount(shiftId) {
+    // A sale status, including a stale "paid" or "failed", cannot erase an
+    // append-only cash-intent event. Only the entire observed cash/payment
+    // sequence allows the originating physical drawer to close.
+    return this.db.prepare(`SELECT COUNT(*) AS n FROM sales WHERE shift_id=?
+      AND EXISTS (SELECT 1 FROM sale_events WHERE sale_id=sales.id AND event='online.cash_intent_started')
+      AND NOT (status IN ('paid','partially_refunded','refunded') AND paid_at IS NOT NULL
+        AND payment_method='cash'
+        AND EXISTS (SELECT 1 FROM sale_events WHERE sale_id=sales.id AND event='online.cash_accepted')
+        AND EXISTS (SELECT 1 FROM sale_events WHERE sale_id=sales.id AND event='online.payment_verified'))`)
+      .get(shiftId).n;
+  }
   summary(shiftId) {
     const online = this.db.prepare(`SELECT COUNT(*) AS orders, COALESCE(SUM(total - refunded),0) AS net,
       COALESCE(SUM(status='needs_reconciliation'),0) AS reviewRequiredOrders,
@@ -59,6 +71,7 @@ export class ShiftService {
     const inStore = this.db.prepare('SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS cash FROM instore_sales WHERE shift_id=?').get(shiftId);
     return { orders: online.orders + inStore.orders, net: online.net + inStore.cash,
       cash: online.cash + custody.cash + inStore.cash, pendingCash: custody.cash, pendingCashOrders: custody.orders,
+      pendingCashIntentOrders: this.unresolvedCashIntentCount(shiftId),
       reviewRequiredOrders: online.reviewRequiredOrders,
       observedCashRefunds: online.observedCashRefunds,
       momo: online.momo, card: online.card,
@@ -97,6 +110,8 @@ export class ShiftService {
           (paid_at IS NULL AND EXISTS (SELECT 1 FROM sale_events WHERE sale_id=sales.id AND event='online.cash_accepted')))`)
         .get(id).n;
       if (pending) throw new AppError(`${pending} sale(s) or cash liabilities still need reconciliation. Resolve them before closing the shift.`, 409);
+      const intentCount = this.unresolvedCashIntentCount(id);
+      if (intentCount) throw new AppError(`${intentCount} original Woo cash-intent attempt(s) have incomplete local cash/payment evidence. Review the original order before closing this drawer.`, 409, 'RECONCILIATION_REQUIRED');
       const expected = this.expectedCash(id);
       const variance = input.closingCash - expected;
       const summary = this.summary(id);
