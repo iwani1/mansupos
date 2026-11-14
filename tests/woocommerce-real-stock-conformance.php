@@ -9,7 +9,7 @@ if ( ! defined( 'WP_CLI' ) || ! WP_CLI || wp_get_environment_type() !== 'local' 
      MANSU_CI_DISPOSABLE_WOO !== true || get_option( 'blogname' ) !== 'Mansu isolated CI stock test' ) {
     throw new RuntimeException( 'Disposable WP-CLI fixture identity is not verified; refusing to test.' );
 }
-if ( ! function_exists( 'mansu_online_attempt' ) || ! class_exists( '\\Automattic\\WooCommerce\\Checkout\\Helpers\\ReserveStock' ) ) {
+if ( ! function_exists( 'mansu_online_attempt' ) || ! class_exists( '\Automattic\WooCommerce\Checkout\Helpers\ReserveStock' ) ) {
     throw new RuntimeException( 'The local managed-stock bridge or Woo checkout reserve class is missing.' );
 }
 
@@ -60,7 +60,7 @@ $website_hold = static function ( $product ) {
     $order->add_product( $product, 1 );
     $order->calculate_totals( false );
     $order->save();
-    $stock = new \\Automattic\\WooCommerce\\Checkout\\Helpers\\ReserveStock();
+    $stock = new \Automattic\WooCommerce\Checkout\Helpers\ReserveStock();
     $stock->reserve_stock_for_order( $order, 10 );
     return $order;
 };
@@ -90,7 +90,7 @@ $attempt = static function ( $product, $key, $parent_id = 0 ) {
 $simple = $make_simple();
 $assert( (int) $simple->get_stock_quantity() === 1, 'Synthetic simple stock was not created.' );
 $website = $website_hold( $simple );
-$reserve = new \\Automattic\\WooCommerce\\Checkout\\Helpers\\ReserveStock();
+$reserve = new \Automattic\WooCommerce\Checkout\Helpers\ReserveStock();
 $assert( (int) $reserve->get_reserved_stock( $simple ) === 1, 'Woo checkout did not hold the final unit.' );
 $key_blocked = '5ab6c00f-64e8-48d6-bad0-1e9cc8241bd1';
 $blocked = $attempt( $simple, $key_blocked );
