@@ -1,0 +1,57 @@
+name: Disposable WooCommerce stock conformance
+on:
+  push:
+    branches:
+      - audit/lock-legacy-live-checkout-20261114
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  woo-core-holds:
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: synthetic_ci_root_only
+          MYSQL_DATABASE: mansu_ci_disposable
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -psynthetic_ci_root_only"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare disposable PHP CLI with Woo requirements
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mysqli, mbstring, gd, zip, intl, curl, xml
+          coverage: none
+      - name: Install fresh LOCAL WordPress and pinned WooCommerce (synthetic data only)
+        shell: bash
+        env:
+          WP_CLI_CACHE_DIR: ${{ runner.temp }}/wp-cli-cache
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o "$RUNNER_TEMP/wp-cli.phar"
+          WP_PATH="$RUNNER_TEMP/mansu-disposable-wordpress"
+          mkdir -p "$WP_PATH"
+          php "$RUNNER_TEMP/wp-cli.phar" core download --path="$WP_PATH" --quiet
+          php "$RUNNER_TEMP/wp-cli.phar" config create --path="$WP_PATH" --dbname=mansu_ci_disposable --dbuser=root --dbpass=synthetic_ci_root_only --dbhost=127.0.0.1:3306 --skip-check --quiet
+          php "$RUNNER_TEMP/wp-cli.phar" config set WP_ENVIRONMENT_TYPE local --path="$WP_PATH"
+          php "$RUNNER_TEMP/wp-cli.phar" config set MANSU_CI_DISPOSABLE_WOO true --raw --path="$WP_PATH"
+          php "$RUNNER_TEMP/wp-cli.phar" config set MANSU_ONLINE_BRIDGE_ENABLED true --raw --path="$WP_PATH"
+          php "$RUNNER_TEMP/wp-cli.phar" config set MANSU_ONLINE_BRIDGE_SERVICE staging --path="$WP_PATH"
+          php "$RUNNER_TEMP/wp-cli.phar" config set MANSU_ONLINE_BRIDGE_LEDGER_ID ba0c917e-6278-4aaf-b89d-d87f39a39762 --path="$WP_PATH"
+          php "$RUNNER_TEMP/wp-cli.phar" config set MANSU_ONLINE_BRIDGE_SITE_ID 72b1645b-bc7e-4be4-924d-3d3b9dbfbe89 --path="$WP_PATH"
+          php "$RUNNER_TEMP/wp-cli.phar" core install --path="$WP_PATH" --url="http://127.0.0.1:8091" --title="Mansu isolated CI stock test" --admin_user=ci_only --admin_password=synthetic_not_for_any_real_account --admin_email=ci@example.invalid --skip-email --quiet
+          php "$RUNNER_TEMP/wp-cli.phar" plugin install woocommerce --version=11.0.1 --activate --path="$WP_PATH" --quiet
+          php "$RUNNER_TEMP/wp-cli.phar" option update woocommerce_currency GHS --path="$WP_PATH" --quiet
+          php "$RUNNER_TEMP/wp-cli.phar" option update woocommerce_manage_stock yes --path="$WP_PATH" --quiet
+          mkdir -p "$WP_PATH/wp-content/plugins/mansu-online-bridge"
+          cp woocommerce/mansu-online-bridge/mansu-online-bridge.php "$WP_PATH/wp-content/plugins/mansu-online-bridge/"
+          php "$RUNNER_TEMP/wp-cli.phar" plugin activate mansu-online-bridge --path="$WP_PATH" --quiet
+          php "$RUNNER_TEMP/wp-cli.phar" eval-file "$GITHUB_WORKSPACE/tests/woocommerce-real-stock-conformance.php" --path="$WP_PATH" --skip-themes
