@@ -126,3 +126,32 @@ test('live bridge client uses pinned HTTPS origin, signed original key and live-
   }));
   await assert.rejects(() => wrongSite.status(key), /identity|incomplete/);
 });
+
+test('read-only signed live bridge health exposes core prerequisites without creating an order', async () => {
+  const config = readConfig(liveEnv);
+  let calls = 0;
+  const health = {
+    kind: 'mansu-online-bridge-health', ok: true, service: 'live-trading',
+    siteId: SITE_ID, ledgerId: randomUUID(), wooVersion: '11.0.1',
+    corePrerequisitesOk: true, cashOnly: true, taxEnabled: true, hposEnabled: false,
+  };
+  const client = new OnlineBridgeClient(config, async (url, request) => {
+    calls++;
+    assert.equal(request.method, 'GET');
+    assert.equal(request.body, undefined);
+    assert.equal(url.href, `${LIVE_STORE}/wp-json/mansu-pos/v1/health`);
+    assert.equal(request.redirect, 'error');
+    assert.match(request.headers['X-Mansu-Bridge-Signature'], /^[a-f0-9]{64}$/);
+    return { ok: true, async text() { return JSON.stringify(health); } };
+  });
+  assert.equal((await client.health()).ledgerId, health.ledgerId);
+  assert.equal(calls, 1);
+  const wrongLedger = new OnlineBridgeClient(config, async () => ({
+    ok: true, async text() { return JSON.stringify({ ...health, ledgerId: 'invalid' }); },
+  }));
+  await assert.rejects(() => wrongLedger.health(), /health identity|prerequisites/);
+  const wrongSite = new OnlineBridgeClient(config, async () => ({
+    ok: true, async text() { return JSON.stringify({ ...health, siteId: randomUUID() }); },
+  }));
+  await assert.rejects(() => wrongSite.health(), /health identity|prerequisites/);
+});

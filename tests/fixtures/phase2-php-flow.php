@@ -272,6 +272,15 @@ function input( $key, $variation = 11, $type = 'retail' ) {
     }
     return $result;
 }
+$health = mansu_online_health( request( 'GET', '/mansu-pos/v1/health' ) );
+check( ! is_wp_error( $health ) && $health['kind'] === 'mansu-online-bridge-health' &&
+    $health['ok'] && $health['service'] === 'staging' &&
+    $health['siteId'] === MANSU_ONLINE_BRIDGE_SITE_ID &&
+    $health['ledgerId'] === MANSU_ONLINE_BRIDGE_LEDGER_ID &&
+    $health['wooVersion'] === WC_VERSION && $health['corePrerequisitesOk'] &&
+    $health['cashOnly'] && $health['taxEnabled'] === false &&
+    $GLOBALS['creates'] === 0 && $GLOBALS['payments'] === 0 && !$GLOBALS['holds'],
+    'Signed bridge health performed a write or reported wrong identity.' );
 $key = 'fb89eb6f-4cd5-4777-87a4-e49bfb978b81';
 $create_request = request( 'POST', '/mansu-pos/v1/attempts', json_encode( input( $key ) ) );
 $created = mansu_online_attempt( $create_request );
