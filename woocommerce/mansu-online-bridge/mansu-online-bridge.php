@@ -335,6 +335,7 @@ function mansu_online_order_view( $row ) {
         }
     }
     $cash_intent_seen = $identity && (string) $order->get_meta( '_mansu_online_cash_intent', true ) !== '';
+    $cash_intent_exact = $identity && $order->get_meta( '_mansu_online_cash_intent', true ) === $row['attempt_key'];
     $hold_count = $identity ? $GLOBALS['wpdb']->get_var( $GLOBALS['wpdb']->prepare(
         "SELECT COUNT(*) FROM {$GLOBALS['wpdb']->wc_reserved_stock} WHERE order_id=%d", $order->get_id() ) ) : null;
     // A failed DB read is not proof that a paid/cancelled hold was released.
@@ -352,6 +353,7 @@ function mansu_online_order_view( $row ) {
     elseif ( $cancelled && in_array( $state, array( 'cancel_started', 'cancelled', 'needs_review' ), true ) ) { $state = 'cancelled'; }
     elseif ( $row['order_id'] && ! $identity ||
              $state === 'reserved' && ( ! $pending || ! $hold || $stock_reduced_flag || $line_reduction_seen || $cash_intent_seen ) ||
+             $state === 'cash_intent' && ( ! $pending || ! $hold || $stock_reduced_flag || $line_reduction_seen || ! $cash_intent_exact ) ||
              $state === 'paid' && ! $paid || $state === 'cancelled' && ! $cancelled ) { $state = 'needs_review'; }
     $paid_at = $paid && $order->get_date_paid() ? $order->get_date_paid()->date( 'c' ) : null;
     return array( 'siteId' => MANSU_ONLINE_BRIDGE_SITE_ID, 'service' => $row['service'],
@@ -361,6 +363,8 @@ function mansu_online_order_view( $row ) {
         'expiresAt' => $expiry, 'items' => $items,
         'reservationVerified' => $state === 'reserved' && $hold && $seconds >= 1 &&
             ! $stock_reduced_flag && ! $line_reduction_seen && ! $cash_intent_seen,
+        'cashIntentVerified' => $state === 'cash_intent' && $pending && $hold && $seconds >= 1 &&
+            $cash_intent_exact && ! $stock_reduced_flag && ! $line_reduction_seen,
         'paymentVerified' => $state === 'paid' && $paid,
         'cancelledVerified' => $state === 'cancelled' && $cancelled,
         // Internal cancellation gate; no credentials, names or raw Woo metadata.
@@ -543,6 +547,60 @@ function mansu_online_cancel( $request ) {
     if ( ! mansu_online_uuid( $request['key'] ) ) { return mansu_online_error( 'mansu_key', 'Invalid attempt key.', 400 ); }
     return mansu_online_cancel_key( $request['key'] );
 }
+function mansu_online_cash_intent( $request ) {
+    $ready = mansu_online_ready();
+    if ( is_wp_error( $ready ) ) { return $ready; }
+    $key = $request['key'];
+    if ( ! mansu_online_uuid( $key ) || $request->get_json_params() !== array() ) {
+        return mansu_online_error( 'mansu_cash_payload', 'Only an empty signed same-key cash-intent request is accepted.', 400 );
+    }
+    $row = mansu_online_row( $key );
+    if ( ! $row || $row['ledger_id'] !== MANSU_ONLINE_BRIDGE_LEDGER_ID ) {
+        return mansu_online_error( 'mansu_missing', 'This attempt is not bound to the original ledger.', 404 );
+    }
+    $view = mansu_online_order_view( $row );
+    if ( $row['state'] === 'cash_intent' && $view['cashIntentVerified'] ) {
+        return $view; // Read-only replay, not another stock hold.
+    }
+    if ( $row['state'] !== 'reserved' || $view['state'] !== 'reserved' ||
+         ! $view['orderIdentityVerified'] || ! $view['reservationVerified'] ||
+         $view['stockOrCashIntentObserved'] || $view['paymentVerified'] || $view['refundedCents'] !== 0 ) {
+        return mansu_online_error( 'mansu_cash_review', 'Original untouched hold is not verified.', 409 );
+    }
+    $items = json_decode( $row['items_json'], true );
+    list( $held, , $seconds ) = mansu_online_holds( (int) $row['order_id'], $items );
+    if ( ! $held || $seconds < MANSU_ONLINE_CASH_MARGIN_SECONDS ) {
+        return mansu_online_error( 'mansu_expired', 'Original hold is too near expiry.', 409 );
+    }
+    // Durable claim before touching Woo metadata blocks concurrent cancellation.
+    if ( mansu_online_update( $key, array( 'state' => 'cash_intent' ), 'reserved' ) !== 1 ) {
+        return mansu_online_error( 'mansu_busy', 'Cash intent already started. Review the same order.', 409 );
+    }
+    try {
+        $order = wc_get_order( (int) $row['order_id'] );
+        if ( ! $order || ! $order->has_status( 'pending' ) || $order->get_date_paid() ||
+             ! mansu_online_meta( $order, array( '_mansu_pos_key' => $key,
+                 '_mansu_bridge_ledger' => $row['ledger_id'], '_mansu_bridge_site' => MANSU_ONLINE_BRIDGE_SITE_ID ) ) ||
+             (string) $order->get_meta( '_mansu_online_cash_intent', true ) !== '' ) {
+            throw new RuntimeException( 'Original pending order or its cash-intent marker changed.' );
+        }
+        list( $held, , $seconds ) = mansu_online_holds( $order->get_id(), $items );
+        if ( ! $held || $seconds < MANSU_ONLINE_CASH_MARGIN_SECONDS ) {
+            throw new RuntimeException( 'Original stock hold changed during cash intent.' );
+        }
+        $order->update_meta_data( '_mansu_online_cash_intent', $key );
+        $order->save();
+        $verified = mansu_online_order_view( mansu_online_row( $key ) );
+        if ( $verified['state'] !== 'cash_intent' || ! $verified['cashIntentVerified'] ) {
+            throw new RuntimeException( 'Cash intent and Woo stock hold were not verified.' );
+        }
+        return $verified;
+    } catch ( Throwable $error ) {
+        // An unknown outcome can NEVER revert to a fresh payable reservation.
+        mansu_online_update( $key, array( 'state' => 'needs_review' ), 'cash_intent' );
+        return mansu_online_error( 'mansu_cash_uncertain', 'Original Woo cash intent requires review.', 503 );
+    }
+}
 function mansu_online_pay( $request ) {
     $ready = mansu_online_ready();
     if ( is_wp_error( $ready ) ) { return $ready; }
@@ -556,10 +614,11 @@ function mansu_online_pay( $request ) {
     }
     $view = mansu_online_order_view( $row );
     if ( $view['state'] === 'paid' && $view['paymentVerified'] ) { return $view; } // Read-only replay.
-    if ( $row['state'] !== 'reserved' || $view['state'] !== 'reserved' ||
-         ! $view['orderIdentityVerified'] || $view['stockOrCashIntentObserved'] ||
-         ! $view['reservationVerified'] || $view['refundedCents'] !== 0 ) {
-        return mansu_online_error( 'mansu_cash_review', 'No verified, payable original reservation exists.', 409 );
+    if ( $row['state'] !== 'cash_intent' || $view['state'] !== 'cash_intent' ||
+         ! $view['orderIdentityVerified'] || ! $view['cashIntentVerified'] ||
+         ! $view['stockOrCashIntentObserved'] || $view['paymentVerified'] ||
+         $view['refundedCents'] !== 0 ) {
+        return mansu_online_error( 'mansu_cash_review', 'Original Woo cash-intent acknowledgement is not verified.', 409 );
     }
     $items = json_decode( $row['items_json'], true );
     list( $hold, , $remaining ) = mansu_online_holds( (int) $row['order_id'], $items );
@@ -576,7 +635,7 @@ function mansu_online_pay( $request ) {
             return mansu_online_error( 'mansu_stock_changed', 'Woo stock changed while cash was held; owner review required.', 409 );
         }
     }
-    if ( mansu_online_update( $key, array( 'state' => 'payment_started' ), 'reserved' ) !== 1 ) {
+    if ( mansu_online_update( $key, array( 'state' => 'payment_started' ), 'cash_intent' ) !== 1 ) {
         return mansu_online_error( 'mansu_busy', 'Payment already started. Use read-only status.', 409 );
     }
     try {
@@ -587,8 +646,9 @@ function mansu_online_pay( $request ) {
                 '_mansu_bridge_ledger' => $row['ledger_id'], '_mansu_bridge_site' => MANSU_ONLINE_BRIDGE_SITE_ID ) ) ) {
             throw new RuntimeException( 'Original pending cash order changed.' );
         }
-        $order->update_meta_data( '_mansu_online_cash_intent', $key );
-        $order->save();
+        if ( $order->get_meta( '_mansu_online_cash_intent', true ) !== $key ) {
+            throw new RuntimeException( 'The original cash intent changed.' );
+        }
         if ( ! $order->payment_complete() ) { throw new RuntimeException( 'Woo payment was not completed.' ); }
         $observed = mansu_online_order_view( mansu_online_row( $key ) );
         if ( $observed['state'] !== 'paid' || ! $observed['paymentVerified'] ) {
@@ -609,7 +669,7 @@ function mansu_online_expire( $service, $key ) {
     $ready = mansu_online_ready();
     if ( is_wp_error( $ready ) ) { return; }
     $row = mansu_online_row( $key );
-    if ( ! $row || ! in_array( $row['state'], array( 'reserved', 'payment_started' ), true ) ) { return; }
+    if ( ! $row || ! in_array( $row['state'], array( 'reserved', 'cash_intent', 'payment_started' ), true ) ) { return; }
     if ( $row['state'] === 'reserved' ) {
         $view = mansu_online_order_view( $row );
         if ( $view['reservationVerified'] ) {
@@ -628,6 +688,8 @@ function mansu_online_routes() {
         'permission_callback' => 'mansu_online_permission', 'callback' => 'mansu_online_attempt' ) );
     register_rest_route( 'mansu-pos/v1', '/attempts/(?P<key>[0-9a-f-]{36})', array( 'methods' => 'GET',
         'permission_callback' => 'mansu_online_permission', 'callback' => 'mansu_online_status' ) );
+    register_rest_route( 'mansu-pos/v1', '/attempts/(?P<key>[0-9a-f-]{36})/cash-intent', array( 'methods' => 'POST',
+        'permission_callback' => 'mansu_online_permission', 'callback' => 'mansu_online_cash_intent' ) );
     register_rest_route( 'mansu-pos/v1', '/attempts/(?P<key>[0-9a-f-]{36})/pay', array( 'methods' => 'POST',
         'permission_callback' => 'mansu_online_permission', 'callback' => 'mansu_online_pay' ) );
     register_rest_route( 'mansu-pos/v1', '/attempts/(?P<key>[0-9a-f-]{36})/cancel', array( 'methods' => 'POST',

@@ -298,6 +298,16 @@ check( $status['state'] === 'reserved' && $before === $GLOBALS['wpdb']->attempts
     'Read-only status mutated or extended a hold.' );
 $pay_req = request( 'POST', '/mansu-pos/v1/attempts/' . $key . '/pay', '{}' );
 $pay_req->set_param( 'key', $key );
+check( is_wp_error( mansu_online_pay( $pay_req ) ), 'Direct payment bypassed the required Woo cash intent.' );
+$intent_req = request( 'POST', '/mansu-pos/v1/attempts/' . $key . '/cash-intent', '{}' );
+$intent_req->set_param( 'key', $key );
+$intent = mansu_online_cash_intent( $intent_req );
+check( ! is_wp_error( $intent ) && $intent['state'] === 'cash_intent' &&
+    $intent['cashIntentVerified'] && !$intent['reservationVerified'], 'Original cash-intent acknowledgement missing.' );
+check( mansu_online_cash_intent( $intent_req )['cashIntentVerified'], 'Intent replay did not preserve existing Woo order.' );
+$intent_cancel_req = request( 'POST', '/mansu-pos/v1/attempts/' . $key . '/cancel', '{}' );
+$intent_cancel_req->set_param( 'key', $key );
+check( is_wp_error( mansu_online_cancel( $intent_cancel_req ) ), 'Acknowledged cash intent was cancelled.' );
 $paid = mansu_online_pay( $pay_req );
 check( ! is_wp_error( $paid ) && $paid['state'] === 'paid' && $paid['paymentVerified'] && $paid['paidAt'], 'Native cash completion proof failed.' );
 check( $GLOBALS['stock'][10] === 0 && !$GLOBALS['holds'] && $GLOBALS['payments'] === 1,
