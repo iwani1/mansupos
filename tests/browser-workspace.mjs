@@ -32,6 +32,23 @@ try {
   assert.equal(health.mode, 'demo', 'Workspace browser test must use isolated demo only.');
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.locator('.product-card').first().waitFor();
+  // Workspace redesign: keyboard page switching remains role-filtered, and
+  // none of these UI actions may create a sale or write to WooCommerce.
+  assert.equal(await page.locator('.sidebar').evaluate(el => getComputedStyle(el).backgroundColor),
+    'rgb(247, 247, 245)', 'neutral document-style sidebar must be applied to the entire workspace');
+  await page.getByRole('button', { name: 'Find a page' }).click();
+  const switcher = page.getByRole('dialog', { name: 'Find a page' });
+  await switcher.getByRole('searchbox', { name: 'Search pages and actions' }).fill('inventory');
+  await switcher.getByRole('option').filter({ hasText: 'Inventory' }).click();
+  assert.equal(await page.locator('main h1:visible').innerText(), 'Inventory');
+  assert.equal(await page.locator('.page-title-row .page-icon').count(), 1,
+    'business pages share a consistent document heading and page icon');
+  await page.keyboard.press('Control+k');
+  await page.getByRole('dialog', { name: 'Find a page' }).waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('dialog', { name: 'Find a page' }).count(), 0);
+  await page.locator('.sidebar-primary-action').click();
+  assert.equal(await page.locator('main h1:visible').innerText(), 'Point of sale');
   const source = await page.evaluate(async () => {
     const endpoints = ['/api/catalog', '/api/sales', '/api/reports?days=1', '/api/reports?days=7', '/api/wholesale-buyers', '/api/session'];
     const results = await Promise.all(endpoints.map(async url => {
@@ -162,6 +179,13 @@ try {
   for (const id of ['overview','wholesale','customers','reports','staff']) {
     assert.equal(await cashier.locator(`[data-nav="${id}"]`).count(), 0, `${id} should not appear for cashiers.`);
   }
+  await cashier.keyboard.press('Control+k');
+  const cashierSwitch = cashier.getByRole('dialog', { name: 'Find a page' });
+  await cashierSwitch.waitFor();
+  assert.equal(await cashierSwitch.getByRole('option').filter({ hasText: 'Staff & permissions' }).count(), 0,
+    'quick switcher cannot bypass cashier page permissions');
+  assert.equal(await cashierSwitch.getByRole('option').filter({ hasText: 'Wholesale management' }).count(), 0);
+  await cashier.keyboard.press('Escape');
   assert.equal(await cashier.getByRole('group', { name: 'Selling mode' }).getByRole('button', { name: 'WHOLESALE' }).isDisabled(), true);
   await cashier.locator('[data-nav="inventory"]').click();
   assert.equal(await cashier.locator('td[data-label="Private wholesale"]').count(), 0);
