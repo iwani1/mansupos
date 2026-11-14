@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, createHash, createHmac } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createApp } from '../server/app.js';
+import { ledgerInfo } from '../server/ledger-identity.js';
 import { readConfig, publicConfig, shouldRunReconcileTimer } from '../server/config.js';
 import { WooCommerce } from '../server/woocommerce.js';
 import { OnlineBridgeClient } from '../server/online-bridge-client.js';
@@ -154,4 +159,69 @@ test('read-only signed live bridge health exposes core prerequisites without cre
     ok: true, async text() { return JSON.stringify({ ...health, siteId: randomUUID() }); },
   }));
   await assert.rejects(() => wrongSite.health(), /health identity|prerequisites/);
+});
+
+test('synthetic live-profile server diagnostics refuse missing or mismatched bridge before reporting readiness', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mansu-live-release-smoke-'));
+  let currentLedger = randomUUID();
+  let healthReads = 0;
+  let wooReads = 0;
+  const fakeBridge = {
+    async health() {
+      healthReads++;
+      return { kind: 'mansu-online-bridge-health', ok: true, service: 'live-trading',
+        siteId: SITE_ID, ledgerId: currentLedger, wooVersion: '11.0.1',
+        corePrerequisitesOk: true, cashOnly: true, taxEnabled: false, hposEnabled: false };
+    },
+  };
+  const fakeWoo = {
+    async request(resource, options = {}) {
+      assert.equal(options.method || 'GET', 'GET');
+      assert.ok(['products', 'orders'].includes(resource));
+      wooReads++;
+      return { total: resource === 'products' ? 12 : 0, data: [] };
+    },
+  };
+  const { app, db, config } = createApp({
+    env: { ...liveEnv, POS_DATA_DIR: dir, POS_OWNER_PASSWORD: 'H9!blue-orchid-concept-passphrase' },
+    api: fakeWoo, bridge: fakeBridge,
+    logger: { info() {}, warn() {}, debug() {}, error() {} },
+  });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(async () => {
+    await new Promise(resolve => server.close(resolve));
+    db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  assert.equal(config.onlineBridgeEnabled, true);
+  const identity = ledgerInfo(db);
+  assert.equal(identity.version, 9);
+  assert.equal(identity.service, 'live-trading');
+  assert.ok(identity.ledgerId);
+  const base = `http://127.0.0.1:${server.address().port}/api`;
+  const login = await fetch(`${base}/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'owner', password: 'H9!blue-orchid-concept-passphrase' }),
+  });
+  assert.equal(login.status, 200);
+  const { token } = await login.json();
+  const diagnostics = async () => {
+    const response = await fetch(`${base}/connection/diagnostics`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const mismatch = await diagnostics();
+  assert.equal(mismatch.ok, false);
+  assert.equal(mismatch.checks.find(c => c.name.startsWith('Woo reservation bridge')).ok, false);
+  currentLedger = identity.ledgerId;
+  const verified = await diagnostics();
+  assert.equal(verified.ok, true);
+  const health = verified.checks.find(c => c.name.startsWith('Woo reservation bridge'));
+  assert.equal(health.ok, true);
+  assert.match(health.detail, /Last-unit concurrency remains unverified/);
+  assert.equal(healthReads, 2);
+  assert.ok(wooReads >= 4);
 });
