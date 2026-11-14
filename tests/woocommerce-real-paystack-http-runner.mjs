@@ -94,14 +94,18 @@ try {
   process.stdout.write(wpCli('webhook-replay'));
   await webhook('webhook_late');
   process.stdout.write(wpCli('webhook-late'));
+  await webhook('webhook_late');
+  process.stdout.write(wpCli('webhook-late-replay'));
   await redirected('return_valid');
   process.stdout.write(wpCli('return-valid'));
   await redirected('return_late');
   process.stdout.write(wpCli('return-late'));
   await webhook('webhook_mismatch');
   process.stdout.write(wpCli('webhook-mismatch'));
+  await webhook('webhook_underpaid');
+  process.stdout.write(wpCli('webhook-underpaid'));
   process.stdout.write('DISPOSABLE_REAL_PAYSTACK_HTTP_OK: signed/invalid/replayed webhooks, ' +
-    'valid/late return callbacks, wrong-currency last-unit safety; synthetic local HTTP only.\n');
+    'valid/late return callbacks, wrong-currency and underpaid last-unit safety; synthetic local HTTP only.\n');
 } finally {
   server.kill('SIGTERM');
 }
