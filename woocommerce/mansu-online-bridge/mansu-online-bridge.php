@@ -391,6 +391,19 @@ function mansu_online_order_view( $row ) {
         'refundedCents' => $order && $identity ? mansu_online_money( $order->get_total_refunded() ) : 0,
         'paidAt' => $paid_at );
 }
+// Signed read-only health report. Prerequisites do NOT prove an actual
+// simultaneous website/POS last-unit stock race is safe on the installed site.
+function mansu_online_health( $request ) {
+    $ready = mansu_online_ready();
+    if ( is_wp_error( $ready ) ) { return $ready; }
+    $hpos = class_exists( '\\Automattic\\WooCommerce\\Utilities\\OrderUtil' ) &&
+        \\Automattic\\WooCommerce\\Utilities\\OrderUtil::custom_orders_table_usage_is_enabled();
+    return array( 'kind' => 'mansu-online-bridge-health', 'ok' => true,
+        'service' => MANSU_ONLINE_BRIDGE_SERVICE, 'ledgerId' => MANSU_ONLINE_BRIDGE_LEDGER_ID,
+        'siteId' => MANSU_ONLINE_BRIDGE_SITE_ID, 'wooVersion' => WC_VERSION,
+        'corePrerequisitesOk' => true, 'cashOnly' => true, 'taxEnabled' => (bool) wc_tax_enabled(),
+        'hposEnabled' => (bool) $hpos );
+}
 function mansu_online_attempt( $request ) {
     global $wpdb;
     $ready = mansu_online_ready();
@@ -702,6 +715,8 @@ function mansu_online_expire( $service, $key ) {
     mansu_online_update( $key, array( 'state' => 'needs_review' ), $row['state'] );
 }
 function mansu_online_routes() {
+    register_rest_route( 'mansu-pos/v1', '/health', array( 'methods' => 'GET',
+        'permission_callback' => 'mansu_online_permission', 'callback' => 'mansu_online_health' ) );
     register_rest_route( 'mansu-pos/v1', '/attempts', array( 'methods' => 'POST',
         'permission_callback' => 'mansu_online_permission', 'callback' => 'mansu_online_attempt' ) );
     register_rest_route( 'mansu-pos/v1', '/attempts/(?P<key>[0-9a-f-]{36})', array( 'methods' => 'GET',

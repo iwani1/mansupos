@@ -14,6 +14,7 @@ import { DesktopSyncService } from './desktop-sync.js';
 import { SalesService, prepareSchema, paymentSchema } from './sales.js';
 import { OnlineSalesService } from './online-sales.js';
 import { OnlineBridgeClient } from './online-bridge-client.js';
+import { ledgerInfo } from './ledger-identity.js';
 import { ShiftService, openShiftSchema, closeShiftSchema, cashMovementSchema } from './shifts.js';
 import { AppError, now } from './errors.js';
 import { createLogger, requestId } from './logger.js';
@@ -476,7 +477,8 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
         ok: config.liveReadOnly ? !config.writesEnabled && !config.wholesaleWritesEnabled && !config.inStoreCashEnabled
           : config.mode === 'demo' || config.writesEnabled || config.inStoreCashEnabled,
         detail: config.liveReadOnly ? 'All checkout locked; only catalogue reads are tested'
-          : config.mode === 'demo' ? 'Demo only' : config.writesEnabled ? 'Woo orders enabled'
+          : config.mode === 'demo' ? 'Demo only' : config.onlineBridgeEnabled ? 'Bridge profile configured; signed health and last-unit acceptance still required'
+          : config.writesEnabled ? 'Woo orders enabled'
           : config.inStoreCashEnabled ? 'Woo orders locked; only separate physical-store cash is enabled' : 'All checkout locked' },
       ...(config.mode === 'live' ? [{ name: 'In-store collection cash gate', ok: !config.liveReadOnly || !config.inStoreCashEnabled,
         detail: config.inStoreCashEnabled ? 'Separately approved source and POS-only ledger' : 'Physical-store checkout locked' }] : []),
@@ -487,6 +489,22 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
       if (!config.liveReadOnly && config.writesEnabled) {
         try { await api.request('orders', { query: { per_page: 1 } }); checks.push({ name: 'WooCommerce orders read', ok: true }); }
         catch (error) { checks.push({ name: 'WooCommerce orders read', ok: false, detail: error.message }); }
+      }
+    }
+    if (config.onlineBridgeLiveEnabled) {
+      // Ordinary product/order GETs cannot verify an installed reservation
+      // bridge. Require its signed read-only health and the bound trading UUID.
+      try {
+        const health = await online.bridge.health();
+        const bound = ledgerInfo(db);
+        if (bound.service !== 'live-trading' || bound.ledgerId !== health.ledgerId ||
+            health.siteId !== config.bridgeSiteId || health.service !== config.bridgeService ||
+            health.corePrerequisitesOk !== true || health.cashOnly !== true) throw new Error('Live bridge mismatch');
+        checks.push({ name: 'Woo reservation bridge (signed read-only health)', ok: true,
+          detail: `Woo ${health.wooVersion}; HPOS ${health.hposEnabled ? 'on' : 'off'}; tax ${health.taxEnabled ? 'on' : 'off'}. Last-unit concurrency remains unverified.` });
+      } catch {
+        checks.push({ name: 'Woo reservation bridge (signed read-only health)', ok: false,
+          detail: 'Installed bridge or v9 ledger binding could not be verified; no live checkout acceptance.' });
       }
     }
     res.json({ mode: config.mode, version: APP_VERSION, checks, ok: checks.every(c => c.ok) });

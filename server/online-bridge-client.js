@@ -14,7 +14,7 @@ export class OnlineBridgeClient {
     this.fetch = fetchImpl;
   }
   async request(method, route, payload) {
-    if (!/^\/mansu-pos\/v1\/attempts(?:\/[0-9a-f-]{36}(?:\/(?:pay|cancel|cash-intent))?)?$/.test(route)) {
+    if (route !== '/mansu-pos/v1/health' && !/^\/mansu-pos\/v1\/attempts(?:\/[0-9a-f-]{36}(?:\/(?:pay|cancel|cash-intent))?)?$/.test(route)) {
       throw new Error('Unexpected online bridge route.');
     }
     // URL is pinned at configuration time; redirects are forbidden. No URL is
@@ -51,6 +51,17 @@ export class OnlineBridgeClient {
       // Never surface untrusted WP errors or stack traces to staff/audit logs.
       throw new AppError('Local Woo bridge refused or could not verify the attempt. Inspect its original Woo order and stock hold.', 502, 'BRIDGE_UNCERTAIN');
     }
+    if (route === '/mansu-pos/v1/health') {
+      if (!result || result.kind !== 'mansu-online-bridge-health' || result.ok !== true ||
+          result.service !== this.config.bridgeService || result.siteId !== this.config.bridgeSiteId ||
+          !/^[a-f0-9]{8}-[a-f0-9-]{27}$/i.test(result.ledgerId || '') ||
+          !/^\\d+\\.\\d+\\.\\d+$/.test(result.wooVersion || '') ||
+          result.corePrerequisitesOk !== true || result.cashOnly !== true ||
+          typeof result.taxEnabled !== 'boolean' || typeof result.hposEnabled !== 'boolean') {
+        throw new AppError('Woo bridge health identity or prerequisites could not be verified.', 502, 'BRIDGE_UNCERTAIN');
+      }
+      return result; // Signed GET, never an order/stock/cash write.
+    }
     if (!result || typeof result !== 'object' || Array.isArray(result) ||
         result.service !== this.config.bridgeService || result.siteId !== this.config.bridgeSiteId ||
         !states.has(result.state) || typeof result.key !== 'string' ||
@@ -69,6 +80,7 @@ export class OnlineBridgeClient {
     }
     return result;
   }
+  health() { return this.request('GET', '/mansu-pos/v1/health'); }
   create(body) { return this.request('POST', '/mansu-pos/v1/attempts', body); }
   status(key) { return this.request('GET', `/mansu-pos/v1/attempts/${key}`); }
   cashIntent(key) { return this.request('POST', `/mansu-pos/v1/attempts/${key}/cash-intent`, {}); }
