@@ -19,6 +19,49 @@ add_action( 'init', static function () {
     }
 }, 50 );
 
+/**
+ * CI-only concurrency barrier runs just BEFORE the prototype order lock.
+ * It proves that two distinct HTTP PHP workers have both entered the actual
+ * Paystack gateway callback route concurrently. The upstream handlers will
+ * then be serialized by the real draft lock; their verification calls must
+ * NOT be made to wait for one another after the lock is taken.
+ */
+$mansu_ci_paystack_gate = static function () {
+    $webhook = current_filter() === 'woocommerce_api_tbz_wc_paystack_webhook';
+    if ( $webhook ) {
+        $event = json_decode( file_get_contents( 'php://input' ) );
+        $ref = $event->data->reference ?? '';
+    } else {
+        $ref = $_REQUEST['paystack_txnref'] ?? $_REQUEST['reference'] ?? '';
+    }
+    if ( ! is_string( $ref ) || ! preg_match( '/^[1-9][0-9]*_/', $ref ) ) { return; }
+    $fixtures = get_option( 'mansu_ci_paystack_http_cases', array() );
+    foreach ( $fixtures as $entry ) {
+        if ( $entry['ref'] !== $ref ||
+             ! in_array( $entry['mode'], array( 'race-valid', 'race-late' ), true ) ) { continue; }
+        $dir = WP_CONTENT_DIR . '/mansu-ci-paystack-' . $entry['mode'];
+        if ( ! is_dir( $dir ) || file_put_contents(
+            $dir . '/arrival-' . getmypid(), (string) microtime( true ), LOCK_EX
+        ) === false ) {
+            status_header( 500 );
+            exit;
+        }
+        $deadline = microtime( true ) + 15;
+        $arrivals = glob( $dir . '/arrival-*' );
+        while ( count( $arrivals ) < 2 && microtime( true ) < $deadline ) {
+            usleep( 75000 );
+            $arrivals = glob( $dir . '/arrival-*' );
+        }
+        if ( count( $arrivals ) !== 2 ) {
+            status_header( 503 );
+            exit;
+        }
+        return;
+    }
+};
+add_action( 'woocommerce_api_tbz_wc_paystack_webhook', $mansu_ci_paystack_gate, -10 );
+add_action( 'woocommerce_api_wc_gateway_paystack', $mansu_ci_paystack_gate, -10 );
+
 add_filter( 'pre_http_request', static function ( $preempt, $args, $url ) {
     if ( strpos( $url, 'api.paystack.co' ) === false ) {
         return $preempt;
@@ -47,28 +90,15 @@ add_filter( 'pre_http_request', static function ( $preempt, $args, $url ) {
             return new WP_Error( 'ci_paystack_verification_failed', 'Synthetic verification unavailable.' );
         }
         if ( in_array( $entry['mode'], array( 'race-valid', 'race-late' ), true ) ) {
-            // Real simultaneous HTTP requests from two distinct PHP workers
-            // must both reach verified Paystack response before either proceeds.
-            // This barrier ONLY exists in the CI fixture; production has none.
+            // Record actual upstream verification by each PHP worker. The
+            // gateway route barrier above is the only synchronization step;
+            // doing it here would deadlock with the production order lock.
             $dir = WP_CONTENT_DIR . '/mansu-ci-paystack-' . $entry['mode'];
-            if ( ! is_dir( $dir ) ) {
-                return new WP_Error( 'ci_race_missing', 'Synthetic race directory missing.' );
+            if ( ! is_dir( $dir ) ||
+                 file_put_contents( $dir . '/verify-' . getmypid(),
+                     (string) microtime( true ), LOCK_EX ) === false ) {
+                return new WP_Error( 'ci_race_marker', 'Paystack verification worker marker failed.' );
             }
-            $marker = $dir . '/verify-' . getmypid();
-            if ( file_put_contents( $marker, (string) microtime( true ), LOCK_EX ) === false ) {
-                return new WP_Error( 'ci_race_marker', 'Synthetic race barrier write failed.' );
-            }
-            $deadline = microtime( true ) + 22;
-            $arrivals = glob( $dir . '/verify-*' );
-            while ( count( $arrivals ) < 2 && microtime( true ) < $deadline ) {
-                usleep( 75000 );
-                $arrivals = glob( $dir . '/verify-*' );
-            }
-            if ( count( $arrivals ) !== 2 ) {
-                return new WP_Error( 'ci_race_timeout', 'Both callback workers did not reach verification barrier.' );
-            }
-            // Keep both Woo order objects stale until the gateway admission.
-            usleep( 250000 );
         }
         $amount = (int) round( (float) $order->get_total() * 100 );
         if ( $entry['mode'] === 'underpaid' ) { $amount -= 100; }
