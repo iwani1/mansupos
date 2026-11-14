@@ -35,9 +35,14 @@ export function readConfig(env = process.env) {
   }
   const configured = Boolean(env.WOO_CONSUMER_KEY && env.WOO_CONSUMER_SECRET);
   const approvalReference = (env.POS_OWNER_APPROVAL_REFERENCE || '').trim();
+  // A legacy REST-created POS order does NOT atomically reserve WooCommerce
+  // checkout stock. Production may never turn this old write path on via env
+  // approvals while the replacement Woo reservation bridge is still unaccepted.
+  // Synthetic NODE_ENV=test fixtures remain available for historical tests.
+  const legacyLiveCheckoutBlocked = mode === 'live' && production;
   const writesEnabled = mode === 'staging'
     ? configured && env.POS_STAGING_APPROVED === 'true'
-    : mode === 'live' && !liveReadOnly && configured && env.POS_ALLOW_LIVE_WRITES === 'true' && approvalReference.length >= 8;
+    : mode === 'live' && !legacyLiveCheckoutBlocked && !liveReadOnly && configured && env.POS_ALLOW_LIVE_WRITES === 'true' && approvalReference.length >= 8;
   // Wholesale is a separate, explicitly approved write path. Staging approval
   // is only for staging; a no-staging live rollout must not pretend it passed
   // staging tests. Require a distinct reference to documented live acceptance.
@@ -131,7 +136,7 @@ export function readConfig(env = process.env) {
   if (!Number.isInteger(reconcileIntervalSeconds) || reconcileIntervalSeconds < 15 || reconcileIntervalSeconds > 3600) throw new Error('POS_RECONCILE_INTERVAL_SECONDS must be an integer from 15 to 3600.');
 
   return {
-    mode, storeUrl, configured, liveReadOnly, writesEnabled, wholesaleWritesEnabled, approvalReference,
+    mode, storeUrl, configured, liveReadOnly, legacyLiveCheckoutBlocked, writesEnabled, wholesaleWritesEnabled, approvalReference,
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
     desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',

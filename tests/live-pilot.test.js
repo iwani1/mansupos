@@ -31,8 +31,8 @@ test('live catalogue pilot cannot be mistaken for staging or unlocked through a 
   assert.throws(() => readConfig({ ...pilotEnvironment, POS_LIVE_READ_ONLY: 'maybe' }), /POS_LIVE_READ_ONLY/);
   assert.throws(() => readConfig({ ...pilotEnvironment, WOO_BASE_URL: 'http://mansutrendzgh.com' }), /HTTPS origin/);
   assert.throws(() => readConfig({ ...pilotEnvironment, WOO_BASE_URL: 'https://mansutrendzgh.com/stagings/' }), /HTTPS origin/);
-  assert.equal(readConfig({ ...pilotEnvironment, POS_LIVE_READ_ONLY: 'false', POS_ALLOW_LIVE_WRITES: 'true', POS_OWNER_APPROVAL_REFERENCE: 'written-owner-approval' }).writesEnabled, true,
-    'The future live write route still requires explicit owner approval; do not use the pilot unit for it.');
+  assert.equal(readConfig({ ...pilotEnvironment, POS_LIVE_READ_ONLY: 'false', POS_ALLOW_LIVE_WRITES: 'true', POS_OWNER_APPROVAL_REFERENCE: 'written-owner-approval' }).writesEnabled, false,
+    'A legacy live checkout cannot be unlocked in production even with a copied owner approval.');
 });
 
 test('preflight accepts a locked live catalogue pilot but requires an owner and configured Woo credentials', t => {

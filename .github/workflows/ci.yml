@@ -18,6 +18,11 @@ jobs:
       - run: npm ci
       - run: test -z "$(git ls-files 'wc-product-export-*.csv')" # no raw Woo export in branch head
       - run: npm test
+      - name: Syntax-check uninstalled WooCommerce PHP extensions
+        run: |
+          php -l woocommerce/mansu-online-bridge/mansu-online-bridge.php
+          php -l woocommerce/mansu-offline-reservations/mansu-offline-reservations.php
+          php -l tests/fixtures/phase2-php-flow.php
       - run: npm run build:live
       - run: test -f dist/index.html && test -f dist/favicon.svg && test -f dist/manifest.webmanifest && test -f dist/sw.js && test -f dist/offline.html && test -f dist/icons/mansu-192.png && test -f dist/icons/mansu-512.png && test -f dist/icons/mansu-maskable-512.png && test ! -e dist/demo && test ! -e dist/products.csv && test ! -e dist/Stock-2026-11-12.pdf && test ! -e dist/data/instore-stock-snapshot.json && test ! -e dist/test-results && test -z "$(find dist -name 'wc-product-export-*.csv' -print -quit)"
       - run: npm audit --audit-level=high
