@@ -720,6 +720,94 @@ function mansu_online_expire( $service, $key ) {
     // cancelled by this worker. Core hold expiry does not make POS cash safe.
     mansu_online_update( $key, array( 'state' => 'needs_review' ), $row['state'] );
 }
+// This guard is only loaded with the disabled-by-default bridge. It protects
+// Woo's native payment_complete() and stock-reduction hooks from expired
+// website reservations. It is NOT a complete Paystack callback admission
+// guarantee; gateways can bypass payment_complete()/Woo stock hooks and other
+// plugins may modify stock directly. Live trading attestation remains FALSE.
+function mansu_online_website_order( $order ) {
+    return mansu_online_enabled() && $order instanceof WC_Order &&
+        $order->get_created_via() === 'checkout' &&
+        $order->get_payment_method() !== 'pos_cash';
+}
+function mansu_online_website_hold_safe( $order ) {
+    global $wpdb;
+    if ( ! $order || ! $order->get_id() ) { return false; }
+    $expected = array();
+    $items = $order->get_items( 'line_item' );
+    if ( ! $items || ! is_array( $items ) ) { return false; }
+    foreach ( $items as $line ) {
+        $product = $line->get_product();
+        if ( ! $product || ! $product->managing_stock() || $product->backorders_allowed() ) {
+            return false;
+        }
+        $id = (int) $product->get_stock_managed_by_id();
+        $quantity = (int) $line->get_quantity();
+        if ( $id < 1 || $quantity < 1 ) { return false; }
+        $expected[ $id ] = ( $expected[ $id ] ?? 0 ) + $quantity;
+    }
+    if ( ! $expected ) { return false; }
+    $holds = $wpdb->get_results( $wpdb->prepare(
+        "SELECT product_id,stock_quantity,TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),expires) AS remaining
+            FROM {$wpdb->wc_reserved_stock} WHERE order_id=%d", $order->get_id() ), ARRAY_A );
+    if ( ! is_array( $holds ) || count( $holds ) !== count( $expected ) ) { return false; }
+    foreach ( $holds as $hold ) {
+        $id = (int) $hold['product_id'];
+        if ( ! isset( $expected[ $id ] ) ||
+             (int) $hold['stock_quantity'] !== $expected[ $id ] ||
+             (int) $hold['remaining'] < 30 ) {
+            return false;
+        }
+        unset( $expected[ $id ] );
+    }
+    return ! $expected;
+}
+function mansu_online_website_review( $order, $reason ) {
+    if ( $order->get_meta( '_mansu_website_stock_review', true ) !== 'required' ) {
+        $order->update_meta_data( '_mansu_website_stock_review', 'required' );
+        $order->save();
+        $order->add_order_note( 'Mansu stock safety: delayed or unverified website gateway payment. Retain gateway proof; do not fulfil, restock, retry a POS sale or issue an automatic refund. Owner/Manager review required. Reason: ' . $reason );
+    }
+}
+function mansu_online_pre_website_payment( $order_id, $transaction_id = '' ) {
+    $order = wc_get_order( (int) $order_id );
+    if ( ! mansu_online_website_order( $order ) || $order->get_date_paid() ) { return; }
+    if ( mansu_online_website_hold_safe( $order ) ) { return; }
+    mansu_online_website_review( $order, 'payment callback without a valid original stock hold' );
+    // Woo WC_Order::payment_complete() catches this exception, leaving the
+    // original order and real gateway transfer available for human review.
+    throw new RuntimeException( 'Original website stock hold expired or is unverified; do not fulfil this paid gateway attempt.' );
+}
+function mansu_online_can_reduce_website_stock( $can, $order ) {
+    if ( ! $can || ! mansu_online_website_order( $order ) ) { return $can; }
+    if ( $order->get_data_store()->get_stock_reduced( $order->get_id() ) ) { return $can; }
+    if ( mansu_online_website_hold_safe( $order ) ) { return $can; }
+    // Woo's order_status_processing/completed/on-hold actions can call stock
+    // reduction independently of payment_complete(). Deny that path too.
+    mansu_online_website_review( $order, 'unverified original hold before stock reduction' );
+    return false;
+}
+function mansu_online_website_status_review( $order_id, $from, $to, $order ) {
+    static $reviewing = false;
+    if ( $reviewing || ! in_array( $to, array( 'processing', 'completed' ), true ) ||
+         ! mansu_online_website_order( $order ) || $order->get_data_store()->get_stock_reduced( $order_id ) ||
+         mansu_online_website_hold_safe( $order ) ) {
+        return;
+    }
+    $reviewing = true;
+    try {
+        mansu_online_website_review( $order, 'direct paid-status transition without a valid hold' );
+        // A gateway which skips payment_complete() must not silently leave an
+        // unstocked website order in the fulfilment queue.
+        $order->update_status( 'on-hold', 'Website payment requires stock and gateway reconciliation before fulfilment.' );
+    } finally {
+        $reviewing = false;
+    }
+}
+add_action( 'woocommerce_pre_payment_complete', 'mansu_online_pre_website_payment', 1, 2 );
+add_filter( 'woocommerce_can_reduce_order_stock', 'mansu_online_can_reduce_website_stock', 1, 2 );
+add_action( 'woocommerce_order_status_changed', 'mansu_online_website_status_review', 1, 4 );
+
 function mansu_online_routes() {
     register_rest_route( 'mansu-pos/v1', '/health', array( 'methods' => 'GET',
         'permission_callback' => 'mansu_online_permission', 'callback' => 'mansu_online_health' ) );
