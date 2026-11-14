@@ -41,7 +41,7 @@ try {
   await switcher.getByRole('searchbox', { name: 'Search pages and actions' }).fill('inventory');
   await switcher.getByRole('option').filter({ hasText: 'Inventory' }).click();
   assert.equal(await page.locator('main h1:visible').innerText(), 'Inventory');
-  assert.equal(await page.locator('.page-title-row .page-icon').count(), 1,
+  assert.equal(await page.locator('.page-title-row .page-icon:visible').count(), 1,
     'business pages share a consistent document heading and page icon');
   await page.keyboard.press('Control+k');
   await page.getByRole('dialog', { name: 'Find a page' }).waitFor();
