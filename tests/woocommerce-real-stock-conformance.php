@@ -378,11 +378,16 @@ $reheld_website->update_status( 'pending', 'Synthetic operator reset; must not c
 $reserve->reserve_stock_for_order( $reheld_website, 10 );
 $assert( (int) $reserve->get_reserved_stock( $reheld_product ) === 1,
     'Rehold fixture failed to create a fresh valid native Woo hold.' );
-$assert( $reheld_website->payment_complete() === false &&
+$reheld_retry = $reheld_website->payment_complete();
+$reheld_website = wc_get_order( $reheld_website->get_id() );
+$assert( $reheld_retry === false &&
     $reheld_website->has_status( 'on-hold' ) &&
     $reheld_website->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
     (int) wc_get_product( $reheld_product->get_id() )->get_stock_quantity() === 1,
-    'A fresh Woo reservation incorrectly re-authorised a quarantined gateway payment.' );
+    'A fresh Woo reservation incorrectly re-authorised a quarantined gateway payment: callback=' .
+      var_export( $reheld_retry, true ) . ' status=' . $reheld_website->get_status() .
+      ' review=' . $reheld_website->get_meta( '_mansu_website_stock_review', true ) .
+      ' stock=' . wc_get_product( $reheld_product->get_id() )->get_stock_quantity() );
 
 // 14. Reproduce the actual Paystack mismatch ordering using pure Woo:
 // expired website hold -> POS pays -> gateway status on-hold -> direct reducer.
