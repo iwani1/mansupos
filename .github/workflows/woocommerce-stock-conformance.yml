@@ -55,3 +55,9 @@ jobs:
           cp woocommerce/mansu-online-bridge/mansu-online-bridge.php "$WP_PATH/wp-content/plugins/mansu-online-bridge/"
           php "$RUNNER_TEMP/wp-cli.phar" plugin activate mansu-online-bridge --path="$WP_PATH" --quiet
           php "$RUNNER_TEMP/wp-cli.phar" eval-file "$GITHUB_WORKSPACE/tests/woocommerce-real-stock-conformance.php" --path="$WP_PATH" --skip-themes
+          php -l "$GITHUB_WORKSPACE/tests/woocommerce-race-worker.php"
+          node --check "$GITHUB_WORKSPACE/tests/woocommerce-race-runner.mjs"
+          MANSU_CI_WP_PATH="$WP_PATH" \
+          MANSU_CI_WP_CLI="$RUNNER_TEMP/wp-cli.phar" \
+          MANSU_CI_RACE_WORKER="$GITHUB_WORKSPACE/tests/woocommerce-race-worker.php" \
+          node "$GITHUB_WORKSPACE/tests/woocommerce-race-runner.mjs"
