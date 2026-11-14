@@ -93,7 +93,10 @@ async function webhook(key, validSignature = true, port = 8091) {
     ? createHmac('sha512', syntheticSecret).update(payload).digest('hex')
     : '0'.repeat(128);
   const res = await call('POST', '/?wc-api=tbz_wc_paystack_webhook', payload, signature, port);
-  assert.equal(res.status, 200, 'Synthetic Paystack webhook must return 200');
+  // The draft bridge rejects forged signatures before taking its per-order
+  // advisory lock; a valid signed webhook still returns 200.
+  assert.equal(res.status, validSignature ? 200 : 401,
+    'Synthetic signed/forged webhook returned unexpected HTTP status');
 }
 async function redirected(key, port = 8091) {
   const ref = encodeURIComponent(cases[key].ref);
