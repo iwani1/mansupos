@@ -1,5 +1,7 @@
 # Mansu POS
 
+> **Current development branch — redesigned workspace:** An original Notion-inspired interface now covers the sidebar, global page switching, page headings, dashboard, register, catalogue, sales, wholesale, shifts, reports, staff and settings. See [workspace UI design](docs/WORKSPACE-REDESIGN.md) and [Contabo pull-and-run guide](docs/CONTABO-WORKSPACE-DEPLOY.md). This newer code is **not installed on your Contabo VPS**. The existing read-only pilot and live WooCommerce remain unchanged; checkout has separate approval and verification requirements.
+
 A working, mobile-friendly point-of-sale application for **MansutRENDZGH**, designed to use the existing WooCommerce catalogue, inventory, and orders.
 
 ## Current status
@@ -27,7 +29,7 @@ The codebase includes production-oriented controls (shifts, audit, lockout, idle
 ## Included
 
 - Product search, category filters, grid/list views, and stock visibility.
-- **Current-branch UI (not deployed):** responsive grouped/collapsible workspace, real POS-only Overview, searchable Woo product/category directories, separate Sales/Orders presentations, named Wholesale-buyer directory for authorised roles, and consistent pink/charcoal operational screens. There is no supplier or Woo product-write API; incomplete catalogue and reporting coverage are labelled rather than invented. See [DESIGN.md](DESIGN.md).
+- **Current-branch UI (not deployed):** responsive grouped/collapsible workspace, real POS-only Overview, searchable Woo product/category directories, separate Sales/Orders presentations, named Wholesale-buyer directory for authorised roles, and consistent neutral, document-style operational screens. There is no supplier or Woo product-write API; incomplete catalogue and reporting coverage are labelled rather than invented. See [DESIGN.md](DESIGN.md).
 - **Installable web app (read-only pilot 1.2.3):** same-origin manifest and desktop icons, labeled desktop directory / compact-screen navigation drawer, and a public offline safety notice only. No authenticated or `/api` responses are cached by the service worker; [install guidance](docs/INSTALLABLE-WEB-APP.md).
 - **Separate Windows online pilot QA app:** native NSIS installer for the same remote HTTPS POS, with in-memory session, no offline sale/queue, health verification and an independent read-only request lock; [Windows installer guide](docs/WINDOWS-ONLINE-PILOT.md). The full web app remains available separately.
 - **In-store collection (historical source view on the 1.2.3 pilot):** the PDF-count/CSV-price source, with 41 quarantined exceptions and no cost fields in the POS API. A previously implemented POS-only cash/stock path remains locked and is **not the client's new shared-Woo-stock target**; do not enable it. The proposed path uses Woo-backed Wholesale so online and shop stock have one authority.
