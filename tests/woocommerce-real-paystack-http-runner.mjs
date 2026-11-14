@@ -24,8 +24,11 @@ function wpCli(phase) {
     timeout: 90_000,
   });
   if (p.status !== 0) {
+    const errorLines = (p.stderr || '').split('\n').filter(line =>
+      /Fatal error|RuntimeException|Uncaught|stock|Payment|Paystack|assertions|Error:/.test(line)
+    ).slice(0, 15).join('\n');
     throw new Error('Paystack synthetic WP-CLI ' + phase + ' failed: ' +
-      (p.stderr || '').slice(-2200) + ' ' + (p.stdout || '').slice(-1000));
+      errorLines.slice(0, 2400) + '\n' + (p.stdout || '').slice(-1400));
   }
   return p.stdout;
 }
