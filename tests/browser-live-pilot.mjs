@@ -14,6 +14,20 @@ try {
     };
     await route.fulfill({ response, json: data });
   });
+  const auditCalls = [];
+  await page.route('**/api/stock-safety/audit', async route => {
+    auditCalls.push(route.request().method());
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      kind: 'read-only-shared-woo-stock-audit', auditOnly: true, checkoutAuthorized: false,
+      sharedLastUnitGuardVerified: false, requiresOwnerOrManagerReview: true,
+      catalogue: { source: 'woocommerce', fetchedAt: '2026-11-14T20:00:00.000Z',
+        complete: true, stale: false, products: 1, selectableOptions: 3,
+        unavailableOptions: 0, managedStockPools: 1, sharedParentOrVariationPools: 1 },
+      issueCounts: { backorders_enabled: 1 },
+      examples: [{ code: 'backorders_enabled', productId: 73, variationId: 74 }],
+      limitations: ['This audit cannot authorize checkout.'],
+    }) });
+  });
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
   await page.getByRole('region', { name: 'Live catalogue read-only notice' }).getByText('Live catalogue · no checkout').waitFor();
@@ -22,6 +36,15 @@ try {
   await page.locator('[data-nav="wholesale"]').click();
   await page.getByRole('heading', { name: 'Wholesale', exact: true }).waitFor();
   await page.getByText(/no quote can be approved, no order can be created/).waitFor();
+  await page.locator('[data-nav="stockSafety"]').click();
+  await page.getByRole('heading', { name: 'Stock safety review' }).waitFor();
+  await page.getByText('Checkout remains locked.').waitFor();
+  await page.getByText('Backorders are allowed and need a separate stock policy.').first().waitFor();
+  await page.getByText(/Product #73 \/ Variation #74/).waitFor();
+  if (auditCalls.join(',') !== 'GET') throw new Error('Stock safety screen must read only once and never write.');
+  if (await page.getByRole('button', { name: /checkout|sell|pay|approve refund/i }).count()) {
+    throw new Error('Stock audit screen must not present checkout or refund approval actions.');
+  }
   await page.locator('[data-nav="shifts"]').click();
   await page.getByRole('heading', { name: 'Shifts & drawer' }).waitFor();
   await page.getByText(/No shifts or cash movements can be recorded here/).waitFor();
