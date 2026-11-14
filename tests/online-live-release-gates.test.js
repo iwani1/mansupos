@@ -153,6 +153,22 @@ test('read-only signed live bridge health exposes core prerequisites without cre
   });
   assert.equal((await client.health()).ledgerId, health.ledgerId);
   assert.equal(calls, 1);
+  assert.equal((await client.health()).lateGatewayGuardVerified, false,
+    'signed Woo health must expose the unresolved late-gateway release blocker');
+  const missingLateGuard = new OnlineBridgeClient(config, async () => ({
+    ok: true, async text() {
+      const { lateGatewayGuardVerified, ...missing } = health;
+      return JSON.stringify(missing);
+    },
+  }));
+  await assert.rejects(() => missingLateGuard.health(), /health identity|prerequisites/,
+    'missing admission attestation is not a valid bridge health response');
+  const invalidLateGuard = new OnlineBridgeClient(config, async () => ({
+    ok: true, async text() { return JSON.stringify({ ...health, lateGatewayGuardVerified: 'true' }); },
+  }));
+  await assert.rejects(() => invalidLateGuard.health(), /health identity|prerequisites/,
+    'string attestation must not bypass a boolean release gate');
+
   const wrongLedger = new OnlineBridgeClient(config, async () => ({
     ok: true, async text() { return JSON.stringify({ ...health, ledgerId: 'invalid' }); },
   }));
