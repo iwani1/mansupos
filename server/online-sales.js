@@ -241,10 +241,17 @@ export class OnlineSalesService {
     const row = this.row(id, user);
     const remote = await this.bridge.status(row.idempotency_key);
     this.assertRemote(row, remote);
+    // Keep status/recovery readable when the bridge is unhealthy, but never
+    // tell a cashier that physical cash collection is permitted.
+    let liveCashReady = true;
+    if (this.config.onlineBridgeLiveEnabled) {
+      try { await this.assertLiveBridgeReady(); }
+      catch { liveCashReady = false; }
+    }
     return { sale: this.view(row), bridge: { state: remote.state, orderId: remote.orderId,
       reservationVerified: remote.reservationVerified, paymentVerified: remote.paymentVerified,
       cancelledVerified: remote.cancelledVerified, expiresAt: remote.expiresAt,
-      cashCollectionAllowed: row.status === 'awaiting_payment' && !row.payment_method &&
+      cashCollectionAllowed: liveCashReady && row.status === 'awaiting_payment' && !row.payment_method &&
         row.tendered == null && !row.paid_at &&
         Number.isSafeInteger(row.woo_order_id) && row.woo_order_id > 0 && row.prepared_total === row.total && row.total > 0 &&
         !eventExists(this.db, id, 'online.cash_intent_started') &&

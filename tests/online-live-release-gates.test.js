@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../server/app.js';
 import { ledgerInfo } from '../server/ledger-identity.js';
+import { saleEvent } from '../server/sale-events.js';
 import { readConfig, publicConfig, shouldRunReconcileTimer } from '../server/config.js';
 import { WooCommerce } from '../server/woocommerce.js';
 import { OnlineBridgeClient } from '../server/online-bridge-client.js';
@@ -167,7 +168,13 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
   let healthReads = 0;
   let wooReads = 0;
   let remoteOrderWrites = 0;
+  let remoteStatus = null;
   const fakeBridge = {
+    async status(key) {
+      assert.ok(remoteStatus);
+      assert.equal(key, remoteStatus.key);
+      return remoteStatus;
+    },
     async create() { remoteOrderWrites++; throw new Error('A bad bridge health check must never reach this write.'); },
     async cashIntent() { remoteOrderWrites++; throw new Error('A bad bridge health check must never reach a cash write.'); },
     async health() {
@@ -234,6 +241,34 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sales').get().n, 0);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sale_events').get().n, 0);
   assert.equal(remoteOrderWrites, 0, 'no Woo reservation or cash-intent write was dispatched');
+
+  // Synthetic reserved Woo order, deliberately inserted only AFTER checking
+  // that the unverified prepare call left the trading ledger empty.
+  const saleId = randomUUID(), key = randomUUID(), fingerprint = 'a'.repeat(64);
+  const timestamp = new Date().toISOString();
+  const item = { productId: 10, variationId: 11, quantity: 1, ownerId: 10,
+    price: 10000, sku: 'SYNTHETIC-11' };
+  db.prepare(`INSERT INTO sales(id,idempotency_key,fingerprint,number,status,woo_order_id,total,
+    prepared_total,currency,cashier_id,cashier_name,items_json,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(saleId, key, fingerprint, 'POS-SYNTHETIC', 'awaiting_payment', 4321, 10000,
+      10000, 'GHS', 'owner', 'Store Owner', JSON.stringify([item]), timestamp, timestamp);
+  saleEvent(db, saleId, 'online.intent', 'owner', { amountCents: 10000 });
+  remoteStatus = { service: 'live-trading', siteId: SITE_ID, ledgerId: identity.ledgerId,
+    key, fingerprint, state: 'reserved', orderId: 4321, totalCents: 10000, taxCents: 0,
+    expiresAt: new Date(Date.now() + 6 * 60000).toISOString(), orderIdentityVerified: true,
+    reservationVerified: true, cashIntentVerified: false, paymentVerified: false,
+    cancelledVerified: false, stockOrCashIntentObserved: false, paidAt: null, refundedCents: 0,
+    items: [{ productId: 10, variationId: 11, quantity: 1, ownerId: 10,
+      unitCents: 10000, sku: 'SYNTHETIC-11', grossCents: 10000, taxCents: 0 }] };
+  const originalStatus = await fetch(`${base}/sales/${saleId}/online-status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(originalStatus.status, 200);
+  assert.equal((await originalStatus.json()).bridge.cashCollectionAllowed, false,
+    'unhealthy live bridge must not advertise a collectible reservation');
+  assert.equal(remoteOrderWrites, 0);
+
   const diagnostics = async () => {
     const response = await fetch(`${base}/connection/diagnostics`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -248,12 +283,18 @@ test('synthetic live-profile server diagnostics refuse missing or mismatched bri
   const ready = await fetch(`${base}/ready`);
   assert.equal(ready.status, 200, 'a matching, signed trading bridge can report process readiness');
   assert.equal((await ready.json()).ok, true);
+  const verifiedStatus = await fetch(`${base}/sales/${saleId}/online-status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(verifiedStatus.status, 200);
+  assert.equal((await verifiedStatus.json()).bridge.cashCollectionAllowed, true,
+    'matching bridge health allows status to report a synthetic reserved hold as collectible');
   const verified = await diagnostics();
   assert.equal(verified.ok, true);
   const health = verified.checks.find(c => c.name.startsWith('Woo reservation bridge'));
   assert.equal(health.ok, true);
   assert.match(health.detail, /Last-unit concurrency remains unverified/);
-  assert.equal(healthReads, 5, 'readiness, rejected checkout, diagnostics and accepted readiness all use a fresh GET');
+  assert.equal(healthReads, 7, 'readiness, checkout, status and diagnostics all require fresh health evidence');
   assert.ok(wooReads >= 4);
   assert.equal(remoteOrderWrites, 0);
 });
