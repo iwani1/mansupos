@@ -793,6 +793,14 @@ function mansu_online_pre_website_payment( $order_id, $transaction_id = '' ) {
         return;
     }
     mansu_online_website_review( $order, 'payment callback without a valid original stock hold' );
+    // The external payment may already have settled. Keep it in a review-only
+    // Woo status, not 'pending': Paystack exits on repeat callbacks for an
+    // on-hold order, avoiding repeated success notifications. Our stock
+    // reducer filter still denies deductions from the quarantined order.
+    // This is a status change only; never issue a refund or claim settlement.
+    if ( ! $order->has_status( 'on-hold' ) ) {
+        $order->update_status( 'on-hold', 'Website gateway callback requires stock and settlement review; no fulfilment.' );
+    }
     // Woo WC_Order::payment_complete() catches this exception, leaving the
     // original order and real gateway transfer available for human review.
     throw new RuntimeException( 'Original website stock hold expired or is unverified; do not fulfil this paid gateway attempt.' );
