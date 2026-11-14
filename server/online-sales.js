@@ -119,7 +119,10 @@ export class OnlineSalesService {
           health.siteId !== this.config.bridgeSiteId || health.ledgerId !== this.ledgerId ||
           health.corePrerequisitesOk !== true || health.cashOnly !== true ||
           health.wooVersion !== '11.0.1' ||
-          typeof health.taxEnabled !== 'boolean' || typeof health.hposEnabled !== 'boolean') {
+          typeof health.taxEnabled !== 'boolean' || typeof health.hposEnabled !== 'boolean' ||
+          // An expired checkout can receive a late Paystack callback AFTER
+          // POS sold the last unit; a real Woo-side guard must be proved first.
+          health.lateGatewayGuardVerified !== true) {
         throw new Error('Remote bridge or v9 trading ledger did not match.');
       }
       return health;
