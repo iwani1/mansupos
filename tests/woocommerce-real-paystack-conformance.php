@@ -127,7 +127,7 @@ foreach ( array( 'checkout', 'store-api' ) as $via ) {
 // Paystack may return true even when Woo rejects a late payment_complete().
 // That is NOT an approval to ship or a proof that the charge was reversed.
 list( $order, $product, $reduced ) = $exercise( 'store-api', 'exact', true );
-$paystack_assert( $order->has_status( 'pending' ) && ! $order->get_date_paid() &&
+$paystack_assert( $order->has_status( 'on-hold' ) && ! $order->get_date_paid() &&
     $order->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
     (int) $product->get_stock_quantity() === 0 && $reduced === 0,
     'Real Paystack late token callback consumed POS-sold stock or escaped quarantine.' );
