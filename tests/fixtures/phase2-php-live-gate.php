@@ -15,6 +15,8 @@ function wp_parse_url( $url, $part ) { return parse_url( $url, $part ); }
 function is_ssl() { return getenv( 'MANSU_BRIDGE_GATE_CASE' ) !== 'no-tls'; }
 function register_activation_hook( $file, $function ) {}
 function add_action( $hook, $function, $priority = 10, $argc = 1 ) {}
+// Registered in actual WordPress; synthetic fixtures invoke only their explicit stubs.
+function add_filter( $hook, $handler, $priority = 10, $arguments = 1 ) {}
 /* @INSERT_BRIDGE_PLUGIN@ */
 $enabled = mansu_online_enabled();
 $expected = $scenario === 'valid';
