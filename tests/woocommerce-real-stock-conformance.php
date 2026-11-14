@@ -191,9 +191,19 @@ $assert( (int) wc_get_product( $parent->get_id() )->get_stock_quantity() === 0 &
 $assert( (int) wc_get_product( $parent->get_id() )->get_stock_quantity() === 0,
     'Parent stock was inadvertently replenished by failed website checkout.' );
 
-// 6. Delayed website gateway completion AFTER its hold expires and after the
-// POS obtains the same final unit. This directly invokes REAL Woo payment
-// completion; it never calls Paystack or an external payment endpoint.
+// 6. A normal website checkout with a CURRENT native Woo hold must still
+// complete. The PHP hook does not reject all legitimate online payments.
+$current_product = $make_simple();
+$current_web = $website_hold( $current_product );
+$assert( $current_web->payment_complete() === true, 'Valid original website hold was denied.' );
+$assert( (int) wc_get_product( $current_product->get_id() )->get_stock_quantity() === 0,
+    'Valid website payment failed to deduct its original stock unit.' );
+$assert( $current_web->get_meta( '_mansu_website_stock_review', true ) !== 'required',
+    'Valid current website hold was incorrectly quarantined.' );
+
+// 7. An EXPIRED website reservation whose order is already paid externally
+// must NOT call stock reduction via Woo payment_complete(), even when the POS
+// is holding the last unit. Actual gateway money remains a manual liability.
 $late_product = $make_simple();
 $old_web = $website_hold( $late_product );
 global $wpdb;
@@ -201,66 +211,78 @@ $expired = $wpdb->update( $wpdb->wc_reserved_stock,
     array( 'expires' => gmdate( 'Y-m-d H:i:s', time() - 30 ) ),
     array( 'order_id' => $old_web->get_id() ) );
 $assert( $expired === 1 && (int) $reserve->get_reserved_stock( $late_product ) === 0,
-    'Expired synthetic website hold still blocks the available stock pool.' );
+    'Expired website hold was not removed from available inventory.' );
 $key_late = 'f51f460c-ebc8-48e3-8f63-9adf76ea0cd7';
 $late_pos = $attempt( $late_product, $key_late );
-$assert( ! is_wp_error( $late_pos ) && $late_pos['reservationVerified'] &&
-    (int) $reserve->get_reserved_stock( $late_product ) === 1,
-    'POS could not reserve stock released by an expired website checkout.' );
+$assert( ! is_wp_error( $late_pos ) && $late_pos['reservationVerified'],
+    'POS could not reserve stock released by expired website checkout.' );
 $late_intent = mansu_online_cash_intent( $cash_request( $key_late, 'cash-intent' ) );
 $assert( ! is_wp_error( $late_intent ) && $late_intent['cashIntentVerified'],
-    'Original POS cash-intent marker did not survive website hold expiry.' );
-// This is the Woo core operation normally initiated after a gateway confirms
-// the old website order. Its native stock change must invalidate POS payment.
-$assert( $old_web->payment_complete() === true,
-    'Synthetic delayed website payment was not completed by real Woo.' );
-$assert( (int) wc_get_product( $late_product->get_id() )->get_stock_quantity() === 0,
-    'Delayed website payment did not deduct the remaining Woo stock.' );
+    'POS original cash intent was not preserved during website hold expiry.' );
+$assert( $old_web->payment_complete() === false,
+    'Expired website gateway callback was incorrectly admitted as a paid Woo order.' );
+$old_web = wc_get_order( $old_web->get_id() );
+$assert( $old_web->has_status( 'pending' ) &&
+    $old_web->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
+    ! $old_web->get_date_paid(), 'Unverified website gateway payment was not quarantined.' );
+$assert( (int) wc_get_product( $late_product->get_id() )->get_stock_quantity() === 1,
+    'Rejected late website payment changed Woo stock.' );
 $late_pay = mansu_online_pay( $cash_request( $key_late, 'pay' ) );
-$assert( is_wp_error( $late_pay ) && $late_pay->get_error_code() === 'mansu_stock_changed',
-    'POS completed a second sale after delayed website payment consumed the last unit.' );
-$assert( (int) wc_get_product( $late_product->get_id() )->get_stock_quantity() === 0 &&
-    wc_get_order( $late_pos['orderId'] )->has_status( 'pending' ),
-    'POS oversold stock or marked the original unverified cash sale paid.' );
-$assert( mansu_online_row( $key_late )['state'] === 'cash_intent',
-    'The original cash liability was lost instead of remaining available for review.' );
+$assert( ! is_wp_error( $late_pay ) && $late_pay['paymentVerified'] &&
+    (int) wc_get_product( $late_product->get_id() )->get_stock_quantity() === 0,
+    'Late website callback interfered with the original POS held unit.' );
 
-// 7. Reverse late-callback ordering: the POS succeeds BEFORE an old website
-// gateway confirms a checkout whose original hold expired. This is a known
-// release blocker: POS cannot make an online gateway atomic by checking Woo
-// availability just before its own cash action. Observe the real pinned Woo
-// behavior on this DISPOSABLE database and do not claim a passed CI build
-// proves live online payment safety. No Paystack or real customer is contacted.
+// 8. Reverse ordering: POS pays first, then an expired website callback
+// tries to claim that stock. There must be NO negative stock in native Woo.
 $reverse_product = $make_simple();
 $reverse_old_web = $website_hold( $reverse_product );
 $reverse_expired = $wpdb->update( $wpdb->wc_reserved_stock,
     array( 'expires' => gmdate( 'Y-m-d H:i:s', time() - 30 ) ),
     array( 'order_id' => $reverse_old_web->get_id() ) );
-$assert( $reverse_expired === 1 && (int) $reserve->get_reserved_stock( $reverse_product ) === 0,
-    'Reverse delayed-callback test did not expire the original website hold.' );
+$assert( $reverse_expired === 1, 'Reverse race setup did not expire the website hold.' );
 $reverse_key = '11ec976f-dab3-4c75-b21e-27d318f315f0';
 $reverse_pos = $attempt( $reverse_product, $reverse_key );
 $assert( ! is_wp_error( $reverse_pos ) && $reverse_pos['reservationVerified'],
-    'POS did not receive the available last-unit hold after website expiry.' );
+    'POS did not reserve the final unit after website expiry.' );
 $reverse_intent = mansu_online_cash_intent( $cash_request( $reverse_key, 'cash-intent' ) );
 $assert( ! is_wp_error( $reverse_intent ) && $reverse_intent['cashIntentVerified'],
-    'POS did not verify the original reverse-race cash intent.' );
+    'Reverse race POS cash intent was not verified.' );
 $reverse_paid = mansu_online_pay( $cash_request( $reverse_key, 'pay' ) );
 $assert( ! is_wp_error( $reverse_paid ) && $reverse_paid['paymentVerified'] &&
     (int) wc_get_product( $reverse_product->get_id() )->get_stock_quantity() === 0,
-    'POS did not complete once-only Woo stock reduction in the reverse race.' );
+    'Reverse race POS payment did not reduce once-only native stock.' );
 $reverse_callback = $reverse_old_web->payment_complete();
-$reverse_quantity = (int) wc_get_product( $reverse_product->get_id() )->get_stock_quantity();
-$assert( $reverse_quantity <= 0, 'Delayed original gateway callback unexpectedly replenished stock.' );
-$assert( (int) wc_get_product( $reverse_product->get_id() )->get_stock_quantity() === $reverse_quantity,
-    'Unexpected stock change during readback of the reverse gateway race.' );
-if ( $reverse_callback && $reverse_quantity < 0 ) {
-    echo 'DISPOSABLE_WOO_LATE_GATEWAY_RELEASE_BLOCKER: A paid late website order reduced last-unit stock to ' .
-        $reverse_quantity . '. A Woo/Paystack-side admission and recovery policy is required BEFORE production POS checkout.' . PHP_EOL;
-} else {
-    echo 'DISPOSABLE_WOO_LATE_GATEWAY_NOT_PROVEN_SAFE: delayed website payment status=' .
-        ( $reverse_callback ? 'paid' : 'unconfirmed' ) . ', stock=' . $reverse_quantity .
-        '. Installed gateway and shared-last-unit acceptance remain blocked.' . PHP_EOL;
-}
+$reverse_old_web = wc_get_order( $reverse_old_web->get_id() );
+$assert( $reverse_callback === false &&
+    $reverse_old_web->get_meta( '_mansu_website_stock_review', true ) === 'required',
+    'Late gateway callback bypassed the website payment quarantine.' );
+$assert( (int) wc_get_product( $reverse_product->get_id() )->get_stock_quantity() === 0,
+    'Website callback after POS payment oversold the final unit.' );
+
+// 9. A plugin bypassing payment_complete() by directly setting a paid
+// status must still be denied the native stock-reduction hook, and it must
+// not leave a contested order in the "processing" fulfilment queue.
+$direct_product = $make_simple();
+$direct_web = $website_hold( $direct_product );
+$direct_expired = $wpdb->update( $wpdb->wc_reserved_stock,
+    array( 'expires' => gmdate( 'Y-m-d H:i:s', time() - 30 ) ),
+    array( 'order_id' => $direct_web->get_id() ) );
+$assert( $direct_expired === 1, 'Direct-status bypass did not expire website hold.' );
+$direct_key = 'a3e3e62e-6022-4239-af2e-c0ed0f413cb2';
+$direct_pos = $attempt( $direct_product, $direct_key );
+$assert( ! is_wp_error( $direct_pos ) && $direct_pos['reservationVerified'],
+    'Direct-status bypass setup did not reserve remaining POS unit.' );
+$direct_pos_intent = mansu_online_cash_intent( $cash_request( $direct_key, 'cash-intent' ) );
+$direct_paid = mansu_online_pay( $cash_request( $direct_key, 'pay' ) );
+$assert( ! is_wp_error( $direct_pos_intent ) && ! is_wp_error( $direct_paid ),
+    'Direct-status bypass original POS payment was not confirmed.' );
+$direct_web->update_status( 'processing', 'Synthetic gateway bypasses payment_complete.' );
+$direct_web = wc_get_order( $direct_web->get_id() );
+$assert( $direct_web->has_status( 'on-hold' ) &&
+    $direct_web->get_meta( '_mansu_website_stock_review', true ) === 'required',
+    'Direct paid status without a hold was not moved into manual review.' );
+$assert( (int) wc_get_product( $direct_product->get_id() )->get_stock_quantity() === 0,
+    'Direct paid-status gateway bypass reduced stock below zero.' );
+echo 'DISPOSABLE_WOO_LATE_WEBSITE_GUARD_OK: native Woo payment_complete, direct status and stock-reduction hooks quarantined expired website payments without overselling. NOT a Paystack-site guarantee.' . PHP_EOL;
 
 echo 'DISPOSABLE_WOO_CORE_OK ' . $checks . ' assertions; real pinned Woo core, MySQL/InnoDB, checkout/POS holds, cash-intent, once-only Woo payment, delayed gateway race; NO real store.' . PHP_EOL;
