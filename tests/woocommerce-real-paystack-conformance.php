@@ -146,7 +146,9 @@ list( $order, $product, $reduced ) = $exercise( 'store-api', 'wrong-currency', t
 $paystack_assert( $order->has_status( 'on-hold' ) &&
     $order->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
     (int) $product->get_stock_quantity() === 0 && $reduced === 0,
-    'Real Paystack currency-mismatch path reduced stock without a live hold.' );
+    'Real Paystack currency-mismatch path state: status=' . $order->get_status() .
+    ' review=' . $order->get_meta( '_mansu_website_stock_review', true ) .
+    ' stock=' . $product->get_stock_quantity() . ' line_reduced=' . $reduced );
 $paystack_assert( $synthetic_http_calls === 5,
     'Expected five entirely synthetic real-gateway token payment HTTP stubs.' );
 remove_filter( 'pre_http_request', $http_mock, 10 );
