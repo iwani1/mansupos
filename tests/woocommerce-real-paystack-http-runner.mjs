@@ -121,6 +121,8 @@ try {
   process.stdout.write(wpCli('webhook-underpaid'));
   await redirected('return_reference_mismatch');
   process.stdout.write(wpCli('return-reference-mismatch'));
+  await webhook('webhook_verify_failed');
+  process.stdout.write(wpCli('webhook-verify-failed'));
   process.stdout.write('DISPOSABLE_REAL_PAYSTACK_HTTP_OK: signed/invalid/replayed webhooks, ' +
     'valid/late return callbacks, wrong-currency and underpaid last-unit safety; synthetic local HTTP only.\n');
 } finally {
