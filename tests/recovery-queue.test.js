@@ -56,10 +56,10 @@ test('owner recovery queue reports cash custody separately from Woo refund and d
   assert.equal(intent.cashIntentAwaitingReview, true);
   assert.equal(intent.cashCustodyUnresolved, false);
   assert.equal(intent.cashHeldCents, 0);
-  const previouslyPaid = sales.find(item => item.number === 'AUDIT-REVIEWED-PAID');
-  assert.equal(previouslyPaid.cashIntentAwaitingReview, false);
-  assert.equal(previouslyPaid.cashCustodyUnresolved, true, 'past paid_at cannot hide money currently under review');
-  assert.equal(previouslyPaid.cashHeldCents, 8000);
+  const reviewedPaid = sales.find(item => item.number === 'AUDIT-REVIEWED-PAID');
+  assert.equal(reviewedPaid.cashIntentAwaitingReview, false);
+  assert.equal(reviewedPaid.cashCustodyUnresolved, true, 'past paid_at cannot hide money currently under review');
+  assert.equal(reviewedPaid.cashHeldCents, 8000);
   assert.equal(sales.some(item => item.number === 'AUDIT-PAID'), false);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sale_events').get().n, before);
   assert.equal((await get('/recovery/queue?cursor=not-valid')).status, 400);
