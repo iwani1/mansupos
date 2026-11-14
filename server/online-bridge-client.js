@@ -57,7 +57,8 @@ export class OnlineBridgeClient {
           !/^[a-f0-9]{8}-[a-f0-9-]{27}$/i.test(result.ledgerId || '') ||
           !/^\d+\.\d+\.\d+$/.test(result.wooVersion || '') ||
           result.corePrerequisitesOk !== true || result.cashOnly !== true ||
-          typeof result.taxEnabled !== 'boolean' || typeof result.hposEnabled !== 'boolean') {
+          typeof result.taxEnabled !== 'boolean' || typeof result.hposEnabled !== 'boolean' ||
+          typeof result.lateGatewayGuardVerified !== 'boolean') {
         throw new AppError('Woo bridge health identity or prerequisites could not be verified.', 502, 'BRIDGE_UNCERTAIN');
       }
       return result; // Signed GET, never an order/stock/cash write.
