@@ -191,4 +191,38 @@ $assert( (int) wc_get_product( $parent->get_id() )->get_stock_quantity() === 0 &
 $assert( (int) wc_get_product( $parent->get_id() )->get_stock_quantity() === 0,
     'Parent stock was inadvertently replenished by failed website checkout.' );
 
-echo 'DISPOSABLE_WOO_CORE_OK ' . $checks . ' assertions; real pinned Woo core, MySQL/InnoDB, checkout/POS holds, cash-intent, once-only Woo payment; NO real store.' . PHP_EOL;
+// 6. Delayed website gateway completion AFTER its hold expires and after the
+// POS obtains the same final unit. This directly invokes REAL Woo payment
+// completion; it never calls Paystack or an external payment endpoint.
+$late_product = $make_simple();
+$old_web = $website_hold( $late_product );
+global $wpdb;
+$expired = $wpdb->update( $wpdb->wc_reserved_stock,
+    array( 'expires' => gmdate( 'Y-m-d H:i:s', time() - 30 ) ),
+    array( 'order_id' => $old_web->get_id() ) );
+$assert( $expired === 1 && (int) $reserve->get_reserved_stock( $late_product ) === 0,
+    'Expired synthetic website hold still blocks the available stock pool.' );
+$key_late = 'f51f460c-ebc8-48e3-8f63-9adf76ea0cd7';
+$late_pos = $attempt( $late_product, $key_late );
+$assert( ! is_wp_error( $late_pos ) && $late_pos['reservationVerified'] &&
+    (int) $reserve->get_reserved_stock( $late_product ) === 1,
+    'POS could not reserve stock released by an expired website checkout.' );
+$late_intent = mansu_online_cash_intent( $cash_request( $key_late, 'cash-intent' ) );
+$assert( ! is_wp_error( $late_intent ) && $late_intent['cashIntentVerified'],
+    'Original POS cash-intent marker did not survive website hold expiry.' );
+// This is the Woo core operation normally initiated after a gateway confirms
+// the old website order. Its native stock change must invalidate POS payment.
+$assert( $old_web->payment_complete() === true,
+    'Synthetic delayed website payment was not completed by real Woo.' );
+$assert( (int) wc_get_product( $late_product->get_id() )->get_stock_quantity() === 0,
+    'Delayed website payment did not deduct the remaining Woo stock.' );
+$late_pay = mansu_online_pay( $cash_request( $key_late, 'pay' ) );
+$assert( is_wp_error( $late_pay ) && $late_pay->get_error_code() === 'mansu_stock_changed',
+    'POS completed a second sale after delayed website payment consumed the last unit.' );
+$assert( (int) wc_get_product( $late_product->get_id() )->get_stock_quantity() === 0 &&
+    wc_get_order( $late_pos['orderId'] )->has_status( 'pending' ),
+    'POS oversold stock or marked the original unverified cash sale paid.' );
+$assert( mansu_online_row( $key_late )['state'] === 'cash_intent',
+    'The original cash liability was lost instead of remaining available for review.' );
+
+echo 'DISPOSABLE_WOO_CORE_OK ' . $checks . ' assertions; real pinned Woo core, MySQL/InnoDB, checkout/POS holds, cash-intent, once-only Woo payment, delayed gateway race; NO real store.' . PHP_EOL;
