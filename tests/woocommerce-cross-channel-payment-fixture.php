@@ -91,9 +91,9 @@ if ( $phase === 'cross-setup' ) {
     $check( ! is_wp_error( $reserved ) && $reserved['state'] === 'reserved' &&
         $reserved['reservationVerified'] === true, 'POS did not claim the last unit after web hold expiry.' );
     $cash_req = new WP_REST_Request( 'POST', '/mansu-pos/v1/attempts/' . $key . '/cash-intent' );
+    $cash_req->set_param( 'key', $key );
     $cash_req->set_header( 'content-type', 'application/json' );
     $cash_req->set_body( '{}' );
-    $cash_req->set_param( 'key', $key );
     $intent = mansu_online_cash_intent( $cash_req );
     $check( ! is_wp_error( $intent ) && $intent['state'] === 'cash_intent' &&
         $intent['cashIntentVerified'] === true,
@@ -116,9 +116,9 @@ $data = get_option( 'mansu_ci_cross_payment', array() );
 if ( $phase === 'cross-pos-pay' ) {
     $check( isset( $data['posKey'], $data['posId'] ), 'Missing synthetic POS cash attempt.' );
     $request = new WP_REST_Request( 'POST', '/mansu-pos/v1/attempts/' . $data['posKey'] . '/pay' );
+    $request->set_param( 'key', $data['posKey'] );
     $request->set_header( 'content-type', 'application/json' );
     $request->set_body( '{}' );
-    $request->set_param( 'key', $data['posKey'] );
     $outcome = mansu_online_pay( $request );
     $check( ! is_wp_error( $outcome ) && $outcome['paymentVerified'] === true,
         'POS payment failed after simultaneously competing web callback: ' .
