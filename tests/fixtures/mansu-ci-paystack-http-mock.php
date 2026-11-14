@@ -34,7 +34,11 @@ add_filter( 'pre_http_request', static function ( $preempt, $args, $url ) {
     foreach ( $fixtures as $entry ) {
         if ( $entry['ref'] !== $ref ) { continue; }
         $order = wc_get_order( $entry['id'] );
-        if ( ! $order || $order->get_meta( '_paystack_txn_ref', true ) !== $ref ) {
+        // Only the explicit synthetic 'reference-mismatch' case bypasses
+        // the fixture's expected-reference constraint, so the real plugin's
+        // own admission check (or lack of one) is exercised independently.
+        if ( ! $order || ( $entry['mode'] !== 'reference-mismatch' &&
+             $order->get_meta( '_paystack_txn_ref', true ) !== $ref ) ) {
             return new WP_Error( 'ci_paystack_ref_mismatch', 'Synthetic reference mismatch.' );
         }
         $amount = (int) round( (float) $order->get_total() * 100 );
