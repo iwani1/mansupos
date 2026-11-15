@@ -109,7 +109,8 @@ export function compareSettlementEvidence({ woo = null, gateway = null,
     if (settlement.status !== 'settled') {
       add('settlement_record_not_reported_settled');
     }
-    if (validWoo && settlement.originalReference !== woo.originalReference) {
+    if (woo && reference(woo.originalReference) &&
+        settlement.originalReference !== woo.originalReference) {
       add('settlement_reference_does_not_match_original_woo_attempt');
     }
     if (validGateway && settlement.grossCents !== gateway.amountCents) {
