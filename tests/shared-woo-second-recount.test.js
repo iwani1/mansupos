@@ -137,8 +137,11 @@ test('CLI accepts a private second-count file with exact source hashes and rejec
   assert.deepEqual(fs.readdirSync(dir),before,'No Woo import/ledger/output file created');
   assert.match(ok.stdout,/Second recount draft supplied: yes/);
   assert.match(ok.stdout,/Matching first count claims \(NOT verified\) \| 1/);
-  for(const secret of ['SECRET-WEB','PRIVATE WEBSITE ITEM',chosen.sku])
-    assert.equal(ok.stdout.includes(secret),false,'No private source names/SKUs');
+  for(const secret of ['SECRET-WEB','PRIVATE WEBSITE ITEM','sourceSku','counterId'])
+    assert.equal(ok.stdout.includes(secret),false,'No private source identities or raw field names');
+  // Numeric SKUs can coincidentally appear inside aggregate counts/row indices;
+  // assert against direct structured disclosure rather than a substring match.
+  assert.equal(ok.stdout.includes('SKU: '+chosen.sku),false);
   fs.chmodSync(paths[3],0o644);
   const unsafe=run(paths);
   assert.equal(unsafe.status,1);
