@@ -1,0 +1,37 @@
+# Phase 3.7 — Restart-safe synthetic audit custody and incident-delivery proof
+
+**Status: DRAFT, CI TEST ONLY, NOT A DEPLOYED SERVICE.** This milestone proves a limited file-backed custody and cryptographic notification-claim protocol in a private CI sandbox. The files are on the SAME runner and are NOT a separately administered off-host WORM store. No actual email, SMS, WhatsApp, pager, push notification or customer payment is delivered. The production WooCommerce site, Paystack, Contabo and POS checkout remain unchanged.
+
+## Delivered source and tests
+
+- server/audit-persistent-custodian.js: SyntheticPersistentAuditCustodian accepts a cryptographically signed original Ed25519 witness, verifies the local HMAC audit journal and appends a second, distinctly signed custodian anchor to a private 0600 NDJSON log. The log is a monotonic sequence of site-bound signed records linked with SHA-256 digests. It rejects old or conflicting original order heads and operation UUID reuse with changed content. fsync is required before a successful append response. O_EXCL local locks serialize appends and refuse stale locks, tampered/partial lines, unsafe file permissions, symlinks or oversized streams. This is NOT a tamper-proof off-host custody implementation.
+- tests/audit-persistent-custodian.test.js: Covers file persistence across a NEW class instance (restart simulation), original operation UUID replay after lost acknowledgement, monotonic checkpoint advancement, conflicting IDs, corrupt/reordered/incomplete logs, valid-prefix rollback requiring a separately retained pinned receipt, stale lock, symlink and permissions refusal, wrong keys and CI-only operation. Recovery is assessment-only; no file is restored.
+- server/audit-incident-delivery-contract.js: A second synthetic Ed25519 signing boundary distinguishes a DURABLY RECORDED CRITICAL INCIDENT TICKET from a claimed notification to an OWNER recipient. The ticket signature and separate notifier signature must be valid and bound to the same opaque incident ID, ticket digest, fixed recipient role and time ordering. Pending, failed, stale or malformed claims remain blocked. A valid signature on a synthetic "delivered" claim is never proof that an actual person received an alert.
+- tests/audit-incident-delivery-contract.test.js: Verifies separate signer roles, ticket-claim binding, forged/mutated signatures and claims, incident replay, wrong keys, unknown customer/finance fields, stale timestamps, pending or failed delivery, privacy and absence of live network or mail/SMS code.
+
+## Precisely what restart-safe means
+
+An append is first verified against the original signed witness and complete HMAC journal, then signed and fsynced under an exclusive lock. The same file can be reopened in another class instance using the same synthetic signing key, original site ID and pinned witness verification key. A query by the original UUID returns the original signed receipt. That is suitable for testing idempotent recovery from a response lost AFTER durable local write, without resubmission under another ID.
+
+It is NOT a full crash-safe distributed transaction. If the process crashes before fsync, a partial record must fail closed. A stale lock does NOT get auto-removed, and an invalid journal does NOT get truncated or repaired. Real host crash, disk corruption, file-system guarantees, hardware key availability, multi-node coordination, replicated durability, deletion permissions and legal retention are NOT validated by these synthetic tests.
+
+A local HMAC/Ed25519 chain can validate records still present; it cannot detect a complete deletion or rollback to an earlier VALID prefix without a separately retained, authenticated high watermark. The optional pinned latest receipt can detect a mismatch, but this code cannot establish the pin's trusted external origin. Even on successful inspection, independentRemoteCustodyVerified, immutableProviderRetentionVerified, productionCustodyApproved and all financial and checkout permission flags remain FALSE.
+
+## Alert evidence and operating policy
+
+An incident ticket contains only an opaque incident digest, enumerated issue code, recorded status and timestamp. The separate notifier claim contains only the incident digest, matching ticket hash, Owner role, enumerated pending/failed/delivered CLAIM and timestamp. No customer identity, bank account, original payment reference, staff phone, email, secret or actual endpoint is retained.
+
+Two synthetically pinned public keys validate the claims. A ticket being signed is not evidence that it was durably stored by an independent provider. A notifier's signed "delivered" claim, even if internally consistent, is not proof the Owner actually received or acknowledged a real message. No real recipient address, channel delivery ID, authenticated provider, out-of-band acknowledgement or escalation route is implemented. The response always keeps realOwnerReceivedAlert, independentlyVerifiedDeliveryReceipt, externalTicketDurabilityVerified, automaticIncidentClosureAuthorized, checkoutAuthorized, refundAuthorized and stockRestored FALSE.
+
+## Go-live design requirements, still unbuilt
+
+1. Select an independently administered audit-storage provider and a distinct alert service. Both must be outside the POS/Contabo trust, administrative and deletion boundary, with legal retention/WORM settings, proved durability and independently maintained access logs.
+2. Authenticate provider and Owner/security identities and separately pin key trust roots. Use non-exportable or appropriately managed signing keys, revocation and monitored rotation. No key should be copied into the POS cashier environment.
+3. Implement tightly scoped, authenticated, replay-protected append, original-operation lookup and latest-checkpoint reads with bounded requests, idempotency, rate limiting and a never-decreasing externally retained high watermark.
+4. Implement a real critical incident ticket and independently verifiable notification delivery/Owner receipt, with escalation if a delivery is uncertain. Actual alerts must be separately authorized; synthetic signing claims are insufficient.
+5. Test restart, forced power loss before/after commit, disk/region failure, tampering, stale locks, valid-prefix rollback, corrupted backup, provider outage, forged and revoked signatures, incident delivery uncertainty and two-person recovery in approved staging. Record authentic evidence outside the code repository.
+6. Obtain independent Owner and security sign-off, retention/RPO/RTO/alert service targets and legal/privacy review. A CI pass does not authorize connecting production credentials or deploying an audit client.
+7. The separate merchant WooCommerce/Paystack financial-read integration still needs an Owner-approved narrow scope, verified installed-plugin configuration and independent bank/merchant settlement evidence. Paystack secret keys are not inherently read-only. Preserve the existing catalogue-only credential.
+8. The draft branch must remain unmerged and uninstalled. Never unlock live checkout based on this audit build; the independent Woo/Paystack late gateway and stock safety release still has lateGatewayGuardVerified false.
+
+**No actual independent custody, real external alert delivery, customer funds, live refunds, stock change, automatic restore, Contabo deployment or payment checkout unlocking occurred in Phase 3.7.**
