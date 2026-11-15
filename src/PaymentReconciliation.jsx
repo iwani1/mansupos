@@ -133,7 +133,7 @@ export default function PaymentReconciliation({ user }) {
       const raw = refundAmount.trim();
       let cents = null;
       if (raw) {
-        if (!/^[0-9]+(?:\\.[0-9]{1,2})?$/.test(raw)) {
+        if (!/^[0-9]+(?:\.[0-9]{1,2})?$/.test(raw)) {
           throw new Error('Enter an illustrative amount in GHS with no more than two decimal places.');
         }
         const [whole, fraction = ''] = raw.split('.');
