@@ -238,11 +238,13 @@ switch ( $phase ) {
         break;
     case 'return-reference-mismatch':
         list( $order, $product, $reduced ) = $case( 'return_reference_mismatch' );
-        $assert( $order->has_status( 'on-hold' ) &&
-            $order->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
+        // Pre-lock admission must refuse a forged/old payment attempt; do not
+        // mutate a still-held, unpaid order on an unauthenticated GET return.
+        $assert( $order->has_status( 'pending' ) &&
+            $order->get_meta( '_mansu_website_stock_review', true ) !== 'required' &&
             ! $order->get_date_paid() &&
             (int) $product->get_stock_quantity() === 1 && $reduced === 0,
-            'Paystack return accepted a transaction not bound to the original order: ' .
+            'Forged return changed an original unpaid order: ' .
                 'status=' . $order->get_status() .
                 ' review=' . $order->get_meta( '_mansu_website_stock_review', true ) .
                 ' stock=' . $product->get_stock_quantity() .
