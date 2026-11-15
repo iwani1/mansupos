@@ -182,7 +182,7 @@ export default function App() {
           {page==='stockSafety'&&config.mode==='live'&&user.role!=='cashier'&&<StockSafety active={page==='stockSafety'}/>}
           {page==='customers'&&user.role!=='cashier'&&<Customers refreshKey={refreshKey}/>}
           {page==='recovery'&&user.role!=='cashier'&&<RecoveryQueue/>}
-          {page==='paymentReconciliation'&&user.role!=='cashier'&&<PaymentReconciliation/>}
+          {page==='paymentReconciliation'&&user.role!=='cashier'&&<PaymentReconciliation user={user}/>}
           {page==='shifts'&&<Shifts config={config} user={user} shift={shift} refresh={refresh} notify={notify}/>}
           {page==='reports'&&user.role!=='cashier'&&<Reports config={config} notify={notify} refreshKey={refreshKey}/>}
           {page==='staff'&&user.role==='owner'&&<Staff config={config} user={user} notify={notify}/>}
