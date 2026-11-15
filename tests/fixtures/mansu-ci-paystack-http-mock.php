@@ -130,6 +130,45 @@ add_filter( 'pre_http_request', static function ( $preempt, $args, $url ) {
                 return new WP_Error( 'ci_race_marker', 'Paystack verification worker marker failed.' );
             }
         }
+        if ( $entry['mode'] === 'connection-reset' ) {
+            // Only the pinned disposable CI may tear down its own local WP
+            // connection. This runs AFTER the real Paystack WC-API route
+            // acquired GET_LOCK, but BEFORE upstream payment_complete().
+            // It reproduces MySQL freeing advisory locks on disconnect.
+            $marker = WP_CONTENT_DIR . '/mansu-ci-paystack-connection-reset/evidence.json';
+            if ( ! file_exists( $marker ) ) {
+                global $wpdb;
+                $name = 'mansu-paystack-order-' . (int) $order->get_id();
+                $before_connection = $wpdb->get_var( 'SELECT CONNECTION_ID()' );
+                $before_held = $wpdb->get_var( $wpdb->prepare(
+                    'SELECT CASE WHEN IS_USED_LOCK(%s) = CONNECTION_ID() THEN 1 ELSE 0 END', $name
+                ) );
+                if ( (string) $before_held !== '1' ) {
+                    return new WP_Error( 'ci_no_advisory_lock', 'Real callback did not acquire the order lock.' );
+                }
+                $closed = $wpdb->close();
+                $connected = $wpdb->db_connect( false );
+                $after_connection = $wpdb->get_var( 'SELECT CONNECTION_ID()' );
+                $after_held = $wpdb->get_var( $wpdb->prepare(
+                    'SELECT CASE WHEN IS_USED_LOCK(%s) = CONNECTION_ID() THEN 1 ELSE 0 END', $name
+                ) );
+                $evidence = array(
+                    'closed' => (bool) $closed,
+                    'reconnected' => (bool) $connected,
+                    'before' => (int) $before_connection,
+                    'after' => (int) $after_connection,
+                    'owned_before' => (int) $before_held,
+                    'owned_after' => (int) $after_held,
+                );
+                if ( ! $closed || ! $connected ||
+                     (int) $after_connection === (int) $before_connection ||
+                     (string) $after_held !== '0' ||
+                     file_put_contents( $marker, wp_json_encode( $evidence ), LOCK_EX ) === false ) {
+                    return new WP_Error( 'ci_connection_reset_failed',
+                        'Synthetic MySQL disconnect/reconnect could not be verified.' );
+                }
+            }
+        }
         $amount = (int) round( (float) $order->get_total() * 100 );
         if ( $entry['mode'] === 'underpaid' ) { $amount -= 100; }
         $currency = $entry['mode'] === 'wrong-currency' ? 'NGN' : 'GHS';
