@@ -999,7 +999,7 @@ function mansu_online_paystack_route_lock() {
     // HPOS and legacy CPT are deliberately explicit; an unsupported/missing
     // status fails closed instead of inferring an unpaid order from the cache.
     $hpos = class_exists( '\\Automattic\\WooCommerce\\Utilities\\OrderUtil' ) &&
-        \\Automattic\\WooCommerce\\Utilities\\OrderUtil::custom_orders_table_usage_is_enabled();
+        \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
     $table = $hpos ? $wpdb->prefix . 'wc_orders' : $wpdb->posts;
     $status_column = $hpos ? 'status' : 'post_status';
     $db_status = $wpdb->get_var( $wpdb->prepare(
