@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { auditCrossChannelSkus } from '../server/cross-channel-sku-audit.js';
+import { auditCrossChannelSkus, listCrossChannelSkuFindings } from '../server/cross-channel-sku-audit.js';
 import { createApp } from '../server/app.js';
 import { loadInStoreSnapshot } from '../server/instore-catalog.js';
 
@@ -163,4 +163,175 @@ test('source matching endpoint requires owner/manager, never uses Woo writes',as
   assert.deepEqual(calls,['GET products','GET products']);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sales').get().n,0);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM instore_sales').get().n,0);
+});
+
+test('full review queue includes all issues, bounds pages and search, never inventory actions',()=>{
+  const rows=Array.from({length:117},(_,index)=>({
+    ...row('UNMATCHED-'+String(index).padStart(3,'0')),
+    reportRow:index+1,
+  }));
+  rows.push({...row('DUP'),reportRow:118},{...row('dup'),reportRow:119});
+  const old=physical(rows);
+  const website=woo([product(900,'ONLY-WOO')]);
+  const report=auditCrossChannelSkus(old,website,Date.parse(time));
+  const all=listCrossChannelSkuFindings(old,website,{page:1,pageSize:25},Date.parse(time));
+  assert.equal(all.kind,'read-only-cross-channel-sku-review');
+  assert.equal(all.checkoutAuthorized,false);
+  assert.equal(all.sharedStockVerified,false);
+  assert.equal(all.auditOnly,true);
+  assert.equal(all.total,Object.values(report.issueCounts).reduce((a,b)=>a+b,0));
+  assert.equal(all.total,119);
+  assert.equal(all.pages,5);
+  assert.equal(all.findings.length,25);
+  assert.equal(all.hasMore,true);
+  assert.equal(all.findings[0].reportRow,1);
+  const last=listCrossChannelSkuFindings(old,website,{page:5,pageSize:25},Date.parse(time));
+  assert.equal(last.findings.length,19);
+  assert.equal(last.hasMore,false);
+  assert.equal(last.snapshotRef,all.snapshotRef);
+  const search=listCrossChannelSkuFindings(old,website,{
+    page:1,pageSize:25,search:'unmatched-013',
+  },Date.parse(time));
+  assert.equal(search.total,1);
+  assert.equal(search.findings[0].reportRow,14);
+  const filtered=listCrossChannelSkuFindings(old,website,{
+    code:'physical_not_in_published_woo',page:2,pageSize:50,
+  },Date.parse(time));
+  assert.equal(filtered.total,117);
+  assert.equal(filtered.findings.length,50);
+  assert.equal(filtered.findings[0].sku,'UNMATCHED-050');
+  assert.equal(JSON.stringify(filtered).includes('cashierName'),false);
+});
+
+test('review queue filtering distinguishes variation, parent, and ambiguous SKUs',()=>{
+  const old=physical([{...row('M'),reportRow:9}]);
+  const website=woo([
+    {id:300,type:'variable',sku:'PARENT',variations:[
+      {id:301,sku:'M'},{id:302,sku:'M'},{id:303,sku:''},
+    ]},
+  ]);
+  const dup=listCrossChannelSkuFindings(old,website,{
+    code:'duplicate_woo_sku',
+  },Date.parse(time));
+  assert.equal(dup.total,1);
+  assert.equal(dup.findings[0].variationId,301);
+  const ambiguous=listCrossChannelSkuFindings(old,website,{
+    code:'ambiguous_woo_sku',
+  },Date.parse(time));
+  assert.equal(ambiguous.total,1);
+  assert.equal(ambiguous.findings[0].reportRow,9);
+  const missing=listCrossChannelSkuFindings(old,website,{
+    code:'woo_variation_missing_sku',
+  },Date.parse(time));
+  assert.equal(missing.total,1);
+  assert.equal(missing.findings[0].variationId,303);
+  const parent=listCrossChannelSkuFindings(old,website,{
+    code:'woo_parent_sku_requires_variation_mapping',
+  },Date.parse(time));
+  assert.equal(parent.total,1);
+  assert.equal(parent.findings[0].sku,'PARENT');
+  assert.equal(parent.checkoutAuthorized,false);
+});
+
+test('review pagination rejects unknown filters and oversized requests',()=>{
+  const old=physical([]);
+  const website=woo([]);
+  for(const options of [
+    {code:'secret_status'},
+    {page:0},{page:-3},{page:10001},
+    {pageSize:0},{pageSize:51},{search:'x'.repeat(65)},
+  ]){
+    assert.throws(()=>listCrossChannelSkuFindings(old,website,options,Date.parse(time)),RangeError);
+  }
+  const a=listCrossChannelSkuFindings(old,website,{},Date.parse(time));
+  const b=listCrossChannelSkuFindings(old,woo([product(3,'NEW')]),{},Date.parse(time));
+  assert.notEqual(a.snapshotRef,b.snapshotRef);
+});
+
+test('full SKU review route enforces owner/manager access and changed-snapshot conflict',async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mansu-sku-queue-'));
+  const sourceRow=loadInStoreSnapshot().items.find(item=>item.sku && item.status==='available');
+  let sku=sourceRow.sku;
+  const calls=[];
+  const api={
+    async products(){
+      calls.push('GET products');
+      return {data:[{
+        id:771,name:'Synthetic',type:'simple',sku,
+        price:'42.00',manage_stock:true,stock_quantity:1,
+        stock_status:'instock',backorders:'no',purchasable:true,
+        images:[],categories:[],
+      }],pages:1,total:1};
+    },
+    async variations(){throw Error('No variations expected');},
+    async order(){throw Error('Woo order read is prohibited');},
+    async createOrder(){throw Error('Woo order writes are prohibited');},
+  };
+  const env={
+    NODE_ENV:'test',POS_MODE:'live',POS_LIVE_READ_ONLY:'true',
+    POS_ALLOW_LIVE_WRITES:'false',WOO_BASE_URL:'https://mansutrendzgh.com',
+    WOO_CONSUMER_KEY:'ck_fake',WOO_CONSUMER_SECRET:'cs_fake',
+    POS_PUBLIC_ORIGIN:'https://pos.mansutrendzgh.com',
+    POS_DATA_DIR:dir,POS_OWNER_USERNAME:'owner',
+    POS_OWNER_PASSWORD:'synthetic-pilot-password-123',
+  };
+  const {app,db,catalog}=createApp({env,api,logger:{
+    debug(){},info(){},warn(){},error(){},
+  }});
+  const server=app.listen(0,'127.0.0.1');
+  await new Promise(resolve=>server.once('listening',resolve));
+  t.after(async()=>{
+    await new Promise(resolve=>server.close(resolve));
+    db.close();
+    fs.rmSync(dir,{recursive:true,force:true});
+  });
+  const base='http://127.0.0.1:'+server.address().port+'/api';
+  const request=async(route,token,method='GET',body)=>{
+    const response=await fetch(base+route,{
+      method,
+      headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},
+      ...(body?{body:JSON.stringify(body)}:{}),
+    });
+    return {status:response.status,data:await response.json()};
+  };
+  assert.equal((await request('/stock-safety/source-review?page=1')).status,401);
+  const login=await request('/auth/login',null,'POST',
+    {username:'owner',password:'synthetic-pilot-password-123'});
+  assert.equal(login.status,200);
+  const token=login.data.token;
+  assert.equal((await request('/auth/password',token,'POST',{
+    currentPassword:'synthetic-pilot-password-123',
+    newPassword:'synthetic-rotated-password-123',
+  })).status,200);
+  const first=await request('/stock-safety/source-review?page=1&pageSize=25',token);
+  assert.equal(first.status,200);
+  assert.equal(first.data.kind,'read-only-cross-channel-sku-review');
+  assert.equal(first.data.checkoutAuthorized,false);
+  assert.equal(first.data.sharedStockVerified,false);
+  assert.equal(first.data.findings.length,25);
+  assert.equal(first.data.websiteFetchedAt!=null,true);
+  assert.equal(first.data.evidenceVerified,true);
+  assert.equal(first.data.snapshotRef.length,64);
+  const second=await request('/stock-safety/source-review?page=2&pageSize=25&expectedRef='+first.data.snapshotRef,token);
+  assert.equal(second.status,200);
+  assert.equal(second.data.page,2);
+  assert.equal(second.data.snapshotRef,first.data.snapshotRef);
+  assert.equal((await request('/stock-safety/source-review?code=unrecognized',token)).status,400);
+  assert.equal((await request('/stock-safety/source-review?pageSize=5000',token)).status,400);
+  assert.equal((await request('/stock-safety/source-review?extra=ignored',token)).status,400);
+  const ownerRow=db.prepare("SELECT id FROM users WHERE username='owner'").get();
+  db.prepare("UPDATE users SET role='manager' WHERE id=?").run(ownerRow.id);
+  assert.equal((await request('/stock-safety/source-review',token)).status,200);
+  db.prepare("UPDATE users SET role='cashier' WHERE id=?").run(ownerRow.id);
+  assert.equal((await request('/stock-safety/source-review',token)).status,403);
+  db.prepare("UPDATE users SET role='owner' WHERE id=?").run(ownerRow.id);
+  sku='UPDATED-NEW-SKU';
+  catalog.cache.fetchedAt='2000-01-01T00:00:00.000Z';
+  const conflict=await request('/stock-safety/source-review?page=2&expectedRef='+first.data.snapshotRef,token);
+  assert.equal(conflict.status,409);
+  assert.equal(conflict.data.code,'SKU_REVIEW_SNAPSHOT_CHANGED');
+  assert.deepEqual(calls,['GET products','GET products']);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sales').get().n,0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM instore_sales').get().n,0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sale_events').get().n,0);
 });

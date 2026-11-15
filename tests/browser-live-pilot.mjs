@@ -28,6 +28,39 @@ try {
       limitations: ['This audit cannot authorize checkout.'],
     }) });
   });
+  // Synthetic SKU mapping audit: the browser never contacts production WooCommerce.
+  const skuReviewCalls = [];
+  await page.route('**/api/stock-safety/source-match', async route => {
+    skuReviewCalls.push({kind:'summary',method:route.request().method()});
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'read-only-cross-channel-sku-audit',
+      auditOnly:true,checkoutAuthorized:false,sharedStockVerified:false,evidenceVerified:true,
+      physical:{total:1571,quarantined:41,manifestSha256:'a'.repeat(64)},
+      website:{distinctOptionSkus:27,fetchedAt:'2026-11-15T12:00:00.000Z'},
+      matchedPhysical:0,
+      issueCounts:{physical_not_in_published_woo:27},
+      examples:[{code:'physical_not_in_published_woo',sku:'TEST001',productId:null,variationId:null}],
+    })});
+  });
+  await page.route('**/api/stock-safety/source-review*', async route => {
+    const url = new URL(route.request().url());
+    const requestedPage = Number(url.searchParams.get('page') || 1);
+    skuReviewCalls.push({kind:'queue',method:route.request().method(),page:requestedPage,
+      expectedRef:url.searchParams.get('expectedRef')||''});
+    const all = Array.from({length:27},(_,i)=>({
+      code:'physical_not_in_published_woo',sku:'TEST'+String(i+1).padStart(3,'0'),
+      productId:null,variationId:null,reportRow:i+1,
+    }));
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'read-only-cross-channel-sku-review',
+      auditOnly:true,checkoutAuthorized:false,sharedStockVerified:false,evidenceVerified:true,
+      snapshotRef:'f'.repeat(64),
+      page:requestedPage,pageSize:25,pages:2,total:27,hasMore:requestedPage===1,
+      issueCounts:{physical_not_in_published_woo:27},
+      websiteFetchedAt:'2026-11-15T12:00:00.000Z',
+      findings:all.slice((requestedPage-1)*25,requestedPage*25),
+    })});
+  });
   const paymentReviewCalls = [];
   await page.route('**/api/payments/reconciliation*', async route => {
     paymentReviewCalls.push(route.request().method());
@@ -135,6 +168,20 @@ try {
   await page.getByText('Backorders are allowed and need a separate stock policy.').first().waitFor();
   await page.getByText(/Product #73 \/ Variation #74/).waitFor();
   if (auditCalls.join(',') !== 'GET') throw new Error('Stock safety screen must read only once and never write.');
+  await page.getByRole('button',{name:'Compare product codes'}).click();
+  await page.getByRole('heading',{name:'Investigate all product-code discrepancies'}).waitFor();
+  await page.getByRole('button',{name:'Review findings'}).click();
+  const skuSection=page.getByRole('region',{name:'Full SKU reconciliation review'});
+  const skuTable=skuSection.getByRole('region',{name:'Paginated SKU reconciliation findings'}).locator('table');
+  await skuTable.locator('tbody tr').first().waitFor();
+  if(await skuTable.locator('tbody tr').count()!==25)throw Error('SKU review page one must contain 25 records');
+  await skuSection.getByRole('button',{name:/Next/}).click();
+  await skuSection.getByText(/Page 2 of 2/).waitFor();
+  if(await skuTable.locator('tbody tr').count()!==2)throw Error('SKU review page two must contain two remaining records');
+  if(skuReviewCalls.some(call=>call.method!=='GET')||skuReviewCalls.length!==3 ||
+     skuReviewCalls[2].expectedRef!=='f'.repeat(64)) {
+    throw Error('SKU review must use GET-only, snapshot-bound pagination.');
+  }
   if (await page.locator('main').getByRole('button', { name: /checkout|sell|pay|approve refund/i }).count()) {
     throw new Error('Stock audit screen must not present checkout or refund approval actions.');
   }

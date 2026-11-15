@@ -53,3 +53,37 @@ denials, Woo product-GET-only access, and zero sale/stock writes.
 
 This work changes no database schema, POS ledger identity, Woo installation,
 price or cash handling, and the PR stays draft until separately accepted.
+
+## Full inventory-mapping review queue (subsequent development)
+
+After the initial **Compare product codes** request, use **Investigate all
+product-code discrepancies → Review findings**. The initial screen has only up
+to 20 representative examples; this new view exposes the complete list of SKU
+issues in pages of 25, each identified by issue type, SKU, Woo product/variation
+ID and (when supplied) historical physical report row.
+
+- **GET `/api/stock-safety/source-review`** requires an authenticated Owner or
+  Manager and `POS_MODE=live` with `POS_LIVE_READ_ONLY=true`; Cashiers and
+  unauthenticated users are denied. Accepted query: `page` (1–10,000),
+  `pageSize` (1–50), `code` (known issue type or `all`), `search` (at most 64
+  characters; SKU/Woo ID/source row only), and `expectedRef` (optional 64-digit
+  lowercase snapshot hash).
+- The first page returns `snapshotRef`; the UI passes it for subsequent pages.
+  If WooCommerce refreshes, code-mapping issues change, or the signed physical
+  input changes, the request returns HTTP 409 `SKU_REVIEW_SNAPSHOT_CHANGED`.
+  Start again at page 1; never combine rows from two observations.
+- The queue is calculated from the same SKU matching scan as the summary, so
+  issue counts and listings reconcile. No matching rows are treated as
+  validated sellable inventory and no SKU mapping is written automatically.
+- The Woo catalogue is obtained through the existing published **product GET**
+  cache (not order reads); a local catalogue cache refresh is allowed. There is
+  no live checkout, stock allocation, receipt, payment, bank transaction, Woo
+  order write or source CSV/PDF modification.
+- The result is a **review list**, not a verified physical count or
+  real-time stock synchronization. Historic physical quantities and Woo
+  display balances must never be summed or deducted here.
+
+Regression coverage includes paged source findings, filtering/search bounds,
+duplicate SKU/variation cases, full application role access and snapshot
+change conflicts, plus a synthetic browser interaction with the complete
+read-only review list.

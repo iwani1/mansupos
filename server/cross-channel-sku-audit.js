@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 // Read-only identity coverage between a signed physical stock export and a
 // WooCommerce published-product snapshot. A matching SKU is NOT evidence that
 // both channels share one real-time stock balance, and never permits checkout.
@@ -5,7 +6,7 @@ const LIMIT = 20;
 const norm = sku => typeof sku === 'string' ? sku.trim().toUpperCase() : '';
 const id = value => Number.isSafeInteger(value) && value > 0 ? value : null;
 
-export function auditCrossChannelSkus(physical, woo, clock = Date.now()) {
+export function auditCrossChannelSkus(physical, woo, clock = Date.now(), collectFindings = null) {
   const items = Array.isArray(physical?.items) ? physical.items : [];
   const products = Array.isArray(woo?.products) ? woo.products : [];
   const stamp = Date.parse(woo?.fetchedAt || '');
@@ -17,8 +18,14 @@ export function auditCrossChannelSkus(physical, woo, clock = Date.now()) {
     Number.isFinite(stamp) && stamp <= clock + 30000 && clock - stamp <= 120000;
   const cases = [];
   const issueCounts = {};
-  const flag = (code, sku = '', productId = null, variationId = null) => {
+  const flag = (code, sku = '', productId = null, variationId = null, reportRow = null) => {
     issueCounts[code] = (issueCounts[code] || 0) + 1;
+    // Only identifiers are exposed, not names/prices/customers or quantities.
+    if (collectFindings) collectFindings.push({
+      code, sku: String(sku ?? '').slice(0, 64),
+      productId, variationId,
+      reportRow: Number.isSafeInteger(reportRow) && reportRow > 0 ? reportRow : null,
+    });
     // Keep examples actionable when the source has many quarantined rows:
     // allow up to two per issue code so early bulk flags cannot hide unmapped SKUs.
     if (cases.length < LIMIT && cases.filter(entry => entry.code === code).length < 2) cases.push({
@@ -33,13 +40,13 @@ export function auditCrossChannelSkus(physical, woo, clock = Date.now()) {
   for (const item of items) {
     if (item?.status === 'review') {
       quarantined++;
-      flag('physical_quarantined', item?.sku || '');
+      flag('physical_quarantined', item?.sku || '', null, null, item?.reportRow);
       continue;
     }
     eligible++;
     const sku = norm(item?.sku);
     if (!sku) {
-      flag('physical_missing_sku');
+      flag('physical_missing_sku', '', null, null, item?.reportRow);
       continue;
     }
     if (!physicalBySku.has(sku)) physicalBySku.set(sku, []);
@@ -78,14 +85,14 @@ export function auditCrossChannelSkus(physical, woo, clock = Date.now()) {
   let matchedPhysical = 0;
   for (const [sku, rows] of physicalBySku) {
     if (rows.length !== 1) {
-      flag('physical_duplicate_sku', sku);
+      flag('physical_duplicate_sku', sku, null, null, rows[0]?.reportRow);
       continue;
     }
     const candidates = wooBySku.get(sku);
     if (!candidates?.length) {
-      flag('physical_not_in_published_woo', sku);
+      flag('physical_not_in_published_woo', sku, null, null, rows[0]?.reportRow);
     } else if (candidates.length !== 1) {
-      flag('ambiguous_woo_sku', sku, candidates[0].productId, candidates[0].variationId);
+      flag('ambiguous_woo_sku', sku, candidates[0].productId, candidates[0].variationId, rows[0]?.reportRow);
     } else {
       matchedPhysical++;
     }
@@ -121,5 +128,57 @@ export function auditCrossChannelSkus(physical, woo, clock = Date.now()) {
       'Unpublished Woo products, pending orders, Paystack callbacks and last-unit concurrency are not verified.',
       'No Woo order, stock, payment, POS checkout or stock allocation was changed.',
     ],
+  };
+}
+
+const auditCodes = new Set([
+  'physical_snapshot_unverified', 'woo_snapshot_unverified',
+  'physical_quarantined', 'physical_missing_sku', 'physical_duplicate_sku',
+  'physical_not_in_published_woo', 'woo_simple_missing_sku',
+  'woo_variation_missing_sku', 'woo_parent_sku_requires_variation_mapping',
+  'ambiguous_woo_sku', 'duplicate_woo_sku',
+  'woo_not_in_physical_snapshot', 'woo_unsupported_product_type',
+]);
+
+// Each query is regenerated from authenticated published Woo product GETs
+// and the verified signed historical physical source. The snapshot token
+// prevents silently combining pages from different catalogue observations.
+// The token is not a checkout gate or proof of inventory correctness.
+export function listCrossChannelSkuFindings(physical, woo, options = {}, clock = Date.now()) {
+  const { page = 1, pageSize = 25, code = 'all', search = '' } = options;
+  if (!Number.isSafeInteger(page) || page < 1 || page > 10000 ||
+      !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 50 ||
+      (code !== 'all' && !auditCodes.has(code)) ||
+      typeof search !== 'string' || search.length > 64) {
+    throw new RangeError('Invalid SKU review filter or page.');
+  }
+  const all = [];
+  const audit = auditCrossChannelSkus(physical, woo, clock, all);
+  const snapshotRef = createHash('sha256').update(JSON.stringify({
+    physicalHash: physical?.manifestHash || '',
+    wooFetchedAt: woo?.fetchedAt || null,
+    findings: all,
+  })).digest('hex');
+  const needle = norm(search);
+  const result = all.filter(item =>
+    (code === 'all' || item.code === code) &&
+    (!needle || norm(item.sku).includes(needle) ||
+      String(item.productId ?? '').includes(needle) ||
+      String(item.variationId ?? '').includes(needle) ||
+      String(item.reportRow ?? '').includes(needle))
+  );
+  const total = result.length;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  return {
+    kind: 'read-only-cross-channel-sku-review',
+    auditOnly: true, checkoutAuthorized: false, sharedStockVerified: false,
+    evidenceVerified: audit.evidenceVerified,
+    snapshotRef, page, pageSize, pages, total, hasMore: page < pages,
+    filter: { code, search },
+    issueCounts: audit.issueCounts,
+    websiteFetchedAt: audit.website.fetchedAt,
+    physicalManifestSha256: audit.physical.manifestSha256,
+    findings: result.slice((page - 1) * pageSize, page * pageSize),
+    notice: 'SKU identity findings only. No live quantity, Woo checkout, payment, reservation, stock allocation or automatic mapping is verified or changed.',
   };
 }
