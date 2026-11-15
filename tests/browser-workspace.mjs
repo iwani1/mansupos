@@ -127,6 +127,42 @@ try {
   if (!buyers.buyers.length) await page.getByText('No named buyers saved').waitFor();
   await page.getByText('WooCommerce customer contact details are not synced.', { exact: false }).waitFor();
 
+  // Owner-only staff activity uses the local audit endpoint with server-side
+  // filters and an older-event cursor. No audit or financial mutation occurs.
+  const auditRequests = [];
+  await page.route('**/api/audit*', async route => {
+    const request = route.request();
+    const query = new URL(request.url()).searchParams;
+    auditRequests.push({method:request.method(),query:Object.fromEntries(query.entries())});
+    const older=Boolean(query.get('cursor'));
+    const term=(query.get('search')||'').toLowerCase();
+    const category=query.get('category')||'all';
+    let fixture = older ? [{id:3,actorName:'Warehouse Staff',actor:'test-staff',action:'staff.deactivated',
+      subject:'simulated-old-account',createdAt:'2026-11-15T16:00:00.000Z'}] :
+      [{id:5,actorName:'Demo Owner',actor:'demo-owner',action:'auth.login',
+        subject:'simulated-session',createdAt:'2026-11-15T17:00:00.000Z'},
+      {id:4,actorName:'Demo Owner',actor:'demo-owner',action:'staff.created',
+        subject:'simulated-staff-account',createdAt:'2026-11-15T16:30:00.000Z'}];
+    if(category!=='all') fixture=fixture.filter(e=>e.action.startsWith(category+'.'));
+    if(term)fixture=fixture.filter(e=>`${e.actorName} ${e.action} ${e.subject}`.toLowerCase().includes(term));
+    await route.fulfill({status:200,json:{kind:'owner-local-pos-audit-history',
+      source:'local-pos-ledger',readOnly:true,websiteAuditIncluded:false,
+      events:fixture,hasMore:!older&&!term&&category==='all',nextCursor:!older&&!term&&category==='all'?4:null}});
+  });
+  await page.locator('[data-nav="audit"]').click();
+  assert.equal(await page.locator('main h1:visible').innerText(),'Audit log');
+  await page.getByText('2 events loaded', { exact:false }).waitFor();
+  await page.getByRole('button',{name:'Load older events'}).click();
+  await page.getByText('3 events loaded', { exact:false }).waitFor();
+  await page.getByRole('search').getByRole('searchbox').fill('staff.created');
+  await page.getByRole('button',{name:'Search activity'}).click();
+  await page.getByText('1 event loaded', { exact:false }).waitFor();
+  assert.equal(await page.locator('.records-audit tbody tr').count(),1);
+  assert.ok(auditRequests.some(x=>x.query.cursor==='4'));
+  assert.ok(auditRequests.some(x=>x.query.search==='staff.created'));
+  assert.ok(auditRequests.every(x=>x.method==='GET'),'Audit screen must never mutate the POS');
+  await page.unroute('**/api/audit*');
+
   await page.getByRole('button', { name: /Main menu · Collapse navigation/ }).click();
   assert.equal(await page.locator('.app-shell.is-collapsed').count(), 1);
   assert.equal(await page.locator('[data-nav="customers"]').getAttribute('title'), 'Customers');
