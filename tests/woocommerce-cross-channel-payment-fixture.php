@@ -86,11 +86,18 @@ if ( $phase === 'cross-setup' ) {
             $variation->save();
             $variations[] = $variation;
         }
-        $website_item = $variations[0];
-        $pos_item = $variations[1];
-        $check( (int) $website_item->get_stock_managed_by_id() === (int) $product->get_id() &&
-            (int) $pos_item->get_stock_managed_by_id() === (int) $product->get_id(),
-            'Different size variations failed to share original parent stock pool.' );
+        // WooCommerce stock-owner resolution for a child must be checked
+        // from freshly hydrated product objects after persisting both
+        // variation and parent records (as in the separate race workers).
+        $website_item = wc_get_product( $variations[0]->get_id() );
+        $pos_item = wc_get_product( $variations[1]->get_id() );
+        $owner_a = $website_item ? (int) $website_item->get_stock_managed_by_id() : 0;
+        $owner_b = $pos_item ? (int) $pos_item->get_stock_managed_by_id() : 0;
+        $check( $owner_a === (int) $product->get_id() &&
+            $owner_b === (int) $product->get_id(),
+            'Different size variations failed to share original parent stock pool: ' .
+            'parent=' . $product->get_id() . ' sizeA=' . $owner_a .
+            ' sizeB=' . $owner_b );
     } else {
         $product = $make_product( 'last-item' );
         $website_item = $product;
