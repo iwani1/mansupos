@@ -785,6 +785,26 @@ function mansu_online_website_payment_seen( $order_id, $mark = false ) {
     if ( $mark ) { $verified[ (int) $order_id ] = true; }
     return isset( $verified[ (int) $order_id ] );
 }
+// This is request-local evidence only; never persist it as a payment or stock
+// approval. It records which Woo orders entered a serialized Paystack WC-API
+// handler so direct WC core/manual hooks continue to use the normal guards.
+function mansu_online_paystack_request_lock_expected( $order_id, $mark = false ) {
+    static $expect = array();
+    if ( $mark ) { $expect[ (int) $order_id ] = true; }
+    return ! empty( $expect[ (int) $order_id ] );
+}
+function mansu_online_paystack_request_lock_retained( $order_id ) {
+    if ( ! mansu_online_paystack_request_lock_expected( $order_id ) ) { return true; }
+    global $wpdb;
+    // MySQL GET_LOCK belongs to a CONNECTION, not to a PHP request. A lost
+    // connection silently frees it. Reconnecting must not permit payment on
+    // a stale order snapshot while another worker owns the same stock.
+    $name = 'mansu-paystack-order-' . (int) $order_id;
+    $held = $wpdb->get_var( $wpdb->prepare(
+        'SELECT CASE WHEN IS_USED_LOCK(%s) = CONNECTION_ID() THEN 1 ELSE 0 END', $name
+    ) );
+    return (string) $held === '1';
+}
 function mansu_online_pre_website_payment( $order_id, $transaction_id = '' ) {
     $order = wc_get_order( (int) $order_id );
     if ( ! mansu_online_website_order( $order ) || $order->get_date_paid() ) { return; }
@@ -801,13 +821,16 @@ function mansu_online_pre_website_payment( $order_id, $transaction_id = '' ) {
             is_string( $transaction_id ) && $transaction_id !== '' &&
             hash_equals( $expected_ref, $transaction_id );
     }
-    if ( $reference_safe && mansu_online_website_hold_safe( $order ) ) {
+    $callback_lock_safe = $order->get_payment_method() !== 'paystack' ||
+        mansu_online_paystack_request_lock_retained( $order_id );
+    if ( $reference_safe && $callback_lock_safe && mansu_online_website_hold_safe( $order ) ) {
         mansu_online_website_payment_seen( $order_id, true );
         return;
     }
-    mansu_online_website_review( $order, $reference_safe ?
-        'payment callback without a valid original stock hold' :
-        'Paystack payment reference does not match the order original attempt' );
+    mansu_online_website_review( $order, ! $callback_lock_safe ?
+        'Paystack MySQL callback lock lost after connection reset; external payment requires reconciliation' :
+        ( $reference_safe ? 'payment callback without a valid original stock hold' :
+        'Paystack payment reference does not match the order original attempt' ) );
     // The external payment may already have settled. Keep it in a review-only
     // Woo status, not 'pending': Paystack exits on repeat callbacks for an
     // on-hold order, avoiding repeated success notifications. Our stock
@@ -822,6 +845,11 @@ function mansu_online_pre_website_payment( $order_id, $transaction_id = '' ) {
 }
 function mansu_online_can_reduce_website_stock( $can, $order ) {
     if ( ! $can || ! mansu_online_website_order( $order ) ) { return $can; }
+    if ( $order->get_payment_method() === 'paystack' &&
+         ! mansu_online_paystack_request_lock_retained( $order->get_id() ) ) {
+        mansu_online_website_review( $order, 'Paystack callback lost DB advisory lock before stock deduction' );
+        return false;
+    }
     // Woo can set its order-level 'stock reduced' flag after an earlier
     // status-hook attempt was DENIED. Paystack may then call the reducer a
     // second time (e.g. currency mismatch). The order flag is NOT evidence
@@ -962,8 +990,16 @@ function mansu_online_paystack_route_lock() {
         status_header( 403 );
         exit;
     }
+    // Assert the same connection still owns the lock after Woo identity
+    // reads, and remember that later payment/stock hooks MUST recheck it.
+    mansu_online_paystack_request_lock_expected( $order_id, true );
+    if ( ! mansu_online_paystack_request_lock_retained( $order_id ) ) {
+        status_header( 503 );
+        exit;
+    }
     // Both Paystack handlers terminate via exit. PHP shutdown still releases
-    // the lock, so a second verified callback sees final persisted order state.
+    // the lock if it remains on this connection, so a second verified callback
+    // sees the final persisted order state.
     register_shutdown_function( static function () use ( $wpdb, $lock_name ) {
         $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
     } );
