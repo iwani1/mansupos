@@ -51,7 +51,6 @@ function validApproval(value) {
   return typeof value === 'string' &&
     /^[A-Za-z0-9][A-Za-z0-9._-]{15,79}$/.test(value);
 }
-const bool = value => value === true;
 
 export function assessMerchantEvidenceProvisioning({ env = {},
   catalogueCredentials = {}, onlineBridgeCredentials = {} } = {}) {
