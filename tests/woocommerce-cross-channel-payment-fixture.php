@@ -223,6 +223,53 @@ if ( $phase === 'cross-verify' ) {
         ' assertions; one stock owner, late external payment for human review.' . PHP_EOL;
     return;
 }
+if ( $phase === 'reset-setup' ) {
+    $product = $make_product( 'db-reset-during-paystack' );
+    list( $order, $ref ) = $make_website( $product, 'db_reset_before_payment_complete' );
+    $dir = WP_CONTENT_DIR . '/mansu-ci-paystack-connection-reset';
+    $check( ! is_dir( $dir ) && wp_mkdir_p( $dir ),
+        'Could not prepare isolated MySQL disconnect/reconnect fixture.' );
+    $entry = array( 'id' => $order->get_id(), 'product' => $product->get_id(),
+        'ref' => $ref, 'mode' => 'connection-reset' );
+    $fixtures = get_option( 'mansu_ci_paystack_http_cases', array() );
+    $fixtures['connection_reset'] = $entry;
+    update_option( 'mansu_ci_paystack_http_cases', $fixtures, false );
+    update_option( 'mansu_ci_paystack_connection_reset', $entry, false );
+    echo 'DISPOSABLE_CONNECTION_RESET_SETUP ' . wp_json_encode( $entry ) . PHP_EOL;
+    return;
+}
+if ( in_array( $phase, array( 'reset-verify', 'reset-replay-verify' ), true ) ) {
+    $entry = get_option( 'mansu_ci_paystack_connection_reset', array() );
+    $check( isset( $entry['id'], $entry['product'], $entry['ref'] ),
+        'Missing synthetic callback MySQL connection-loss order.' );
+    $evidence_path = WP_CONTENT_DIR . '/mansu-ci-paystack-connection-reset/evidence.json';
+    $check( is_file( $evidence_path ), 'Callback did not exercise real local MySQL connection reset.' );
+    $proof = json_decode( file_get_contents( $evidence_path ), true );
+    $check( is_array( $proof ) && $proof['closed'] === true &&
+        $proof['reconnected'] === true &&
+        $proof['before'] > 0 && $proof['after'] > 0 &&
+        $proof['before'] !== $proof['after'] &&
+        $proof['owned_before'] === 1 && $proof['owned_after'] === 0,
+        'Synthetic callback never lost connection ownership of the real MySQL advisory lock.' );
+    $order = wc_get_order( $entry['id'] );
+    $product = wc_get_product( $entry['product'] );
+    $lines = $order->get_items( 'line_item' );
+    $line = current( $lines );
+    $check( $order->has_status( 'on-hold' ) &&
+        $order->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
+        ! $order->is_paid() && ! $order->get_date_paid() &&
+        (int) $product->get_stock_quantity() === 1 &&
+        (int) $line->get_meta( '_reduced_stock', true ) === 0,
+        'Paystack callback admitted payment or stock after losing its DB advisory lock: ' .
+        $order->get_status() . '/' . $product->get_stock_quantity() );
+    $check( $notes( $order ) === 1,
+        'Reconnected webhook created missing or duplicate gateway-success audit notes.' );
+    echo 'DISPOSABLE_PAYSTACK_CONNECTION_' .
+        ( $phase === 'reset-verify' ? 'RESET' : 'RESET_REPLAY' ) .
+        '_SAFE_OK ' . $assertions .
+        ' assertions; original website order quarantined; no physical stock deduction.' . PHP_EOL;
+    return;
+}
 if ( $phase === 'lock-setup' ) {
     $product = $make_product( 'lock-retry' );
     list( $order, $ref ) = $make_website( $product, 'locked_then_retry' );
