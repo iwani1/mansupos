@@ -83,6 +83,10 @@ test('demo-only original refund proposal is audited once, separated from differe
   assert.equal(owner.status,200);
   const ot = owner.body.token;
   const saleId = seed(h.db);
+  const policy = refundResolutionDossier(h.db, saleId, true);
+  assert.equal(policy.recordProposalAllowed, true);
+  assert.equal(policy.cashPayoutAuthorized, false);
+  assert.equal(policy.wooStockRestorationAuthorized, false);
   const route = '/payments/reconciliation/' + saleId + '/resolution';
   const initial = await h.call(route,'GET',undefined,mt);
   assert.equal(initial.status,200);
