@@ -17,6 +17,7 @@ import StockSafety from './StockSafety.jsx';
 import DailyOperations from './DailyOperations.jsx';
 import WeeklyScorecard from './WeeklyScorecard.jsx';
 import PhysicalCountWorkspace from './PhysicalCountWorkspace.jsx';
+import CountSupervisionEvidence from './CountSupervisionEvidence.jsx';
 import { Spinner, Toast, Notice, Modal } from './components.jsx';
 
 const navigation = [
@@ -178,6 +179,7 @@ export default function App() {
         {catalogError&&page!=='instore'&&<Notice tone="error">{catalogError}<button className="text-button" onClick={()=>refresh(true)}>Try again</button></Notice>}
         {page==='operations'&&<DailyOperations user={user}/>}
         {page==='physicalCounts'&&config.mode==='live'&&<PhysicalCountWorkspace user={user}/>}
+        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<CountSupervisionEvidence/>}
         {page==='weeklyScorecard'&&user.role!=='cashier'&&<WeeklyScorecard user={user}/>}
         {page==='instore'&&config.mode==='live'&&<InStore config={config} user={user} shift={shift} onOpenShift={()=>navigate('shifts')} notify={notify}/>}
         {page!=='physicalCounts'&&page!=='instore'&&page!=='operations'&&page!=='weeklyScorecard'&&(!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>

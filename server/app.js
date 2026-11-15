@@ -24,6 +24,7 @@ import { auditCrossChannelSkus, listCrossChannelSkuFindings } from './cross-chan
 import { listPhysicalMappingCoverage } from './physical-mapping-coverage.js';
 import { planPhysicalRecounts } from './physical-recount-plan.js';
 import { PhysicalCountClaims } from './physical-count-claims.js';
+import { CountSupervisionEvidence } from './count-supervision-evidence.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
@@ -103,6 +104,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const operations = new DailyOperations(db);
   const weekly = new WeeklyOperations(db);
   const countClaims = new PhysicalCountClaims(db);
+  const countSupervision = new CountSupervisionEvidence(db,countClaims);
   const mappingEvidence = new OwnerMappingEvidence(db);
   let inStore;
   try { inStore = new InStoreService(db, config); }
@@ -472,6 +474,36 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
           'ACCEPTANCE_PREPARATION_CHANGED');
       res.set('Cache-Control','no-store');
       res.json(result);
+    });
+
+  // Phase 5.0: Owner-only LOCAL supervision notes, NOT witnessed stock proof.
+  app.get('/api/stock-safety/count-supervision',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        page:z.coerce.number().int().min(1).max(10000).default(1),
+        pageSize:z.coerce.number().int().min(1).max(50).default(25),
+        search:z.string().trim().max(64).default(''),
+        status:z.enum([
+          'all','identity_hold','waiting_for_two_counts',
+          'count_discrepancy_open','supervision_note_stale',
+          'supervision_note_unverified','supervision_note_needed',
+        ]).default('all'),
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const report=countSupervision.list(inStore.snapshot(),await catalog.get(),options);
+      if(options.expectedRef&&options.expectedRef!==report.snapshotRef)
+        throw new AppError('Count identities changed; restart supervised evidence review.',409,
+          'COUNT_SUPERVISION_SNAPSHOT_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(report);
+    });
+
+  app.post('/api/stock-safety/count-supervision',
+    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
+      const report=countSupervision.submit(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body);
+      res.set('Cache-Control','no-store');
+      res.status(201).json(report);
     });
 
   // Separately gated live trading service only. The read-only pilot, demo and

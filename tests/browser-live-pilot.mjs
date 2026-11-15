@@ -305,6 +305,53 @@ try {
       ],
     })});
   });
+  // Phase 5.0: owner supervision claims, never verified independent witnesses.
+  const supervisionCalls=[];
+  let recordedSupervision=null;
+  await page.route('**/api/stock-safety/count-supervision*',async route=>{
+    const request=route.request();
+    if(request.method()==='POST'){
+      const body=request.postDataJSON();
+      supervisionCalls.push({method:'POST',body});
+      recordedSupervision={
+        id:707,action:body.action,note:body.note,
+        documentCode:body.documentCode,actor:'synthetic-owner',
+        recordedAt:'2026-11-15T12:00:00.000Z',requiresRecheck:false,
+      };
+      await route.fulfill({status:201,contentType:'application/json',body:JSON.stringify({
+        kind:'unverified-count-supervision-note',recorded:true,
+        replayed:false,noteId:707,auditOnly:true,
+        independentWitnessVerified:false,ownerApproved:false,
+        stockImportAuthorized:false,checkoutAuthorized:false,
+      })});
+      return;
+    }
+    const u=new URL(request.url());
+    supervisionCalls.push({method:'GET',page:u.searchParams.get('page')||'1'});
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'local-count-supervision-evidence',
+      auditOnly:true,evidenceVerified:true,sourceHash:'a'.repeat(64),
+      snapshotRef:(recordedSupervision?'8':'9').repeat(64),
+      physicallyWitnessed:false,independentWitnessVerified:false,
+      ownerApproved:false,mappingApproved:false,sharedStockVerified:false,
+      stockImportAuthorized:false,checkoutAuthorized:false,
+      page:1,pageSize:25,pages:1,total:2,hasMore:false,
+      totals:{awaitingTwoCounts:1,openDiscrepancies:1,
+        unverifiedNotes:recordedSupervision?1:0,physicalWitnessesVerified:0},
+      items:[
+        {reportRow:1,sku:'CLAIM001',countStage:'discrepant_claims',
+          firstClaimId:100,secondClaimId:101,
+          firstCounterAccountId:'rep-1',secondCounterAccountId:'packer-2',
+          status:'count_discrepancy_open',latestNote:recordedSupervision,
+          physicallyWitnessed:false,acceptedInventory:false},
+        {reportRow:2,sku:'CLAIM002',countStage:'second_needed',
+          firstClaimId:102,secondClaimId:null,
+          firstCounterAccountId:'rep-1',secondCounterAccountId:null,
+          status:'waiting_for_two_counts',latestNote:null,
+          physicallyWitnessed:false,acceptedInventory:false},
+      ],
+    })});
+  });
   const paymentReviewCalls = [];
   await page.route('**/api/payments/reconciliation*', async route => {
     paymentReviewCalls.push(route.request().method());
@@ -589,6 +636,34 @@ try {
   if(countReviewCalls.some(method=>method!=='GET')){
     throw Error('Owner investigation history remains GET-only.');
   }
+  const supervision=page.getByRole('region',{name:'Supervisor count evidence register'});
+  await supervision.getByRole('button',{name:'Open supervisor evidence'}).click();
+  const supervisionTable=supervision.getByRole('region',{name:'Supervisor physical count evidence rows'}).locator('table');
+  await supervisionTable.locator('tbody tr').first().waitFor();
+  if(await supervisionTable.locator('tbody tr').count()!==2)
+    throw Error('Supervisor evidence must show discrepancies and missing second counts.');
+  const record=supervision.getByRole('button',{name:'Record supervisor note'}).first();
+  await record.click();
+  await supervision.getByRole('combobox',{name:'Choose supervisor evidence action'})
+    .selectOption('flag_discrepancy');
+  await supervision.getByRole('textbox',{name:'Private evidence reference code'})
+    .fill('SYNTHETIC_COUNT_001');
+  await supervision.getByRole('textbox',{name:'Supervisor count observation note'})
+    .fill('Recount is required; staff declarations do not agree.');
+  await supervision.getByRole('button',{name:'Save unverified supervisor note'}).click();
+  await supervision.getByText(/Supervisor note recorded locally/).waitFor();
+  await supervision.getByText('SYNTHETIC_COUNT_001').waitFor();
+  const submit=supervisionCalls.filter(x=>x.method==='POST');
+  if(submit.length!==1||submit[0].body.action!=='flag_discrepancy'||
+    submit[0].body.expectedRef!=='9'.repeat(64)||
+    submit[0].body.firstClaimId!==100||submit[0].body.secondClaimId!==101||
+    submit[0].body.expectedLatestNoteId!==null)
+    throw Error('Supervisor observation must link both exact staff claim IDs.');
+  if(supervisionCalls.some(x=>!['GET','POST'].includes(x.method)))
+    throw Error('Supervision screen made an unexpected request method.');
+  if(await supervision.getByRole('button',{name:/approve|certify|import stock|checkout/i}).count())
+    throw Error('Supervisor evidence must not expose stock approval controls.');
+
   await page.locator('[data-nav="paymentReconciliation"]').click();
   await page.getByRole('heading', { name: 'Payment reconciliation' }).waitFor();
   await page.getByText(/This screen does not read the WooCommerce website order ledger/).waitFor();

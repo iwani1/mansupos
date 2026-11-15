@@ -105,6 +105,55 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
     ...body,stage:'second',units:9,requestId:randomUUID(),
   });
   assert.equal(second.status,201);
+  const supervisorUrl='/stock-safety/count-supervision';
+  assert.equal((await req(supervisorUrl)).status,401);
+  assert.equal((await req(supervisorUrl,one.data.token)).status,403);
+  assert.equal((await req(supervisorUrl,two.data.token)).status,403);
+  const supervisor=await req(supervisorUrl+'?search='+encodeURIComponent(sku),ownerToken);
+  assert.equal(supervisor.status,200);
+  assert.equal(supervisor.data.kind,'local-count-supervision-evidence');
+  assert.equal(supervisor.data.items.length,1);
+  assert.equal(supervisor.data.items[0].status,'count_discrepancy_open');
+  assert.equal(supervisor.data.items[0].firstCounterAccountId!=null,true);
+  assert.equal(supervisor.data.items[0].secondCounterAccountId!=null,true);
+  assert.equal(supervisor.data.physicallyWitnessed,false);
+  assert.equal(supervisor.data.independentWitnessVerified,false);
+  assert.equal(supervisor.data.stockImportAuthorized,false);
+  assert.equal(supervisor.data.checkoutAuthorized,false);
+  const evidenceBody={
+    reportRow:row,expectedRef:supervisor.data.snapshotRef,
+    firstClaimId:supervisor.data.items[0].firstClaimId,
+    secondClaimId:supervisor.data.items[0].secondClaimId,
+    expectedLatestNoteId:null,
+    action:'flag_discrepancy',documentCode:'COUNT_NOV_001',
+    note:'Discrepant counts require a supervised recount.',
+    requestId:randomUUID(),
+  };
+  assert.equal((await req(supervisorUrl,one.data.token,'POST',evidenceBody)).status,403);
+  assert.equal((await req(supervisorUrl,two.data.token,'POST',evidenceBody)).status,403);
+  assert.equal((await req(supervisorUrl,null,'POST',evidenceBody)).status,401);
+  const recorded=await req(supervisorUrl,ownerToken,'POST',evidenceBody);
+  assert.equal(recorded.status,201);
+  assert.equal(recorded.data.kind,'unverified-count-supervision-note');
+  assert.equal(recorded.data.recorded,true);
+  assert.equal(recorded.data.independentWitnessVerified,false);
+  assert.equal(recorded.data.stockImportAuthorized,false);
+  assert.equal((await req(supervisorUrl,ownerToken,'POST',evidenceBody)).data.replayed,true);
+  const supervisorNext=await req(supervisorUrl+'?search='+encodeURIComponent(sku),ownerToken);
+  assert.equal(supervisorNext.status,200);
+  assert.equal(supervisorNext.data.items[0].status,'count_discrepancy_open');
+  assert.equal(supervisorNext.data.items[0].latestNote.documentCode,'COUNT_NOV_001');
+  assert.notEqual(supervisorNext.data.snapshotRef,supervisor.data.snapshotRef);
+  assert.equal((await req(supervisorUrl+'?expectedRef='+supervisor.data.snapshotRef,ownerToken)).status,409);
+  assert.equal((await req(supervisorUrl,ownerToken,'POST',{
+    ...evidenceBody,requestId:randomUUID(),action:'approve_inventory',
+  })).status,400);
+  assert.equal((await req(supervisorUrl,ownerToken,'POST',{
+    ...evidenceBody,requestId:randomUUID(),
+  })).status,409);
+  assert.equal((await req(supervisorUrl+'?status=approved',ownerToken)).status,400);
+  assert.equal((await req(supervisorUrl+'?unknown=1',ownerToken)).status,400);
+  assert.equal((await req(supervisorUrl,ownerToken,'POST',{approve:true})).status,400);
   const review=await req('/stock-safety/count-claims-review?search='+encodeURIComponent(sku),ownerToken);
   assert.equal(review.status,200);
   assert.equal(review.data.items[0].firstUnits,7);
@@ -152,5 +201,6 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sale_events').get().n,0);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_claim'").get().n,2);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_owner_triage'").get().n,1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_supervision_note'").get().n,1);
   assert.ok(log.length>=1&&log.every(entry=>entry==='Woo GET products'));
 });
