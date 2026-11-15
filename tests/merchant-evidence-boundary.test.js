@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -28,12 +28,16 @@ const approved = () => ({
   POS_OWNER_APPROVAL_REFERENCE: 'legacy-POS-owner-approval',
   POS_ONLINE_BRIDGE_LIVE_ACCEPTANCE_REFERENCE: 'another-bridge-acceptance',
 });
+const digest = value => createHash('sha256').update(value).digest('hex');
+const existingCatalogueKey = 'ck_11111111111111111111111111111111';
+const existingCatalogueSecret = 'cs_22222222222222222222222222222222';
+const existingBridgePassword = 'a-separate-synthetic-wordpress-password';
 const credentialOptions = () => ({
-  catalogueCredentials: {
-    consumerKey: 'ck_11111111111111111111111111111111',
-    consumerSecret: 'cs_22222222222222222222222222222222',
+  catalogueFingerprints: {
+    consumerKeySha256: digest(existingCatalogueKey),
+    consumerSecretSha256: digest(existingCatalogueSecret),
   },
-  onlineBridgeCredentials: { appPassword: 'a-separate-synthetic-wordpress-password' },
+  onlineBridgeFingerprint: digest(existingBridgePassword),
 });
 const resultFor = env => assessMerchantEvidenceProvisioning({ env, ...credentialOptions() });
 
@@ -72,7 +76,7 @@ test('catalogue, reservation bridge, recycled owner approval and audit-key reuse
   const sameBridge = assessMerchantEvidenceProvisioning({
     env: { ...config, MANSU_EVIDENCE_WOO_SECRET: 'cs_' + 'bridge_shared_password_123456789' },
     ...credentialOptions(),
-    onlineBridgeCredentials: { appPassword: 'cs_' + 'bridge_shared_password_123456789' },
+    onlineBridgeFingerprint: digest('cs_' + 'bridge_shared_password_123456789'),
   });
   assert.ok(sameBridge.blockers.includes('wooCredentialsNotReusedFromReservationBridge'));
   const approvalReused = resultFor({ ...config, MANSU_EVIDENCE_APPROVAL_REFERENCE:
@@ -196,9 +200,12 @@ test('manually invoked offline preflight does not print environment secrets or e
   const run=spawnSync(process.execPath,[script],{
     encoding:'utf8',timeout:5000,
     env:{ ...process.env,...approved(),
-      WOO_CONSUMER_KEY:catalogue.catalogueCredentials.consumerKey,
-      WOO_CONSUMER_SECRET:catalogue.catalogueCredentials.consumerSecret,
-      POS_ONLINE_BRIDGE_APP_PASSWORD:catalogue.onlineBridgeCredentials.appPassword,
+      MANSU_EVIDENCE_CATALOGUE_KEY_SHA256:catalogue.catalogueFingerprints.consumerKeySha256,
+      MANSU_EVIDENCE_CATALOGUE_SECRET_SHA256:catalogue.catalogueFingerprints.consumerSecretSha256,
+      MANSU_EVIDENCE_BRIDGE_PASSWORD_SHA256:catalogue.onlineBridgeFingerprint,
+      // Existing raw secrets should not be present in the dedicated runtime.
+      WOO_CONSUMER_KEY:'', WOO_CONSUMER_SECRET:'',
+      POS_ONLINE_BRIDGE_APP_PASSWORD:'',
     },
   });
   assert.equal(run.status,0,run.stderr);
@@ -211,8 +218,9 @@ test('manually invoked offline preflight does not print environment secrets or e
   assert.equal(report.checkoutAuthorized,false);
   assert.equal(report.clientCreated,false);
   for(const sensitive of [wooKey,wooSecret,paystackSecret,auditSecret,
-    catalogue.catalogueCredentials.consumerSecret,
-    catalogue.onlineBridgeCredentials.appPassword]) {
+    existingCatalogueSecret,
+    existingBridgePassword,
+    catalogue.catalogueFingerprints.consumerSecretSha256]) {
     assert.equal(run.stdout.includes(sensitive),false,'Offline CLI leaked secret');
   }
 });
