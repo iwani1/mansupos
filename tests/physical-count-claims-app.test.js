@@ -157,6 +157,61 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal((await req(supervisorUrl+'?status=approved',ownerToken)).status,400);
   assert.equal((await req(supervisorUrl+'?unknown=1',ownerToken)).status,400);
   assert.equal((await req(supervisorUrl,ownerToken,'POST',{approve:true})).status,400);
+  // Metadata-only file manifest: strict Owner role, no document bytes or
+  // Woo stock writes. A discrepancy MUST remain open after recording a hash.
+  const manifestUrl='/stock-safety/count-file-manifests';
+  assert.equal((await req(manifestUrl)).status,401);
+  assert.equal((await req(manifestUrl,one.data.token)).status,403);
+  assert.equal((await req(manifestUrl,two.data.token)).status,403);
+  const manifestBefore=await req(manifestUrl+'?search='+encodeURIComponent(sku),ownerToken);
+  assert.equal(manifestBefore.status,200);
+  assert.equal(manifestBefore.data.kind,'owner-private-count-file-manifest-review');
+  const evidenceRow=manifestBefore.data.items.find(x=>x.reportRow===row);
+  assert.ok(evidenceRow);
+  assert.equal(evidenceRow.status,'count_discrepancy_open');
+  assert.equal(evidenceRow.mayRecord,true);
+  assert.equal(manifestBefore.data.documentContentUploaded,false);
+  assert.equal(manifestBefore.data.independentWitnessVerified,false);
+  const manifestInput={
+    reportRow:row,expectedRef:manifestBefore.data.snapshotRef,
+    expectedLatestManifestId:null,
+    firstClaimId:evidenceRow.firstClaimId,
+    secondClaimId:evidenceRow.secondClaimId,
+    documentCode:'PRIVATE_COUNT_2026_01',
+    documentType:'count_sheet',
+    mime:'application/pdf',fileBytes:31,
+    fileSha256:'b'.repeat(64),requestId:randomUUID(),
+  };
+  assert.equal((await req(manifestUrl,one.data.token,'POST',manifestInput)).status,403);
+  assert.equal((await req(manifestUrl,two.data.token,'POST',manifestInput)).status,403);
+  assert.equal((await req(manifestUrl,null,'POST',manifestInput)).status,401);
+  assert.equal((await req(manifestUrl,ownerToken,'POST',{
+    ...manifestInput,rawFile:'%PDF fake bytes',
+  })).status,400);
+  const manifestSaved=await req(manifestUrl,ownerToken,'POST',manifestInput);
+  assert.equal(manifestSaved.status,201);
+  assert.equal(manifestSaved.data.recorded,true);
+  assert.equal(manifestSaved.data.documentContentUploaded,false);
+  assert.equal(manifestSaved.data.stockImportAuthorized,false);
+  assert.equal(manifestSaved.data.checkoutAuthorized,false);
+  assert.equal((await req(manifestUrl,ownerToken,'POST',manifestInput)).data.replayed,true);
+  const manifestAfter=await req(manifestUrl+'?search='+encodeURIComponent(sku),ownerToken);
+  assert.equal(manifestAfter.status,200);
+  const manifestCase=manifestAfter.data.items.find(x=>x.reportRow===row);
+  assert.ok(manifestCase);
+  assert.equal(manifestCase.status,'count_discrepancy_open');
+  assert.equal(manifestCase.latestManifest.fileSha256,'b'.repeat(64));
+  assert.equal(manifestCase.latestManifest.signatureVerified,false);
+  assert.notEqual(manifestAfter.data.snapshotRef,manifestBefore.data.snapshotRef);
+  assert.equal((await req(manifestUrl+'?expectedRef='+manifestBefore.data.snapshotRef,ownerToken)).status,409);
+  assert.equal((await req(manifestUrl,ownerToken,'POST',{
+    ...manifestInput,requestId:randomUUID(),
+  })).status,409);
+  assert.equal((await req(manifestUrl,ownerToken,'POST',{
+    ...manifestInput,requestId:randomUUID(),approved:true,
+  })).status,400);
+  assert.equal((await req(manifestUrl+'?status=approved',ownerToken)).status,400);
+  assert.equal((await req(manifestUrl+'?unexpected=1',ownerToken)).status,400);
   const review=await req('/stock-safety/count-claims-review?search='+encodeURIComponent(sku),ownerToken);
   assert.equal(review.status,200);
   assert.equal(review.data.items[0].firstUnits,7);
@@ -205,5 +260,6 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_claim'").get().n,2);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_owner_triage'").get().n,1);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_supervision_note'").get().n,1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.private_count_file_manifest'").get().n,1);
   assert.ok(log.length>=1&&log.every(entry=>entry==='Woo GET products'));
 });

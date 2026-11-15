@@ -103,7 +103,7 @@ function viewRow(row,event){
 export class CountSupervisionEvidence {
   constructor(db,countClaims){this.db=db;this.countClaims=countClaims;}
 
-  list(physical,website,options={},clock=Date.now()){
+  list(physical,website,options={},clock=Date.now(),collectRows=null){
     const {page=1,pageSize=25,search='',status='all'}=options;
     const allowed=new Set([
       'all','identity_hold','waiting_for_two_counts',
@@ -120,6 +120,7 @@ export class CountSupervisionEvidence {
     const latest=currentNotes(notes,report.snapshotRef,physical?.manifestHash);
     const revision=evidenceRef(report,rows,notes,physical?.manifestHash);
     const all=rows.map(row=>viewRow(row,latest.get(row.reportRow)));
+    if(Array.isArray(collectRows))collectRows.push(...all);
     const totals={
       awaitingTwoCounts:all.filter(x=>x.status==='waiting_for_two_counts').length,
       openDiscrepancies:all.filter(x=>x.status==='count_discrepancy_open').length,

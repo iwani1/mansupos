@@ -25,6 +25,7 @@ import { listPhysicalMappingCoverage } from './physical-mapping-coverage.js';
 import { planPhysicalRecounts } from './physical-recount-plan.js';
 import { PhysicalCountClaims } from './physical-count-claims.js';
 import { CountSupervisionEvidence } from './count-supervision-evidence.js';
+import { PrivateCountFileManifests } from './private-count-file-manifests.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
@@ -105,6 +106,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const weekly = new WeeklyOperations(db);
   const countClaims = new PhysicalCountClaims(db);
   const countSupervision = new CountSupervisionEvidence(db,countClaims);
+  const countFiles = new PrivateCountFileManifests(db,countSupervision);
   const mappingEvidence = new OwnerMappingEvidence(db);
   let inStore;
   try { inStore = new InStoreService(db, config); }
@@ -504,6 +506,36 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
         await catalog.get(true),req.body);
       res.set('Cache-Control','no-store');
       res.status(201).json(report);
+    });
+
+  // Phase 5.1: Owner-only SHA-256 file MANIFESTS. No file bytes are received.
+  app.get('/api/stock-safety/count-file-manifests',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        page:z.coerce.number().int().min(1).max(10000).default(1),
+        pageSize:z.coerce.number().int().min(1).max(50).default(25),
+        status:z.enum([
+          'all','missing_manifest','manifest_unverified',
+          'count_discrepancy_open','identity_hold','waiting_for_counts',
+        ]).default('all'),
+        search:z.string().trim().max(64).default(''),
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const result=countFiles.list(inStore.snapshot(),await catalog.get(),options);
+      if(options.expectedRef&&options.expectedRef!==result.snapshotRef)
+        throw new AppError('Count file register changed. Restart from page one.',409,
+          'COUNT_DOCUMENT_SNAPSHOT_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(result);
+    });
+
+  app.post('/api/stock-safety/count-file-manifests',
+    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
+      // JSON metadata ONLY; no multipart parser, no file upload endpoint.
+      const result=countFiles.submit(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body);
+      res.set('Cache-Control','no-store');
+      res.status(201).json(result);
     });
 
   // Separately gated live trading service only. The read-only pilot, demo and

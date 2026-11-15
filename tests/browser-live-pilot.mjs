@@ -352,6 +352,55 @@ try {
       ],
     })});
   });
+  // Phase 5.1: local-only file SHA256 metadata, never document bytes.
+  const manifestCalls=[];
+  let mockManifest=null;
+  await page.route('**/api/stock-safety/count-file-manifests*',async route=>{
+    const req=route.request();
+    if(req.method()==='POST'){
+      const body=req.postDataJSON();
+      manifestCalls.push({method:'POST',body});
+      mockManifest={
+        id:809,documentCode:body.documentCode,documentType:body.documentType,
+        mime:body.mime,fileBytes:body.fileBytes,fileSha256:body.fileSha256,
+        submittedByAccount:'synthetic-owner',
+        recordedAt:'2026-11-15T12:00:00.000Z',
+        requiresRecheck:false,documentContentUploaded:false,
+        signatureVerified:false,independentWitnessVerified:false,
+        sameBytesReferencedElsewhere:false,
+      };
+      await route.fulfill({status:201,contentType:'application/json',body:JSON.stringify({
+        kind:'unverified-local-count-file-manifest',recorded:true,replayed:false,
+        manifestId:809,auditOnly:true,documentContentUploaded:false,
+        independentWitnessVerified:false,ownerApproved:false,
+        stockImportAuthorized:false,checkoutAuthorized:false,
+      })});
+      return;
+    }
+    const url=new URL(req.url());
+    manifestCalls.push({method:'GET',expectedRef:url.searchParams.get('expectedRef')||''});
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'owner-private-count-file-manifest-review',auditOnly:true,
+      snapshotRef:(mockManifest?'e':'d').repeat(64),
+      supervisionRef:'8'.repeat(64),evidenceVerified:true,
+      sourceHash:'a'.repeat(64),
+      totalRecordedUnverified:mockManifest?1:0,
+      documentContentUploaded:false,fileSignatureVerified:false,
+      independentWitnessVerified:false,ownerApproved:false,mappingApproved:false,
+      sharedStockVerified:false,stockImportAuthorized:false,checkoutAuthorized:false,
+      page:1,pageSize:25,pages:1,total:2,hasMore:false,
+      items:[
+        {reportRow:1,sku:'CLAIM001',countStage:'discrepant_claims',
+          firstClaimId:100,secondClaimId:101,status:'count_discrepancy_open',
+          latestManifest:mockManifest,mayRecord:true,
+          approved:false,stockImportAuthorized:false},
+        {reportRow:2,sku:'CLAIM002',countStage:'second_needed',
+          firstClaimId:102,secondClaimId:null,status:'waiting_for_counts',
+          latestManifest:null,mayRecord:false,
+          approved:false,stockImportAuthorized:false},
+      ],
+    })});
+  });
   const paymentReviewCalls = [];
   await page.route('**/api/payments/reconciliation*', async route => {
     paymentReviewCalls.push(route.request().method());
@@ -664,6 +713,41 @@ try {
   if(await supervision.getByRole('button',{name:/approve|certify|import stock|checkout/i}).count())
     throw Error('Supervisor evidence must not expose stock approval controls.');
 
+  const fileRegister=page.getByRole('region',{name:'Private count document integrity register'});
+  await fileRegister.getByRole('button',{name:'Open private file register'}).click();
+  const manifestTable=fileRegister.getByRole('region',{name:'Count file fingerprint records'}).locator('table');
+  await manifestTable.locator('tbody tr').first().waitFor();
+  if(await manifestTable.locator('tbody tr').count()!==2)
+    throw Error('Private file register must show discrepant and missing-count source rows.');
+  await fileRegister.getByRole('button',{name:'Record fingerprint'}).first().click();
+  const pdfBuffer=Buffer.from('%PDF-1.4\\nSynthetic private evidence for test');
+  await fileRegister.getByRole('textbox',{name:'Count evidence private code'})
+    .fill('PRIVATE_COUNT_0001');
+  await fileRegister.getByLabel('Choose private evidence file')
+    .setInputFiles({name:'synthetic-count.pdf',mimeType:'application/pdf',buffer:pdfBuffer});
+  await fileRegister.getByText(/Local SHA-256:/).waitFor();
+  await fileRegister.getByRole('button',{name:'Save file fingerprint only'}).click();
+  await fileRegister.getByText(/File fingerprint recorded locally/).waitFor();
+  await fileRegister.getByText('PRIVATE_COUNT_0001').waitFor();
+  const savedManifest=manifestCalls.filter(x=>x.method==='POST');
+  if(savedManifest.length!==1||
+     savedManifest[0].body.expectedRef!=='d'.repeat(64)||
+     savedManifest[0].body.firstClaimId!==100||
+     savedManifest[0].body.secondClaimId!==101||
+     savedManifest[0].body.documentType!=='count_sheet'||
+     !/^[0-9a-f]{64}$/.test(savedManifest[0].body.fileSha256)||
+     savedManifest[0].body.fileBytes!==pdfBuffer.length||
+     savedManifest[0].body.rawFile||savedManifest[0].body.fileName||
+     JSON.stringify(savedManifest[0].body).includes('Synthetic private evidence')){
+    throw Error('File contents or unverified approval fields were sent to the backend.');
+  }
+  await fileRegister.getByRole('button',{name:'Compare local file'}).click();
+  await fileRegister.getByLabel('Choose private evidence file')
+    .setInputFiles({name:'some-other-name.pdf',mimeType:'application/pdf',buffer:pdfBuffer});
+  await fileRegister.getByText(/BYTES MATCH/).waitFor();
+  await fileRegister.getByRole('button',{name:'Close'}).click();
+  if(await fileRegister.getByRole('button',{name:/approve stock|import stock|start checkout/i}).count())
+    throw Error('Private file hashing must not expose inventory approval.');
   await page.locator('[data-nav="paymentReconciliation"]').click();
   await page.getByRole('heading', { name: 'Payment reconciliation' }).waitFor();
   await page.getByText(/This screen does not read the WooCommerce website order ledger/).waitFor();
