@@ -29,6 +29,18 @@ function equalSecret(a, b) {
   if (!a || !b) return false;
   return timingSafeEqual(hash(a), hash(b));
 }
+function matchesProvidedFingerprint(value, fingerprint) {
+  // The existing catalogue and bridge secrets must NEVER enter the new
+  // financial-read runtime. Compare only independently supplied SHA-256
+  // digests of these high-entropy credentials. A digest's provenance still
+  // requires an external trust/approval check.
+  if (typeof value !== 'string' || !value ||
+      typeof fingerprint !== 'string' || !/^[a-f0-9]{64}$/i.test(fingerprint)) return false;
+  return timingSafeEqual(hash(value), Buffer.from(fingerprint, 'hex'));
+}
+function fingerprintValid(value) {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
+}
 function validOrigin(value) {
   if (!origins.has(value)) return false;
   try {
@@ -53,7 +65,7 @@ function validApproval(value) {
 }
 
 export function assessMerchantEvidenceProvisioning({ env = {},
-  catalogueCredentials = {}, onlineBridgeCredentials = {} } = {}) {
+  catalogueFingerprints = {}, onlineBridgeFingerprint = '' } = {}) {
   const wooKey = env.MANSU_EVIDENCE_WOO_KEY || '';
   const wooSecret = env.MANSU_EVIDENCE_WOO_SECRET || '';
   const paystackSecret = env.MANSU_EVIDENCE_PAYSTACK_SECRET || '';
@@ -68,13 +80,14 @@ export function assessMerchantEvidenceProvisioning({ env = {},
       typeof wooKey === 'string' && /^ck_[A-Za-z0-9]{16,}$/.test(wooKey) &&
       typeof wooSecret === 'string' && /^cs_[A-Za-z0-9]{16,}$/.test(wooSecret),
     wooCredentialsNotReusedFromCatalogue:
-      Boolean(wooKey && wooSecret && catalogueCredentials.consumerKey &&
-        catalogueCredentials.consumerSecret) &&
-      !equalSecret(wooKey, catalogueCredentials.consumerKey) &&
-      !equalSecret(wooSecret, catalogueCredentials.consumerSecret),
+      Boolean(wooKey && wooSecret &&
+        fingerprintValid(catalogueFingerprints.consumerKeySha256) &&
+        fingerprintValid(catalogueFingerprints.consumerSecretSha256)) &&
+      !matchesProvidedFingerprint(wooKey, catalogueFingerprints.consumerKeySha256) &&
+      !matchesProvidedFingerprint(wooSecret, catalogueFingerprints.consumerSecretSha256),
     wooCredentialsNotReusedFromReservationBridge:
-      Boolean(wooSecret && onlineBridgeCredentials.appPassword) &&
-      !equalSecret(wooSecret, onlineBridgeCredentials.appPassword),
+      Boolean(wooSecret && fingerprintValid(onlineBridgeFingerprint)) &&
+      !matchesProvidedFingerprint(wooSecret, onlineBridgeFingerprint),
     paystackReadSecretPresent:
       typeof paystackSecret === 'string' &&
       /^sk_(?:live|test)_[A-Za-z0-9]{20,}$/.test(paystackSecret),
