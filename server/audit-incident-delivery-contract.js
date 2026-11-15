@@ -41,7 +41,7 @@ function checkClaim(c){
     !['delivered','failed','pending'].includes(c.deliveryStatus) ||
     !validTime(c.issuedAt) || !validSig(c.signature))throw denied();
 }
-function signRecord(record,keys,privateKey,domain){
+function signRecord(record,privateKey,domain){
   if (!priv(privateKey))throw denied();
   return Object.freeze({...record,signature:sign(null,
     Buffer.from(domain+JSON.stringify(record)),privateKey).toString('base64url')});
@@ -57,7 +57,7 @@ export function signSyntheticIncidentTicket({env,incidentId,code,issuedAt,privat
   const fields={kind:'mansu-synthetic-incident-ticket',version:1,
     incidentId,code,status:'recorded',issuedAt};
   checkTicket({...fields,signature:'A'.repeat(86)});
-  return signRecord(fields,TICKET,privateKey,DOMAIN_TICKET);
+  return signRecord(fields,privateKey,DOMAIN_TICKET);
 }
 export function signSyntheticAlertDeliveryClaim({
   env,ticket,recipientRole,deliveryStatus,issuedAt,privateKey,
@@ -68,7 +68,7 @@ export function signSyntheticAlertDeliveryClaim({
     incidentId:ticket.incidentId,ticketDigest:hash(JSON.stringify(ticket)),
     recipientRole,deliveryStatus,issuedAt};
   checkClaim({...fields,signature:'A'.repeat(86)});
-  return signRecord(fields,CLAIM,privateKey,DOMAIN_CLAIM);
+  return signRecord(fields,privateKey,DOMAIN_CLAIM);
 }
 export function assessSyntheticIncidentAlertDelivery({
   env,ticket,claim,pinnedTicketPublicKey,pinnedNotifierPublicKey,now,
