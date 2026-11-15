@@ -144,9 +144,11 @@ test('symlinked storage, invalid external witness, and leaked customer payload n
   assert.throws(()=>j.append(payload()),/failed closed/);
   assert.throws(()=>j.verify(),/failed closed/);
   fs.unlinkSync(file);
-  const row=j.append(payload({customerEmail:'never-save@example.invalid',
+  assert.throws(()=>j.append(payload({customerEmail:'never-save@example.invalid',
     paystackSecret:'sk_test_private',
-    bankAccount:'000-000-000'}));
+    bankAccount:'000-000-000'})),/failed closed/);
+  assert.equal(j.verify().recordCount,0);
+  const row=j.append(payload());
   assert.equal(row.created,true);
   const content=fs.readFileSync(file,'utf8');
   for(const secret of ['never-save@example.invalid','sk_test_private','000-000-000']) {
