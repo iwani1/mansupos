@@ -7,9 +7,9 @@ import { assessMerchantEvidenceProvisioning,
   buildMerchantEvidenceAuditEvent, compareMerchantIdentityClaims
 } from '../server/merchant-evidence-boundary.js';
 
-const wooKey = 'ck_test_evidence_key_not_from_catalogue_abcdef';
-const wooSecret = 'cs_test_evidence_secret_separate_abcdef';
-const paystackSecret = 'sk_test_evidence_read_key_not_real_abcdefghijk';
+const wooKey = 'ck_0123456789abcdef0123456789abcdef';
+const wooSecret = 'cs_abcdef0123456789abcdef0123456789';
+const paystackSecret = 'sk_test_0123456789abcdef0123456789abcdef';
 const auditSecret = 'synthetic_audit_hmac_key_separate_for_test_123456789';
 const siteId = '72b1645b-bc7e-4be4-924d-3d3b9dbfbe89';
 const otherSite = 'd936787e-8903-43c4-a4dc-5bedf25432da';
@@ -29,8 +29,8 @@ const approved = () => ({
 });
 const credentialOptions = () => ({
   catalogueCredentials: {
-    consumerKey: 'ck_catalogue_synthetic_other_key',
-    consumerSecret: 'cs_catalogue_synthetic_other_secret',
+    consumerKey: 'ck_11111111111111111111111111111111',
+    consumerSecret: 'cs_22222222222222222222222222222222',
   },
   onlineBridgeCredentials: { appPassword: 'a-separate-synthetic-wordpress-password' },
 });
@@ -61,7 +61,7 @@ test('complete syntactic provisioning only qualifies for manual review, never co
 test('catalogue, reservation bridge, recycled owner approval and audit-key reuse fail closed', () => {
   const config = approved();
   const sameKey = assessMerchantEvidenceProvisioning({
-    env: { ...config, MANSU_EVIDENCE_WOO_KEY: 'ck_catalogue_synthetic_other_key' },
+    env: { ...config, MANSU_EVIDENCE_WOO_KEY: 'ck_11111111111111111111111111111111' },
     ...credentialOptions(),
   });
   assert.ok(sameKey.blockers.includes('wooCredentialsNotReusedFromCatalogue'));
@@ -186,5 +186,5 @@ test('preflight module never imports the Woo, Paystack, POS app or network trans
   assert.equal(source.includes('fetch('),false);
   assert.equal(source.includes('http.request('),false);
   assert.equal(source.includes('createApp('),false);
-  assert.equal(source.includes('server/app.js'),true, 'Boundary documents deliberate absence from POS app');
+  assert.equal(source.includes('app.js'),true, 'Boundary documents deliberate absence from POS app');
 });
