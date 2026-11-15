@@ -21,6 +21,7 @@ import { createLogger, requestId } from './logger.js';
 import { localTransaction, readSaleEvents } from './sale-events.js';
 import { auditSharedWooStock } from './phase2-stock-audit.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
+import { financeReviewWritesAllowed, financeReviewHistory, createFinanceReviewRequest, acknowledgeFinanceReview, reviewSteps } from './payment-review-workflow.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -315,6 +316,43 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit || 50);
     const cursor = z.string().max(500).optional().parse(req.query.cursor);
     res.json(paymentReconciliation(db, { limit, cursor }));
+  });
+  // Financial exception triage only. POST is impossible on the reported live
+  // read-only pilot or any production/staging service, regardless of env flags.
+  // No settlement, cash payout, refund, stock or Woo order mutation exists.
+  const financeReviewDemo = financeReviewWritesAllowed(config, env);
+  const reviewSaleId = z.string().uuid();
+  const reviewKey = z.string().uuid();
+  const requestSchema = z.object({
+    reviewKey,
+    step: z.enum(reviewSteps),
+    expectedStatus: z.string().min(1).max(60),
+    expectedUpdatedAt: z.string().datetime(),
+    expectedWooOrderId: z.number().int().positive().nullable(),
+  }).strict();
+  const acknowledgeSchema = z.object({
+    reviewKey,
+    requestEventId: z.number().int().positive(),
+    expectedStatus: z.string().min(1).max(60),
+    expectedUpdatedAt: z.string().datetime(),
+  }).strict();
+  app.get('/api/payments/reconciliation/:saleId/review', auth, role('owner', 'manager'), (req, res) => {
+    const id = reviewSaleId.parse(req.params.saleId);
+    res.json(financeReviewHistory(db, id, financeReviewDemo));
+  });
+  app.post('/api/payments/reconciliation/:saleId/review', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => {
+    if (!financeReviewDemo) throw new AppError('Finance review writes are locked outside isolated demo tests.', 403, 'FINANCIAL_REVIEW_LOCKED');
+    const id = reviewSaleId.parse(req.params.saleId);
+    const input = requestSchema.parse(req.body);
+    const result = createFinanceReviewRequest(db, req.user, id, input, financeReviewDemo);
+    res.status(result.created ? 201 : 200).json({ ...result, nonExecuting: true });
+  });
+  app.post('/api/payments/reconciliation/:saleId/acknowledge', auth, role('owner'), sensitiveLimit, (req, res) => {
+    if (!financeReviewDemo) throw new AppError('Finance review writes are locked outside isolated demo tests.', 403, 'FINANCIAL_REVIEW_LOCKED');
+    const id = reviewSaleId.parse(req.params.saleId);
+    const input = acknowledgeSchema.parse(req.body);
+    const result = acknowledgeFinanceReview(db, req.user, id, input, financeReviewDemo);
+    res.status(result.created ? 201 : 200).json({ ...result, nonExecuting: true });
   });
   app.get('/api/recovery/queue', auth, role('owner', 'manager'), (req, res) => {
     const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 200);
