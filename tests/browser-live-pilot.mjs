@@ -50,6 +50,22 @@ try {
       notice: 'Local POS-only evidence; external settlements are excluded.',
     }) });
   });
+  const financialHistoryCalls = [];
+  // Specific route is registered LAST so it takes precedence over the
+  // reconciliation list route; no real POS/Woo/Paystack request is sent.
+  await page.route('**/api/payments/reconciliation/*/review', async route => {
+    financialHistoryCalls.push(route.request().method());
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      kind: 'non-executing-finance-review', source: 'local-pos-ledger',
+      actionsAvailable: false, refundAuthorized: false, refundExecuted: false,
+      cashPaidOut: false, stockRestored: false, gatewaySettlementVerified: false,
+      saleId: '00000000-0000-4000-8000-000000000001',
+      saleStatus: 'needs_reconciliation', saleUpdatedAt: '2026-11-15T12:00:00.000Z',
+      wooOrderId: 123, issueCodes: ['cash_custody_unconfirmed'],
+      availableSteps: ['reconcile_pos_cash_custody'], entries: [], truncated: false,
+      notice: 'No refund or cash action authorized.',
+    }) });
+  });
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
   await page.getByRole('region', { name: 'Live catalogue read-only notice' }).getByText('Live catalogue · no checkout').waitFor();
@@ -77,6 +93,17 @@ try {
   }
   if (await page.locator('main').getByRole('button', { name: /approve|pay|refund|fulfil|settle/i }).count()) {
     throw new Error('Read-only payment dashboard must not expose payment or refund controls.');
+  }
+  await page.getByRole('button', { name: 'Review evidence' }).click();
+  await page.getByRole('heading', { name: 'Documented investigation requests' }).waitFor();
+  await page.getByText('No investigation instructions have been recorded for this original sale.').waitFor();
+  if (financialHistoryCalls.join(',') !== 'GET') {
+    throw new Error('Financial review history screen must use read-only GET only.');
+  }
+  if (await page.locator('main').getByRole('button', {
+    name: /record investigation|acknowledge review|approve refund|execute refund/i,
+  }).count()) {
+    throw new Error('Live pilot financial triage must not expose review-write or refund controls.');
   }
   await page.locator('[data-nav="shifts"]').click();
   await page.getByRole('heading', { name: 'Shifts & drawer' }).waitFor();
