@@ -87,3 +87,58 @@ Regression coverage includes paged source findings, filtering/search bounds,
 duplicate SKU/variation cases, full application role access and snapshot
 change conflicts, plus a synthetic browser interaction with the complete
 read-only review list.
+
+## Physical product mapping workbench (next draft, not deployed)
+
+After clicking **Compare product codes** in **Stock safety review**, the Owner
+or Manager can open **Physical product mapping workbench** to review *every*
+historical physical source row, including **potential exact SKU matches**.
+Unlike the discrepancy queue (issues only), this view also lists physical
+records with a unique provisional Woo product/variation identifier.
+
+`GET /api/stock-safety/physical-mapping` is GET-only and requires an authenticated
+Owner or Manager, `POS_MODE=live` and `POS_LIVE_READ_ONLY=true`. The request
+validates the pinned historical physical CSV/PDF and loads published Woo
+products and variations using the existing read-only catalogue cache.
+Accepted strict filters: `page` 1–10,000, `pageSize` 1–50,
+`status` (one listed mapping classification or `all`), `search` up to
+64 characters, and an optional 64-character `expectedRef` snapshot checksum.
+Changed source/catalogue content between pages returns HTTP 409
+`MAPPING_SNAPSHOT_CHANGED`, requiring a fresh page-one review.
+
+A physical row is classified exactly once as one of:
+
+- `held`: quarantined by the signed historical physical-source verifier.
+- `missing_physical_sku`: no physical product code.
+- `duplicate_physical_sku`: code repeats across physical records, including
+  a held record; no row may claim the Woo identity.
+- `ambiguous_website_identity`: repeated Woo SKU, invalid product/variation ID,
+  one Woo ID reused across different codes, or parent/variation code collision.
+- `parent_sku_only`: the physical code equals a variable Woo *parent* code but
+  no unique simple-product/variation SKU matches. A parent code cannot identify
+  a particular colour or size.
+- `provisional_match`: one unique normalized physical SKU maps to one unique
+  published Woo **simple product or variation** code with valid distinct IDs.
+  This classification is NEVER `approved`.
+- `missing_on_website`: no corresponding published SKU in the read-only Woo
+  catalogue, which does not prove the product is absent from all of Woo.
+
+Matching is case-insensitive with surrounding whitespace trimmed. All
+classifications are derived from read-only observations, not persisted mapping
+decisions; the UI intentionally omits names, customer records, per-item prices
+and quantities. The historical source's reported balance is **not** today's
+physical count, and a SKU match alone does not prove correct product/size,
+Woo stock-owner policy, tax, concurrency or payments.
+
+Even with zero findings, response fields `checkoutAuthorized`,
+`sharedStockVerified` and `mappingApproved` are **false**. Before any
+real product/stock import or POS sale, obtain independently witnessed
+current physical counts, owner-reviewed item/variation mappings, actual
+installed Woo stock-owner and payment-hook evidence, off-host trading-ledger
+recovery, and a separately approved trading rollout. Do not switch off the
+live read-only pilot or run any POS-only physical checkout for these goods.
+
+Regression tests cover the full source classification partition, ambiguous
+Woo IDs, parent-only variation cases, pagination/search, strict filtering,
+stale/invalid source evidence, owner/manager access, cashier/public denial,
+snapshot conflicts, GET-only Woo interactions and a synthetic browser review.

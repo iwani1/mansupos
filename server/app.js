@@ -21,6 +21,7 @@ import { createLogger, requestId } from './logger.js';
 import { localTransaction, readSaleEvents } from './sale-events.js';
 import { auditSharedWooStock } from './phase2-stock-audit.js';
 import { auditCrossChannelSkus, listCrossChannelSkuFindings } from './cross-channel-sku-audit.js';
+import { listPhysicalMappingCoverage } from './physical-mapping-coverage.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
 import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
@@ -278,6 +279,37 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     }
     res.set('Cache-Control', 'no-store');
     res.json(findings);
+  });
+  // Owner/manager mapping review of every historical physical-source row.
+  // Provisional SKU links are not stock allocations, authorized mappings or
+  // permission to write WooCommerce inventory. This endpoint is GET-only.
+  app.get('/api/stock-safety/physical-mapping', auth, role('owner', 'manager'), async (req, res) => {
+    if (config.mode !== 'live' || !config.liveReadOnly) {
+      throw new AppError('Physical identity mapping is available only in the read-only live pilot.', 403, 'SOURCE_AUDIT_LOCKED');
+    }
+    const options = z.object({
+      page: z.coerce.number().int().min(1).max(10000).default(1),
+      pageSize: z.coerce.number().int().min(1).max(50).default(25),
+      status: z.string().regex(/^[a-z_]{1,80}$/).default('all'),
+      search: z.string().trim().max(64).default(''),
+      expectedRef: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    }).strict().parse(req.query);
+    const physical = inStore.snapshot();
+    const website = await catalog.get();
+    let report;
+    try {
+      report = listPhysicalMappingCoverage(physical, website, options);
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new AppError('Unknown mapping status. Restart the review with valid filters.', 400, 'INVALID_MAPPING_FILTER');
+      }
+      throw error;
+    }
+    if (options.expectedRef && options.expectedRef !== report.snapshotRef) {
+      throw new AppError('The physical or Woo snapshot changed. Restart the mapping review from page one.', 409, 'MAPPING_SNAPSHOT_CHANGED');
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json(report);
   });
   // Separately gated live trading service only. The read-only pilot, demo and
   // ordinary Woo checkout never enroll a device or issue offline allocations.

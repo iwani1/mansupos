@@ -61,6 +61,39 @@ try {
       findings:all.slice((requestedPage-1)*25,requestedPage*25),
     })});
   });
+  // Synthetic physical-to-Woo mapping workbench: read-only, all source rows.
+  const mappingCalls = [];
+  await page.route('**/api/stock-safety/physical-mapping*',async route=>{
+    const url=new URL(route.request().url());
+    const pageNumber=Number(url.searchParams.get('page')||1);
+    const status=url.searchParams.get('status')||'all';
+    const lookup=url.searchParams.get('search')||'';
+    mappingCalls.push({
+      method:route.request().method(),page:pageNumber,status,
+      expectedRef:url.searchParams.get('expectedRef')||'',
+    });
+    const sourceRows=Array.from({length:27},(_,i)=>({
+      reportRow:i+1,sku:'MAP'+String(i+1).padStart(3,'0'),
+      status:i<2?'provisional_match':i===2?'held':'missing_on_website',
+      productId:i<2?90+i:null,variationId:null,websiteCandidates:i<2?1:0,
+    }));
+    const selected=sourceRows.filter(item=>(status==='all'||item.status===status)&&
+      (!lookup||item.sku.includes(lookup.toUpperCase())));
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'read-only-physical-mapping-coverage',
+      auditOnly:true,checkoutAuthorized:false,sharedStockVerified:false,
+      mappingApproved:false,evidenceVerified:true,
+      snapshotRef:'e'.repeat(64),
+      page:pageNumber,pageSize:25,pages:Math.max(1,Math.ceil(selected.length/25)),
+      total:selected.length,totalPhysical:27,
+      hasMore:pageNumber<Math.ceil(selected.length/25),
+      counts:{provisional_match:2,held:1,missing_on_website:24,
+        missing_physical_sku:0,duplicate_physical_sku:0,parent_sku_only:0,
+        ambiguous_website_identity:0},
+      websiteFetchedAt:'2026-11-15T12:00:00.000Z',
+      rows:selected.slice((pageNumber-1)*25,pageNumber*25),
+    })});
+  });
   const paymentReviewCalls = [];
   await page.route('**/api/payments/reconciliation*', async route => {
     paymentReviewCalls.push(route.request().method());
@@ -181,6 +214,30 @@ try {
   if(skuReviewCalls.some(call=>call.method!=='GET')||skuReviewCalls.length!==3 ||
      skuReviewCalls[2].expectedRef!=='f'.repeat(64)) {
     throw Error('SKU review must use GET-only, snapshot-bound pagination.');
+  }
+  const mappingArea=page.getByRole('region',{name:'Physical product mapping workbench'});
+  await mappingArea.getByRole('button',{name:'Open mapping review'}).click();
+  const mappingTable=mappingArea.getByRole('region',{name:'Historical product mapping candidates'}).locator('table');
+  await mappingTable.locator('tbody tr').first().waitFor();
+  if(await mappingTable.locator('tbody tr').count()!==25){
+    throw Error('Mapping workbench should page all historical rows.');
+  }
+  await mappingArea.getByRole('button',{name:/Next/}).click();
+  await mappingArea.getByText(/Page 2 of 2/).waitFor();
+  if(await mappingTable.locator('tbody tr').count()!==2){
+    throw Error('Mapping workbench page two should contain two rows.');
+  }
+  await mappingArea.getByRole('combobox',{name:'Filter physical mapping status'})
+    .selectOption('provisional_match');
+  await mappingArea.getByRole('button',{name:'Open mapping review'}).click();
+  await mappingArea.getByText(/2 records for the selected filter/).waitFor();
+  if(await mappingTable.locator('tbody tr').count()!==2){
+    throw Error('Mapping status filter should show only provisional candidates.');
+  }
+  if(mappingCalls.some(call=>call.method!=='GET')||mappingCalls.length!==3 ||
+     mappingCalls[1].expectedRef!=='e'.repeat(64) ||
+     mappingCalls[2].status!=='provisional_match'){
+    throw Error('Mapping workbench must use GET-only, safe snapshot-bound pagination and filters.');
   }
   if (await page.locator('main').getByRole('button', { name: /checkout|sell|pay|approve refund/i }).count()) {
     throw new Error('Stock audit screen must not present checkout or refund approval actions.');

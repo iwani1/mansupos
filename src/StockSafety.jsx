@@ -3,6 +3,7 @@ import { AlertTriangle, LockKeyhole, RefreshCw, ShieldCheck, Boxes } from 'lucid
 import { api, dateTime } from './api.js';
 import { Badge, Notice, PageHeading, TableRegion } from './components.jsx';
 import SkuReviewQueue from './SkuReviewQueue.jsx';
+import PhysicalMappingWorkbench from './PhysicalMappingWorkbench.jsx';
 
 // A catalogue audit is evidence about *displayed* Woo product balances, not a
 // sale/reservation gate. Never derive a checkout authorization from issueCounts.
@@ -134,6 +135,7 @@ export default function StockSafety({ active }) {
         </div></div>}
         <p className="report-scope">Source fingerprint: {sourceMatch.physical.manifestSha256 || 'not verified'} · Woo refreshed {dateTime(sourceMatch.website.fetchedAt)}. No Woo order, payment, quantity or POS sale was modified.</p>
         <SkuReviewQueue issueCounts={sourceMatch.issueCounts} labelFor={sourceIssueLabel}/>
+        <PhysicalMappingWorkbench/>
       </>}
     </section>
     {error && <Notice tone="error"><AlertTriangle size={16} />{error} Refresh the catalogue and review the WooCommerce connection before using stock figures.</Notice>}
