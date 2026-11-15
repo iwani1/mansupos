@@ -36,15 +36,15 @@ export function compareSettlementEvidence({ woo = null, gateway = null,
   if (validWoo && !paid.has(woo.status)) {
     add('original_woo_order_not_recorded_paid');
   }
+  if (validGateway && gateway.status !== 'success') {
+    add('gateway_transaction_not_reported_successful');
+  }
   if (validWoo && validGateway) {
     if (woo.originalReference !== gateway.reference) {
       add('gateway_reference_does_not_match_original_woo_attempt');
     }
     if (woo.totalCents !== gateway.amountCents) {
       add('original_order_and_gateway_gross_amount_disagree');
-    }
-    if (gateway.status !== 'success') {
-      add('gateway_transaction_not_reported_successful');
     }
     if (relatedWooOrders.some(row => row &&
         row.orderId !== woo.orderId &&
