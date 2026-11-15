@@ -76,20 +76,7 @@ function decodeCursor(cursor) {
   }
 }
 
-export function paymentReconciliation(db, { limit = 50, cursor } = {}) {
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-    throw new AppError('Invalid payment reconciliation page limit.', 400);
-  }
-  const after = decodeCursor(cursor);
-  const filter = after ? ' AND (updated_at < ? OR (updated_at = ? AND id < ?))' : '';
-  const params = after ? [after.updatedAt, after.updatedAt, after.id] : [];
-  // The count is POS ledger cases only, not a bank balance or merchant-wide
-  // gateway settlement figure. All cases use one original sale ID.
-  const count = db.prepare('SELECT COUNT(*) AS cases FROM (' + common + ')').get().cases;
-  const rows = db.prepare(common + filter +
-    ' ORDER BY updated_at DESC,id DESC LIMIT ?').all(...params, limit + 1);
-  const page = rows.slice(0, limit);
-  const cases = page.map(row => {
+function presentCase(row) {
     const found = flags(row);
     const issues = priority.filter(key => found[key]);
     return {
@@ -111,7 +98,27 @@ export function paymentReconciliation(db, { limit = 50, cursor } = {}) {
       cashCustodyAtRiskCents: found.cash_custody_unconfirmed ? row.total : 0,
       cashRefundEvidenceCents: found.cash_refund_payout_unverified ? row.refunded : 0,
     };
-  });
+}
+
+export function paymentReconciliationCase(db, saleId) {
+  const row = db.prepare('SELECT * FROM (' + common + ') WHERE id=?').get(saleId);
+  return row ? presentCase(row) : null;
+}
+
+export function paymentReconciliation(db, { limit = 50, cursor } = {}) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new AppError('Invalid payment reconciliation page limit.', 400);
+  }
+  const after = decodeCursor(cursor);
+  const filter = after ? ' AND (updated_at < ? OR (updated_at = ? AND id < ?))' : '';
+  const params = after ? [after.updatedAt, after.updatedAt, after.id] : [];
+  // The count is POS ledger cases only, not a bank balance or merchant-wide
+  // gateway settlement figure. All cases use one original sale ID.
+  const count = db.prepare('SELECT COUNT(*) AS cases FROM (' + common + ')').get().cases;
+  const rows = db.prepare(common + filter +
+    ' ORDER BY updated_at DESC,id DESC LIMIT ?').all(...params, limit + 1);
+  const page = rows.slice(0, limit);
+  const cases = page.map(presentCase);
   const last = page.at(-1);
   return {
     kind: 'read-only-pos-payment-reconciliation',
