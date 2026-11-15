@@ -514,3 +514,37 @@ td small { font-size:11px; color:#566064; }
 .daily-operations-report small{color:#617078}
 @media(max-width:920px){.daily-operations-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:480px){.daily-operations-toolbar{padding:14px}.daily-operations-toolbar label,.daily-operations-toolbar select{width:100%;min-width:0}.daily-operations-team{grid-template-columns:minmax(0,1fr);padding:12px}.daily-operations-member-header{flex-wrap:wrap}}
+
+/* Owner/manager weekly staff scorecards: self-reported activity, not verified sales. */
+.weekly-scorecard-toolbar{display:flex;gap:18px;align-items:end;justify-content:space-between;flex-wrap:wrap;padding:16px 20px;margin-bottom:18px}
+.weekly-scorecard-toolbar label,.weekly-scorecard-review label{display:flex;flex-direction:column;gap:7px;font-size:12px;font-weight:650}
+.weekly-scorecard-toolbar select{min-width:265px}
+.weekly-scorecard-toolbar>span{font-size:11px;color:#5b686d;max-width:440px;line-height:1.6}
+.weekly-scorecard-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:20px}
+.weekly-scorecard-summary>div{padding:17px;border:1px solid #e6e8e5;border-radius:9px;background:#fff;display:flex;flex-direction:column;gap:7px}
+.weekly-scorecard-summary small{font-size:11px;color:#546167}
+.weekly-scorecard-summary strong{font-size:22px;color:#293339}
+.weekly-scorecard-list{display:grid;gap:18px}
+.weekly-scorecard-person{overflow:hidden}
+.weekly-scorecard-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:15px 19px;gap:10px;border-bottom:1px solid #e8eae7}
+.weekly-scorecard-metrics>div{display:flex;flex-direction:column;gap:5px;padding:5px 9px;border-left:2px solid #e7ebe9;min-width:0}
+.weekly-scorecard-metrics small{font-size:11px;color:#526167}
+.weekly-scorecard-metrics strong{font-size:20px;color:#2c3b3f}
+.weekly-scorecard-metrics span{font-size:11px;color:#566369}
+.weekly-scorecard-detail{padding:16px 20px}
+.weekly-scorecard-detail summary{font-weight:650;font-size:13px;color:#34444a;cursor:pointer}
+.weekly-scorecard-detail summary:focus-visible{outline:2px solid #526c78;outline-offset:3px}
+.weekly-scorecard-days{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:12px;padding:17px 0 2px}
+.weekly-scorecard-day{min-width:0;border:1px solid #e6e9e7;border-radius:8px;padding:13px;background:#fbfcfb}
+.weekly-scorecard-day-head{display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:9px}
+.weekly-scorecard-day-head strong{font-size:12px}
+.weekly-scorecard-day p{font-size:11px;line-height:1.55;color:#546167;margin:8px 0}
+.weekly-scorecard-day small{display:block;color:#667178;font-size:10.5px;margin:5px 0}
+.weekly-scorecard-owner-note{overflow-wrap:anywhere;color:#324047!important}
+.weekly-scorecard-review{display:grid;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #e5e9e6}
+.weekly-scorecard-review .input{width:100%;min-width:0}
+.weekly-scorecard-review>div{display:flex;flex-wrap:wrap;gap:9px}
+.weekly-scorecard-review .button{min-height:35px}
+.weekly-scorecard-none{display:flex;gap:10px;align-items:center;padding:15px 20px;font-size:12px;color:#5d6669}
+@media(max-width:900px){.weekly-scorecard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.weekly-scorecard-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.weekly-scorecard-toolbar{padding:13px}.weekly-scorecard-toolbar label,.weekly-scorecard-toolbar select{width:100%;min-width:0}.weekly-scorecard-metrics{padding:12px;gap:6px}.weekly-scorecard-metrics strong{font-size:17px}.weekly-scorecard-summary{gap:8px}.weekly-scorecard-summary>div{padding:12px}.weekly-scorecard-detail{padding:14px}.weekly-scorecard-review>div{flex-direction:column;align-items:stretch}.weekly-scorecard-review .button{justify-content:center}}

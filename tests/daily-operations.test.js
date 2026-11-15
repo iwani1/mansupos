@@ -135,6 +135,9 @@ test('operations limit dates, refuse malformed payloads and preserve old workstr
   assert.equal((await call('/operations/assign',owner,'POST',{staffId:'worker-test',lane:'wrong'})).status,400);
   assert.equal((await call('/operations/assign',owner,'POST',{staffId:'missing',lane:'sales'})).status,404);
   await call('/operations/assign',owner,'POST',{staffId:'worker-test',lane:'sales'});
+  const earlier=(await call('/operations/team?date='+dayOffset(-6),owner)).body;
+  assert.equal(earlier.members.find(x=>x.id==='worker-test').lane,null,
+    'Later duty assignments must not be applied retroactively to past business days');
   await call('/operations/task',worker,'POST',{taskId:'sales.open',done:true});
   const markBefore=count(db);
   await call('/operations/assign',owner,'POST',{staffId:'worker-test',lane:'fulfilment'});

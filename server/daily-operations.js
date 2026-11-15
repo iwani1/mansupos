@@ -61,9 +61,11 @@ function validDay(date,today){
 function parseEvent(subject){
   try {return JSON.parse(subject);} catch {return null;}
 }
-function currentAssignments(db){
+function currentAssignments(db,cutoff=null){
   const assigned=new Map();
-  for(const row of db.prepare("SELECT subject FROM audit WHERE action='operations.assignment' ORDER BY id ASC").all()){
+  const sql="SELECT subject FROM audit WHERE action='operations.assignment'"+
+    (cutoff?" AND created_at < ?":"")+" ORDER BY created_at ASC,id ASC";
+  for(const row of db.prepare(sql).all(...(cutoff?[cutoff]:[]))){
     const data=parseEvent(row.subject);
     if(data?.staffId && (data.lane===null || LANES[data.lane]))assigned.set(data.staffId,data.lane);
   }
@@ -108,14 +110,15 @@ export class DailyOperations {
     const day=this.day(date);
     const member=this.db.prepare("SELECT id,name,role,active FROM users WHERE id=?").get(user.id);
     if(!member)throw new AppError('Account not found.',404);
-    const status=stateFor(member,day,dayEvents(this.db,day),currentAssignments(this.db));
+    const status=stateFor(member,day,dayEvents(this.db,day),
+      currentAssignments(this.db,day===this.today()?null:dayAfter(day)+'T00:00:00.000Z'));
     return {kind:'local-staff-self-report',date:day,today:this.today(),...status,
       counts:status.lane?LANES[status.lane].counts:[],
       scope:'Staff self-reported activities only; not proof of payment, stock, dispatch or WooCommerce order status.'};
   }
   team(date){
     const day=this.day(date), events=dayEvents(this.db,day);
-    const assigned=currentAssignments(this.db);
+    const assigned=currentAssignments(this.db,day===this.today()?null:dayAfter(day)+'T00:00:00.000Z');
     const members=this.db.prepare("SELECT id,name,role,active FROM users WHERE role IN ('manager','cashier') ORDER BY name,id").all()
       .map(member=>{
         const state=stateFor(member,day,events,assigned);

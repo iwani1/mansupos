@@ -15,6 +15,7 @@ import RecoveryQueue from './RecoveryQueue.jsx';
 import PaymentReconciliation from './PaymentReconciliation.jsx';
 import StockSafety from './StockSafety.jsx';
 import DailyOperations from './DailyOperations.jsx';
+import WeeklyScorecard from './WeeklyScorecard.jsx';
 import { Spinner, Toast, Notice, Modal } from './components.jsx';
 
 const navigation = [
@@ -32,6 +33,7 @@ const navigation = [
   { id:'customers', label:'Customers', short:'Buyers', icon:Users, group:'Operations', roles:['owner','manager'] },
   { id:'shifts', label:'Shifts & drawer', short:'Drawer', icon:Banknote, group:'Operations' },
   { id:'operations', label:'Daily staff operations', short:'Daily duties', icon:ShieldCheck, group:'Operations' },
+  { id:'weeklyScorecard', label:'Weekly staff scorecard', short:'Team score', icon:Users, group:'Operations', roles:['owner','manager'] },
   { id:'reports', label:'Reports & analytics', short:'Reports', icon:ChartNoAxesCombined, group:'Operations', roles:['owner','manager'] },
   { id:'instore', label:'Physical source review', short:'Source', icon:Package, group:'Operations', liveOnly:true },
   { id:'staff', label:'Staff & permissions', short:'Staff', icon:Users, group:'Administration', roles:['owner'] },
@@ -173,8 +175,9 @@ export default function App() {
       <main id="main-content" tabIndex={-1} className={`main-content ${page==='register'?'register-main':''}`}>
         {catalogError&&page!=='instore'&&<Notice tone="error">{catalogError}<button className="text-button" onClick={()=>refresh(true)}>Try again</button></Notice>}
         {page==='operations'&&<DailyOperations user={user}/>}
+        {page==='weeklyScorecard'&&user.role!=='cashier'&&<WeeklyScorecard user={user}/>}
         {page==='instore'&&config.mode==='live'&&<InStore config={config} user={user} shift={shift} onOpenShift={()=>navigate('shifts')} notify={notify}/>}
-        {page!=='instore'&&page!=='operations'&&(!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>
+        {page!=='instore'&&page!=='operations'&&page!=='weeklyScorecard'&&(!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>
           {page==='overview'&&user.role!=='cashier'&&<Overview catalog={catalog} config={config} sales={sales} salesHasMore={salesHasMore} refresh={refresh} refreshKey={refreshKey} onNavigate={navigate}/>}
           <div style={{display:page==='register'?'block':'none'}}><Register key={`${config.mode}-${user.id}`} active={page==='register'} catalog={catalog} config={config} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} onOpenWholesale={()=>navigate('wholesale')} canWholesale={user.role!=='cashier'} searchSignal={searchSignal} savedCarts={savedCarts} setSavedCarts={setSavedCarts} setHelp={()=>setHelp(true)} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>
           {user.role!=='cashier'&&<div style={{display:page==='wholesale'?'block':'none'}}><Wholesale key={`${config.mode}-${user.id}`} catalog={catalog} config={config} user={user} active={page==='wholesale'} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} onOpenRetail={()=>navigate('register')} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>}

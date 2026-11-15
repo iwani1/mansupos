@@ -43,7 +43,7 @@ const pageIconMap = {
   'Wholesale management':Store, Products:Package, Categories:Tags,
   Inventory:Boxes, 'Sales history':ReceiptText, Orders:ScrollText,
   'Recovery queue':ShieldCheck, 'Payment reconciliation':Banknote, Customers:UserRound, 'Shifts & drawer':Banknote,
-  'Reports & analytics':ChartNoAxesCombined, 'Daily staff operations':ShieldCheck, 'Staff & permissions':Users,
+  'Reports & analytics':ChartNoAxesCombined, 'Daily staff operations':ShieldCheck, 'Weekly staff scorecard':Users, 'Staff & permissions':Users,
   'Audit log':History, 'Settings & connection':Settings2,
   'Physical source review':PanelTop,
 };

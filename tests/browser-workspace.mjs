@@ -21,7 +21,7 @@ async function navigate(id) {
   assert.equal(await page.locator('main h1:visible').innerText(), ({
     register: 'Point of sale', overview: 'Overview', products: 'Products', categories: 'Categories',
     inventory: 'Inventory', sales: 'Sales history', orders: 'Orders', customers: 'Customers',
-    operations: 'Daily staff operations',
+    operations: 'Daily staff operations', weeklyScorecard: 'Weekly staff scorecard',
   })[id]);
 }
 async function noOverflow(context) {
@@ -78,6 +78,12 @@ try {
   await page.getByText('No staff accounts yet').waitFor();
   await page.getByText('Checklist ticks and daily figures are staff declarations', {exact:false}).waitFor();
   assert.equal(await page.locator('.daily-operations-member').count(),0);
+
+
+  await navigate('weeklyScorecard');
+  await page.getByText('No staff accounts', {exact:true}).waitFor();
+  await page.getByText('This scorecard is derived from self-reported POS checklists', {exact:false}).waitFor();
+  assert.equal(await page.locator('.weekly-scorecard-person').count(),0);
 
   await navigate('products');
   assert.equal(await page.locator('.catalogue-strip > div').first().locator('strong').innerText(), String(catalog.products.length));

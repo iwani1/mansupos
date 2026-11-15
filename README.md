@@ -4,6 +4,8 @@
 
 > **Daily staff operations — new development:** [Task checklists and staff reporting](docs/DAILY-STAFF-OPERATIONS.md) now adds owner-assigned Sales Representative and Fulfilment Officer workstreams, staff self-reporting and management review, without changing v9 schema or Woo checkout gates. It has **not been deployed by this code change**. The owner reports having activated the prior build `8302d299` on Contabo; the actual running commit was not independently checked here.
 
+> **Weekly staff scorecard — new development:** [Owner/manager weekly reporting review](docs/WEEKLY-STAFF-SCORECARD.md) aggregates existing daily staff declarations and provides append-only owner follow-up annotations. New reports after review trigger a recheck. No new schema, WooCommerce orders, stock or payment writes; **not deployed**.
+
 A working, mobile-friendly point-of-sale application for **MansutRENDZGH**, designed to use the existing WooCommerce catalogue, inventory, and orders.
 
 ## Current status

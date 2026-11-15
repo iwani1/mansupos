@@ -25,6 +25,7 @@ import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
 import { financeReviewWritesAllowed, financeReviewHistory, createFinanceReviewRequest, acknowledgeFinanceReview, reviewSteps } from './payment-review-workflow.js';
 import { DailyOperations } from './daily-operations.js';
+import { WeeklyOperations } from './weekly-operations.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -93,6 +94,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     : null;
   const shifts = new ShiftService(db, config);
   const operations = new DailyOperations(db);
+  const weekly = new WeeklyOperations(db);
   let inStore;
   try { inStore = new InStoreService(db, config); }
   catch (error) { db.close(); throw error; }
@@ -533,6 +535,14 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   });
   app.post('/api/operations/assign', auth, role('owner'), sensitiveLimit, (req,res) => {
     res.json(operations.assign(req.user,req.body));
+  });
+  // Management scorecards are local POS self-reports, not verified sales or staff attendance.
+  app.get('/api/operations/scorecard', auth, role('owner','manager'), (req,res) => {
+    const {week}=z.object({week:z.string().optional()}).strict().parse(req.query);
+    res.json(weekly.scorecard(week));
+  });
+  app.post('/api/operations/review', auth, role('owner'), sensitiveLimit, (req,res) => {
+    res.json(weekly.review(req.user,req.body));
   });
   app.post('/api/operations/task', auth, sensitiveLimit, (req,res) => {
     res.json(operations.setTask(req.user,req.body));
