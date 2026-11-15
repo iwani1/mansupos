@@ -184,8 +184,8 @@ switch ( $phase ) {
             'line_reduced' => $reduced,
             'success_notes' => count( $debug_success ),
         ) ) . PHP_EOL;
-        $assert( count( $race_arrivals ) === 2 && count( $race_markers ) === 2,
-            'Valid callback race did not start in two workers and verify both requests.' );
+        $assert( count( $race_arrivals ) === 2 && count( $race_markers ) === 1,
+            'Valid callback race must overlap in two workers but verify the payment only once.' );
         $valid( 'race_valid' );
         list( $order ) = $case( 'race_valid' );
         $notes = wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 100 ) );
@@ -195,8 +195,8 @@ switch ( $phase ) {
         $assert( count( $success_notes ) === 1,
             'Concurrent valid webhook/return callbacks generated multiple Paystack success notes; count=' . count( $success_notes ) );
         $race_markers = glob( WP_CONTENT_DIR . '/mansu-ci-paystack-race-valid/verify-*' );
-        $assert( count( $race_markers ) === 2,
-            'Valid callback race was not reached independently by two PHP workers.' );
+        $assert( count( $race_markers ) === 1,
+            'Second valid callback should be short-circuited after locked database status recheck.' );
         break;
     case 'race-late':
         list( $order, $product, $reduced ) = $case( 'race_late' );
@@ -210,8 +210,8 @@ switch ( $phase ) {
             'stock' => $product->get_stock_quantity(),
             'line_reduced' => $reduced,
         ) ) . PHP_EOL;
-        $assert( count( $race_arrivals ) === 2 && count( $race_markers ) === 2,
-            'Late callback race did not start in two workers and verify both requests.' );
+        $assert( count( $race_arrivals ) === 2 && count( $race_markers ) === 1,
+            'Late callback race must overlap at entry but verify only the first quarantined attempt.' );
         $late( 'race_late' );
         list( $order ) = $case( 'race_late' );
         $notes = wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 100 ) );
@@ -221,8 +221,8 @@ switch ( $phase ) {
         $assert( count( $success_notes ) === 1,
             'Concurrent late webhook/return callbacks generated multiple Paystack success notes; count=' . count( $success_notes ) );
         $race_markers = glob( WP_CONTENT_DIR . '/mansu-ci-paystack-race-late/verify-*' );
-        $assert( count( $race_markers ) === 2,
-            'Late callback race was not reached independently by two PHP workers.' );
+        $assert( count( $race_markers ) === 1,
+            'Second late callback should not verify once the original is on-hold for human review.' );
         break;
     case 'webhook-verify-failed':
         list( $order, $product, $reduced ) = $case( 'webhook_verify_failed' );
