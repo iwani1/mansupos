@@ -45,6 +45,9 @@ export default function PaymentReconciliation({ user }) {
   const [refundEvidence, setRefundEvidence] = useState(null);
   const [refundEvidenceError, setRefundEvidenceError] = useState('');
   const [refundEvidenceBusy, setRefundEvidenceBusy] = useState(false);
+  const [resolution, setResolution] = useState(null);
+  const [resolutionBusy, setResolutionBusy] = useState(false);
+  const [resolutionError, setResolutionError] = useState('');
   const load = useCallback(async (after = '') => {
     setBusy(true);
     setError('');
@@ -53,6 +56,7 @@ export default function PaymentReconciliation({ user }) {
       setCases([]); setSummary(null); setFullCount(0); setMore(false);
       setCursor(null); setLoaded(false);
       setSelected(null); setReview(null); setRefundEvidence(null); setRefundAmount('');
+      setResolution(null); setResolutionError('');
     }
     try {
       const suffix = after ? `?limit=50&cursor=${encodeURIComponent(after)}` : '?limit=50';
@@ -120,10 +124,12 @@ export default function PaymentReconciliation({ user }) {
     if (selected?.id === item.id) {
       setSelected(null); setReview(null); setPendingKey(null); setReviewError('');
       setRefundEvidence(null); setRefundEvidenceError(''); setRefundAmount('');
+      setResolution(null); setResolutionError('');
       return;
     }
     setSelected(item); setReview(null); setSelectedStep(''); setPendingKey(null);
     setRefundEvidence(null); setRefundEvidenceError(''); setRefundAmount('');
+      setResolution(null); setResolutionError('');
     await readReview(item);
   };
   const inspectRefundEvidence = async () => {
@@ -163,6 +169,28 @@ export default function PaymentReconciliation({ user }) {
     } finally {
       setRefundEvidenceBusy(false);
     }
+  };
+  const loadResolution = async (item = selected) => {
+    if (!item) return;
+    setResolutionBusy(true); setResolutionError(''); setResolution(null);
+    try {
+      const data = await api(`/payments/reconciliation/${encodeURIComponent(item.id)}/resolution`);
+      if (data?.kind !== 'non-executing-refund-resolution-dossier' ||
+          data.originalSaleId !== item.id || data.source !== 'local-pos-ledger' ||
+          data.websiteOrdersIncluded !== false || data.settlementVerified !== false ||
+          data.payoutVerified !== false || data.returnPhysicallyInspected !== false ||
+          data.ownerRefundApprovalIssued !== false || data.cashPayoutAuthorized !== false ||
+          data.refundExecuted !== false || data.wooStockRestorationAuthorized !== false ||
+          data.stockRestored !== false || data.goodsReleaseAuthorized !== false ||
+          data.checkoutAuthorized !== false || data.mutationsAllowed !== false ||
+          data.decision !== 'external_evidence_and_authorization_required' ||
+          !Array.isArray(data.requiredChecks) || !Array.isArray(data.warnings)) {
+        throw new Error('Resolution evidence or financial release restrictions could not be verified.');
+      }
+      setResolution(data);
+    } catch (failure) {
+      setResolutionError(failure.message || 'Original resolution dossier could not be read.');
+    } finally { setResolutionBusy(false); }
   };
   const recordRequest = async () => {
     if (!selected || !review?.actionsAvailable || !selectedStep) return;
@@ -331,6 +359,48 @@ export default function PaymentReconciliation({ user }) {
           </tr>)}</tbody></table>
         </TableRegion>
         <p className="field-hint">{refundEvidence.notice}</p>
+      </section>}
+      <div className="section-heading"><div>
+        <span className="eyebrow">Independent financial and garment evidence</span>
+        <h2>Resolution decision dossier</h2>
+        <p>Track separate draft decisions, payout evidence, return inspection and stock-restoration blockers.</p>
+      </div></div>
+      <button type="button" className="button secondary" disabled={resolutionBusy}
+        onClick={() => loadResolution(selected)}>
+        {resolutionBusy ? 'Checking original evidence…' : 'Inspect resolution dossier (read-only)'}
+      </button>
+      {resolutionError && <Notice tone="error">{resolutionError}</Notice>}
+      {resolution && <section aria-label="Refund resolution dossier">
+        <Notice tone="warning">
+          No refund is approved. Customer settlement, prior payouts, refund entitlement,
+          physical garment inspection, Owner release and Woo stock-owner authorization all
+          need independent verification before any action.
+        </Notice>
+        <p className="field-hint">
+          Draft remedy: {resolution.historicalProposal ?
+            resolution.historicalProposal.intent.replaceAll('_', ' ') : 'Not proposed'}
+          {' · '}Owner reviewed draft: {resolution.historicalOwnerReview ?
+            'Yes — not approved' : 'No'}{' · '}Payout: unverified · Return: unverified · Restock: prohibited
+        </p>
+        {resolution.warnings.length > 0 && <Notice tone="error">
+          Original POS evidence warnings: {resolution.warnings.join(', ').replaceAll('_', ' ')}.
+        </Notice>}
+        <TableRegion label="Refund resolution independent evidence requirements">
+          <table className="responsive-table records-sales">
+            <thead><tr><th>Required external verification</th><th>Evidence status</th></tr></thead>
+            <tbody>{resolution.requiredChecks.map(check => <tr key={check.code}>
+              <td data-label="Required external verification">{check.required}</td>
+              <td data-label="Evidence status">
+                <Badge tone={check.observed ? 'amber' : 'red'}>
+                  {check.observed ? 'POS indication only' : 'Not independently verified'}
+                </Badge>
+              </td>
+            </tr>)}</tbody>
+          </table>
+        </TableRegion>
+        {resolution.truncatedHistory &&
+          <Notice tone="error">Original draft audit history was truncated; do not make a decision.</Notice>}
+        <p className="field-hint">{resolution.notice}</p>
       </section>}
       {review && <>
         <Notice tone="warning">No refund approval, no physical cash payout, no Paystack settlement verification, and no stock restoration are possible here. These are investigation instructions only.</Notice>
