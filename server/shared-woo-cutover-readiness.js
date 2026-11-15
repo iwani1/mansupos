@@ -1,0 +1,220 @@
+/**
+ * Phase 4 — offline, immutable-source-bound shared Woo inventory cutover review.
+ *
+ * NEVER creates Woo products/orders, imports quantities, changes prices,
+ * approves a crosswalk, restores stock, issues refunds, or enables checkout.
+ * Physical November PDF counts are historical; Woo remains sole stock authority.
+ * Results contain only aggregate issue counts and physical row indexes, never
+ * names, SKUs, prices, private notes, count amounts or Woo metadata.
+ */
+const HEX=/^[a-f0-9]{64}$/;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const SKU=/^[0-9]{1,8}$/;
+const DATE=/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+const MAX_SOURCE=10000;
+const MAX_WOO=50000;
+const MAX_EXAMPLES=15;
+const MAX_COUNT_AGE_MS=24*60*60*1000; // suggestion only, not production-approved SLA
+const linkKeys={new_woo_required:['sourceSku','target'],existing_woo:['sourceSku','target','wooProductId','wooVariationId','reviewEvidenceId']};
+const countKeys=['sourceSku','units','countedAt','counterId','witnessId'];
+function fail(){throw new Error('Offline shared-stock cutover evidence invalid; no quantity or product change permitted.');}
+function exact(row,keys){return !!row && typeof row==='object' && !Array.isArray(row) &&
+  Object.keys(row).length===keys.length && keys.every(key=>Object.hasOwn(row,key));}
+function validTime(x){return typeof x==='string' && DATE.test(x) &&
+  Number.isFinite(Date.parse(x)) && new Date(x).toISOString()===x;}
+function validId(x){return Number.isSafeInteger(x)&&x>0;}
+function parseWooId(raw) {
+  if(typeof raw!=='string' || !/^[1-9][0-9]{0,14}$/.test(raw)) return null;
+  const n=Number(raw);
+  return validId(n)?n:null;
+}
+function parentId(row){
+  const text=String(row?.Parent??'').trim();
+  return parseWooId(text.startsWith('id:')?text.slice(3):text);
+}
+function normalizeSKU(raw){return String(raw??'').trim().toUpperCase();}
+function recordIssues(sourceIndex,issueCounts,examples,code){
+  issueCounts[code]=(issueCounts[code]||0)+1;
+  if(examples.length<MAX_EXAMPLES)examples.push({sourceRow:sourceIndex,code});
+}
+/**
+ * Evidence schema (optional): {
+ *   schemaVersion: 1, physicalManifestSha256, wooExportSha256,
+ *   linkDrafts: [{sourceSku,target:'new_woo_required'} |
+ *     {sourceSku,target:'existing_woo',wooProductId,wooVariationId:null|int,reviewEvidenceId:UUID}],
+ *   cycleCounts: [{sourceSku,units:integer,countedAt:ISO,counterId:UUID,witnessId:UUID}]
+ * }
+ * Review evidence IDs and distinct counters are untrusted claims, never real
+ * owner consent or verification that a physical count actually took place.
+ */
+export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha256,
+  evidence=null,now=Date.now()}={}) {
+  if (!Array.isArray(physical?.items) ||
+      !HEX.test(physical?.manifestHash || '') ||
+      physical.items.length>MAX_SOURCE ||
+      !Array.isArray(wooExport?.rows) ||
+      wooExport.rows.length>MAX_WOO ||
+      !HEX.test(wooExportSha256||'') ||
+      !Number.isFinite(now)) fail();
+
+  const issueCounts={};
+  const examples=[];
+  const issue=(i,c)=>recordIssues(i,issueCounts,examples,c);
+  const physicalBySku=new Map(),wooById=new Map(),wooBySku=new Map();
+  let held=0,eligiblePositive=0,eligibleZero=0;
+  physical.items.forEach((item,index)=>{
+    if (!item || !['available','out_of_stock','review'].includes(item.status)) fail();
+    if (item.status==='review'){held++;issue(index+1,'quarantined_source_record');}
+    else if (item.status==='available')eligiblePositive++;
+    else eligibleZero++;
+    const sku=normalizeSKU(item.sku);
+    if(!SKU.test(sku)) {
+      if(item.status!=='review')issue(index+1,'missing_or_invalid_source_sku');
+    } else if(physicalBySku.has(sku)){
+      issue(index+1,'duplicate_source_sku');
+    } else physicalBySku.set(sku,{row:index+1,item});
+  });
+  let wooParents=0,wooVariations=0;
+  wooExport.rows.forEach(row=>{
+    if(!row || typeof row!=='object')fail();
+    const id=parseWooId(String(row.ID??'').trim());
+    if(!id)issue(0,'invalid_woo_id');
+    else if(wooById.has(id))issue(0,'duplicate_woo_id');
+    else wooById.set(id,row);
+    if(['simple','variable'].includes(row.Type))wooParents++;
+    else if(row.Type==='variation')wooVariations++;
+    else issue(0,'unsupported_woo_product_type');
+    const sku=normalizeSKU(row.SKU);
+    if(sku){
+      if(wooBySku.has(sku))issue(0,'duplicate_woo_sku');
+      else wooBySku.set(sku,id);
+    }
+  });
+  const links=new Map(),counts=new Map();
+  let proposedExisting=0,proposedNew=0,claimedRecentCounts=0,
+    claimedStaleCounts=0,historicalCountDiscrepancies=0;
+  if (evidence!==null) {
+    if (!exact(evidence,['schemaVersion','physicalManifestSha256',
+      'wooExportSha256','linkDrafts','cycleCounts']) ||
+      evidence.schemaVersion!==1 ||
+      evidence.physicalManifestSha256!==physical.manifestHash ||
+      evidence.wooExportSha256!==wooExportSha256 ||
+      !Array.isArray(evidence.linkDrafts) || !Array.isArray(evidence.cycleCounts) ||
+      evidence.linkDrafts.length>physical.items.length ||
+      evidence.cycleCounts.length>physical.items.length) fail();
+    for(const link of evidence.linkDrafts){
+      const keys=linkKeys[link?.target];
+      if(!keys || !exact(link,keys) || !SKU.test(link.sourceSku) ||
+          links.has(link.sourceSku)) fail();
+      if(link.target==='existing_woo' &&
+          (!validId(link.wooProductId) ||
+           !(link.wooVariationId===null || validId(link.wooVariationId)) ||
+           !UUID.test(link.reviewEvidenceId||''))) fail();
+      links.set(link.sourceSku,link);
+    }
+    for(const entry of evidence.cycleCounts){
+      if(!exact(entry,countKeys) || !SKU.test(entry.sourceSku) ||
+        counts.has(entry.sourceSku) ||
+        !Number.isSafeInteger(entry.units) || entry.units<0 || entry.units>1000000 ||
+        !validTime(entry.countedAt) ||
+        !UUID.test(entry.counterId||'') || !UUID.test(entry.witnessId||'') ||
+        entry.counterId===entry.witnessId) fail();
+      counts.set(entry.sourceSku,entry);
+    }
+  } else {
+    issue(0,'no_source_bound_cutover_evidence');
+  }
+  for(const sku of links.keys()){
+    if(!physicalBySku.has(sku))issue(0,'link_for_unknown_source_sku');
+  }
+  for(const sku of counts.keys()){
+    if(!physicalBySku.has(sku))issue(0,'count_for_unknown_source_sku');
+  }
+  const allocatedTargets=new Set();
+  for(const [sku,{row,item}] of physicalBySku.entries()){
+    const link=links.get(sku);
+    const count=counts.get(sku);
+    if (item.status==='review'){
+      if(link)issue(row,'quarantined_item_must_not_link');
+      if(count)issue(row,'quarantined_item_count_not_released');
+      continue;
+    }
+    if(!link)issue(row,'identity_mapping_missing');
+    else if(link.target==='new_woo_required') {
+      proposedNew++;
+      issue(row,'new_woo_product_identity_unassigned');
+    } else {
+      proposedExisting++;
+      const parent=wooById.get(link.wooProductId);
+      const variation=link.wooVariationId===null?null:wooById.get(link.wooVariationId);
+      if(!parent || (link.wooVariationId===null && parent.Type!=='simple') ||
+          (link.wooVariationId!==null &&
+            (parent.Type!=='variable' || !variation ||
+             variation.Type!=='variation' ||
+             parentId(variation)!==link.wooProductId))) {
+        issue(row,'existing_woo_parent_variation_mismatch');
+      } else {
+        // An explicit existing Woo mapping is still a *draft* even if the
+        // SKU happens to match. No implicit name or price equality matching.
+        if (variation && !normalizeSKU(variation.SKU))
+          issue(row,'variation_sku_unassigned_for_manual_review');
+        if(variation && normalizeSKU(variation.SKU) &&
+           normalizeSKU(variation.SKU)!==sku)
+          issue(row,'variation_sku_differs_from_source');
+        if(!variation && normalizeSKU(parent.SKU)!==sku)
+          issue(row,'simple_woo_sku_differs_from_source');
+      }
+      const key=String(link.wooVariationId??link.wooProductId);
+      if(allocatedTargets.has(key))issue(row,'duplicate_woo_target_mapping');
+      else allocatedTargets.add(key);
+    }
+    if(!count)issue(row,'fresh_two_person_count_missing');
+    else {
+      const age=now-Date.parse(count.countedAt);
+      if(age<0 || age>MAX_COUNT_AGE_MS) {
+        claimedStaleCounts++;issue(row,'stale_or_future_physical_count_claim');
+      } else claimedRecentCounts++;
+      // Differences are a priority for manual reconciliation, NEVER a Woo
+      // quantity adjustment. Even a match is NOT independently observed.
+      if(Number.isInteger(item.reportedQuantity) &&
+         item.reportedQuantity!==count.units) {
+        historicalCountDiscrepancies++;
+        issue(row,'count_differs_from_historical_pdf');
+      }
+    }
+  }
+  return {
+    kind:'read-only-shared-woo-cutover-readiness',
+    source:'offline-historical-physical-and-export',
+    physicalManifestSha256:physical.manifestHash,
+    wooExportSha256,
+    counts:{
+      historicalSourceRows:physical.items.length,
+      sourceQuarantined:held,eligiblePositiveHistorically:eligiblePositive,
+      eligibleZeroHistorically:eligibleZero,
+      wooExportRows:wooExport.rows.length,wooParents,wooVariations,
+      proposedExistingLinks:proposedExisting,proposedNewIdentities:proposedNew,
+      claimedRecentTwoPersonCounts:claimedRecentCounts,
+      claimedStaleTwoPersonCounts:claimedStaleCounts,
+      countVsHistoricalDiscrepancies:historicalCountDiscrepancies,
+    },
+    issueCounts,examples,
+    allPhysicalMappingsIndependentlyVerified:false,
+    currentPhysicalCountsIndependentlyVerified:false,
+    existingWooIdentitiesOwnerApproved:false,
+    inventoryVariationOwnershipVerified:false,
+    wooExportCompleteAndCurrentVerified:false,
+    websiteAndStoreStockSingleAuthorityTested:false,
+    lastUnitConcurrencyVerified:false,
+    retailPriceAndTaxApproved:false,
+    wholesaleCashCustodyVerified:false,
+    lateGatewayGuardVerified:false,
+    wooStockMutationsAllowed:false,
+    productCreationAllowed:false,
+    checkoutAuthorized:false,
+    uploadOrImportReady:false,
+    sellerOrManagerApprovalIssued:false,
+    auditOnly:true,decision:'manual_identity_count_and_live_woo_review_required',
+    notice:'Historical PDF values and offline Woo exports are never live shared-stock balances. Draft links and claimed cycle counts are NOT verified Owner decisions or Woo stock adjustments. Reconcile every source row, variation and the actual live Woo stock owner before separately authorizing cutover.',
+  };
+}
