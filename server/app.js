@@ -20,6 +20,7 @@ import { AppError, now } from './errors.js';
 import { createLogger, requestId } from './logger.js';
 import { localTransaction, readSaleEvents } from './sale-events.js';
 import { auditSharedWooStock } from './phase2-stock-audit.js';
+import { auditCrossChannelSkus } from './cross-channel-sku-audit.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
 import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
@@ -233,6 +234,17 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   // Woo products/variations only and never calls an order or stock write API.
   app.get('/api/stock-safety/audit', auth, role('owner', 'manager'), async (_req, res) => {
     res.json(auditSharedWooStock(await catalog.get(true)));
+  });
+  // An owner/manager may compare exact product/variation SKUs with the signed
+  // historical physical-store source. This does not sync or reserve stock.
+  // Keep the pilot restricted to authenticated Woo product GETs only.
+  app.get('/api/stock-safety/source-match', auth, role('owner', 'manager'), async (_req, res) => {
+    if (config.mode !== 'live' || !config.liveReadOnly) {
+      throw new AppError('Physical SKU reconciliation is available only in the read-only live pilot.', 403, 'SOURCE_AUDIT_LOCKED');
+    }
+    const physical = inStore.snapshot();
+    const website = await catalog.get(true);
+    res.json(auditCrossChannelSkus(physical, website));
   });
   // Separately gated live trading service only. The read-only pilot, demo and
   // ordinary Woo checkout never enroll a device or issue offline allocations.

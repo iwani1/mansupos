@@ -24,11 +24,49 @@ const explanations = {
   shared_stock_pool_disagrees: 'Options using one stock owner disagree on its balance.',
 };
 const labelFor = code => explanations[code] || code.replaceAll('_', ' ');
+const sourceLabels = {
+  physical_snapshot_unverified: 'Physical source fingerprint or row count unverified',
+  woo_snapshot_unverified: 'Website catalogue snapshot incomplete, old or unverified',
+  physical_quarantined: 'Historical physical product is quarantined',
+  physical_missing_sku: 'Physical product has no SKU',
+  physical_duplicate_sku: 'Physical source has duplicate SKU',
+  physical_not_in_published_woo: 'Physical SKU not found in published Woo catalogue',
+  woo_simple_missing_sku: 'Website simple product has no SKU',
+  woo_variation_missing_sku: 'Website size/colour variation has no SKU',
+  woo_parent_sku_requires_variation_mapping: 'Variable parent SKU cannot identify a specific option',
+  ambiguous_woo_sku: 'One physical SKU matches multiple Woo options',
+  duplicate_woo_sku: 'Multiple Woo options reuse the same SKU',
+  woo_not_in_physical_snapshot: 'Website SKU not found in historical physical export',
+  woo_unsupported_product_type: 'Unsupported Woo product type',
+};
+const sourceIssueLabel = code => sourceLabels[code] || code.replaceAll('_', ' ');
 
 export default function StockSafety({ active }) {
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [sourceMatch, setSourceMatch] = useState(null);
+  const [sourceBusy, setSourceBusy] = useState(false);
+  const [sourceError, setSourceError] = useState('');
+  const loadSource = useCallback(async () => {
+    setSourceBusy(true);
+    setSourceError('');
+    setSourceMatch(null);
+    try {
+      const response = await api('/stock-safety/source-match');
+      if (response?.kind !== 'read-only-cross-channel-sku-audit' ||
+          response.auditOnly !== true || response.checkoutAuthorized !== false ||
+          response.sharedStockVerified !== false || !response.physical ||
+          !response.website || !response.issueCounts || !Array.isArray(response.examples)) {
+        throw new Error('Unexpected cross-channel identity report. Do not use it for sales decisions.');
+      }
+      setSourceMatch(response);
+    } catch (failure) {
+      setSourceError(failure?.message || 'Could not verify physical and website stock identifiers.');
+    } finally {
+      setSourceBusy(false);
+    }
+  }, []);
   const load = useCallback(async () => {
     setBusy(true);
     setError('');
@@ -58,6 +96,44 @@ export default function StockSafety({ active }) {
       </button>
     </PageHeading>
     <Notice tone="warning"><LockKeyhole size={16} /> <strong>Checkout remains locked.</strong> Even an audit with zero findings cannot verify simultaneous website/POS last-unit reservations, Paystack callbacks, pending orders or physical cash. Do not take payment or release goods based on this screen.</Notice>
+    <section className="surface records-surface" aria-label="Cross-channel SKU matching">
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">Next step / inventory integration</span>
+          <h2>Website and physical-store SKU matching</h2>
+          <p>Compare exact product codes from the verified historical store export with WooCommerce product and size/colour codes. No stock is merged or changed.</p>
+        </div>
+        <button type="button" className="button secondary" disabled={sourceBusy} onClick={loadSource}>
+          <RefreshCw size={16} className={sourceBusy ? 'spin' : ''}/>
+          {sourceBusy ? 'Checking identifiers…' : 'Compare product codes'}
+        </button>
+      </div>
+      {sourceBusy && <p className="field-hint" role="status">Reading verified physical source and published WooCommerce product codes; no order or stock write.</p>}
+      {sourceError && <Notice tone="error"><AlertTriangle size={16}/>{sourceError}</Notice>}
+      {sourceMatch && !sourceBusy && <>
+        {!sourceMatch.evidenceVerified && <Notice tone="error">At least one source could not be independently verified as current or complete. Do not treat matches as confirmed mappings.</Notice>}
+        <div className="overview-metrics">
+          <div className="overview-metric"><span className="eyebrow">Physical source products</span><strong>{sourceMatch.physical.total}</strong><small>{sourceMatch.physical.quarantined} quarantined for manual review</small></div>
+          <div className="overview-metric"><span className="eyebrow">Woo option codes</span><strong>{sourceMatch.website.distinctOptionSkus}</strong><small>Unique website option SKUs</small></div>
+          <div className="overview-metric"><span className="eyebrow">Potential exact matches</span><strong>{sourceMatch.matchedPhysical}</strong><small>SKU identity only; not synced stock</small></div>
+          <div className="overview-metric"><span className="eyebrow">Mapping findings</span><strong>{Object.values(sourceMatch.issueCounts).reduce((sum, n) => sum + n, 0)}</strong><small>Manual owner review needed</small></div>
+        </div>
+        <Notice tone="warning"><LockKeyhole size={16}/> SKU matches do <strong>not</strong> prove shared inventory, stock quantity, availability, or safe checkout. The physical report is historical.</Notice>
+        <div className="section-heading"><div><h3>Product code mapping findings</h3><p>Resolve unidentified, duplicate and missing variation SKUs in your source systems before any shared-stock checkout acceptance.</p></div></div>
+        {Object.keys(sourceMatch.issueCounts).length > 0 ?
+          <TableRegion label="Cross-channel SKU issues"><table className="responsive-table"><thead><tr><th>Issue</th><th className="right">Count</th></tr></thead><tbody>
+          {Object.entries(sourceMatch.issueCounts).map(([code, count]) => <tr key={code}><td data-label="Issue">{sourceIssueLabel(code)}</td><td data-label="Count" className="right">{count}</td></tr>)}
+          </tbody></table></TableRegion> :
+          <Notice tone="warning">No SKU coverage issue was found in the two snapshots. This does not verify live shared stock or authorize checkout.</Notice>}
+        {sourceMatch.examples.length > 0 && <div className="section-heading"><div><span className="eyebrow">Examples for owner review (up to 20)</span>
+          <ul className="field-hint">{sourceMatch.examples.map((item, i) =>
+            <li key={i}>{sourceIssueLabel(item.code)} · {item.sku ? 'SKU ' + item.sku : 'SKU missing'}
+            {item.productId ? ' · Woo #' + item.productId : ''}
+            {item.variationId ? ' / variation #' + item.variationId : ''}</li>)}</ul>
+        </div></div>}
+        <p className="report-scope">Source fingerprint: {sourceMatch.physical.manifestSha256 || 'not verified'} · Woo refreshed {dateTime(sourceMatch.website.fetchedAt)}. No Woo order, payment, quantity or POS sale was modified.</p>
+      </>}
+    </section>
     {error && <Notice tone="error"><AlertTriangle size={16} />{error} Refresh the catalogue and review the WooCommerce connection before using stock figures.</Notice>}
     {busy && <p role="status" className="field-hint">Reading published Woo products and variations. No order or stock write is being sent.</p>}
     {result && !busy && <React.Fragment>
