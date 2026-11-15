@@ -156,7 +156,6 @@ export class CountSupervisionEvidence {
     if(rows.filter(x=>x.reportRow===data.reportRow).length!==1)
       throw new AppError('Historical source row missing or duplicated.',409,
         'COUNT_SUPERVISION_ROW_AMBIGUOUS');
-    const row=rows.find(x=>x.reportRow===data.reportRow);
     this.db.exec('BEGIN IMMEDIATE');
     try{
       const entries=readNotes(this.db);

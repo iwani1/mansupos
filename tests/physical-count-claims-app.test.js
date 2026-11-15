@@ -112,18 +112,19 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   const supervisor=await req(supervisorUrl+'?search='+encodeURIComponent(sku),ownerToken);
   assert.equal(supervisor.status,200);
   assert.equal(supervisor.data.kind,'local-count-supervision-evidence');
-  assert.equal(supervisor.data.items.length,1);
-  assert.equal(supervisor.data.items[0].status,'count_discrepancy_open');
-  assert.equal(supervisor.data.items[0].firstCounterAccountId!=null,true);
-  assert.equal(supervisor.data.items[0].secondCounterAccountId!=null,true);
+  const supervisorCase=supervisor.data.items.find(x=>x.reportRow===row);
+  assert.ok(supervisorCase);
+  assert.equal(supervisorCase.status,'count_discrepancy_open');
+  assert.equal(supervisorCase.firstCounterAccountId!=null,true);
+  assert.equal(supervisorCase.secondCounterAccountId!=null,true);
   assert.equal(supervisor.data.physicallyWitnessed,false);
   assert.equal(supervisor.data.independentWitnessVerified,false);
   assert.equal(supervisor.data.stockImportAuthorized,false);
   assert.equal(supervisor.data.checkoutAuthorized,false);
   const evidenceBody={
     reportRow:row,expectedRef:supervisor.data.snapshotRef,
-    firstClaimId:supervisor.data.items[0].firstClaimId,
-    secondClaimId:supervisor.data.items[0].secondClaimId,
+    firstClaimId:supervisorCase.firstClaimId,
+    secondClaimId:supervisorCase.secondClaimId,
     expectedLatestNoteId:null,
     action:'flag_discrepancy',documentCode:'COUNT_NOV_001',
     note:'Discrepant counts require a supervised recount.',
@@ -141,8 +142,10 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal((await req(supervisorUrl,ownerToken,'POST',evidenceBody)).data.replayed,true);
   const supervisorNext=await req(supervisorUrl+'?search='+encodeURIComponent(sku),ownerToken);
   assert.equal(supervisorNext.status,200);
-  assert.equal(supervisorNext.data.items[0].status,'count_discrepancy_open');
-  assert.equal(supervisorNext.data.items[0].latestNote.documentCode,'COUNT_NOV_001');
+  const updatedCase=supervisorNext.data.items.find(x=>x.reportRow===row);
+  assert.ok(updatedCase);
+  assert.equal(updatedCase.status,'count_discrepancy_open');
+  assert.equal(updatedCase.latestNote.documentCode,'COUNT_NOV_001');
   assert.notEqual(supervisorNext.data.snapshotRef,supervisor.data.snapshotRef);
   assert.equal((await req(supervisorUrl+'?expectedRef='+supervisor.data.snapshotRef,ownerToken)).status,409);
   assert.equal((await req(supervisorUrl,ownerToken,'POST',{
