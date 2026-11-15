@@ -1,0 +1,30 @@
+# Phase 3.5 — Provider-neutral external audit transport contract (SYNTHETIC ONLY)
+
+**Status: DRAFT, UNMERGED, NOT DEPLOYED.** Phase 3.5 adds an offline mock protocol for a future independent custody provider. It does **not** connect a real third-party store, security monitoring service, POS system, WooCommerce, Paystack or bank. It performs no HTTP requests or notifications and does not persist receipts outside test-process memory.
+
+## What was built
+
+- **server/audit-external-transport-contract.js** provides a provider-neutral *operation contract* with checkpoint submission, operation-ID lookup, latest signed receipt lookup, incident recording, incident lookup and read-only recovery inspection. Its implementation is intentionally restricted to SyntheticAuditTransportFixture. The constructor rejects any arbitrary real-network client.
+- **SyntheticAuditExternalProtocol** verifies the entire local HMAC journal and Ed25519 witness chain, then checks the separate custodian-signed anchor using a pinned Ed25519 public key. It binds the anchor to the site UUID, original witness digest, sequence and journal HMAC head. All operation identifiers are UUIDs. It never returns bank details, payment IDs, raw order identifiers, gateway references or credentials.
+- **Uncertain acknowledgement handling:** if the fake provider commits an anchor but its acknowledgement is lost, the protocol queries the **same operation ID** and verifies the signed reply against the latest remote receipt. If the provider throws before committing or lookup is unavailable, it returns ACKNOWLEDGEMENT_UNKNOWN or EXTERNAL_WITNESS_UNAVAILABLE and blocks further action. It **does not automatically resubmit** a checkpoint with another ID or claim a successful external write after a timeout.
+- **Critical integrity incidents:** unexpected checkpoints, stale/local evidence, external unavailability or uncertain acknowledgements produce a typed critical incident with a deterministic incident key, no raw payment/customer identifiers, and an explicit Owner/security review requirement. The synthetic fixture can lose or preserve an incident acknowledgement; the client performs an incident-ID lookup. The only positive delivery state is synthetic_fixture_recorded, **not an actual email/SMS/page or durable ticket**. If state cannot be queried, incidentRecording stays unconfirmed. There is no external alert channel yet.
+- **Read-only recovery candidate:** assessRecovery() only compares supplied candidate data to the latest signed fixture checkpoint. It never writes a journal, replaces a backup, removes a lock, approves production restoration, pays money, authorizes a refund or changes stock. Owner and independent technical reviewer approval remain mandatory.
+- **Hard isolation:** NODE_ENV=test, MANSU_CI_SYNTHETIC_EXTERNAL_AUDIT_TRANSPORT=true and the previous synthetic witness flags are required. The transport constructor accepts only the same-process fake fixture, and no actual endpoint/merchant credentials/provider SDKs/production system workers are used.
+
+## Regression tests
+
+**tests/audit-external-transport-contract.test.js** covers normal cryptographically consistent submission, fake provider acknowledgement lost **after** commit (query finds it; exactly one record), error **before** commit (unknown result, no retry), external outage and unconfirmed incident delivery, lost incident acknowledgement with idempotent lookup, reuse of an operation ID for a different signed journal, unanchored new entries, rollback/corrupt local evidence, read-only recovery checks, invalid production clients and an explicit negative control where a same-host fake provider is restarted and loses its watermark.
+
+The negative control is essential: the fake fixture is NOT externally administered or durably retained, cannot satisfy an independent trust root and cannot prove rollback protection after loss of provider state. A syntactically valid signed acknowledgement can also be stolen or replayed without independently pinned public-key provenance and an external monotonic authority. All outputs keep independentExternalCustodyVerified, durableOffHostRetentionVerified, independentAlertDeliveryVerified, merchantBankSettlementVerified, refundAuthorized, payoutVerified, stockRestored, checkoutAuthorized, recoveryPerformed and financialWritesEnabled set to **false**.
+
+## What remains before any production connection
+
+1. **Choose a real independent storage/provider boundary** with authenticated service identities, retention/WORM or verified append-only durability, external monotonic high-watermark and ownership not controlled by POS/Contabo operators.
+2. Provision a pinned, externally verified custodian public key and separate non-exportable signing identity. Audit key rotation, revocation, replay protections, device/service access and custody chain.
+3. Implement a small signed, mutually authenticated append/query client, with request/response size limits, timeouts, rate limits, original-operation idempotency and explicit unknown-acknowledgement handling. No real external network code exists in Phase 3.5.
+4. Provide durable critical-incident ticketing with separately authenticated Owner/security alert delivery, escalation, failed-delivery retries, rate controls and privacy policy. The current incident API is an in-memory mock only.
+5. Run staging chaos tests: lost acknowledgements after commit, provider outage, stale/forked receipts, cross-provider mismatches, journal rollback, backup restore, key compromise and incident routing.
+6. Obtain explicit owner/independent security sign-off. A **separate** merchant-authorized reader with narrowly scoped Woo order access and provider-reviewed Paystack access is still required; a Paystack secret key is not inherently read-only.
+7. Keep MansuPOS draft/unmerged and leave all live website payments/stock untouched. lateGatewayGuardVerified remains false, so checkout remains locked.
+
+**The presence of a successful fixture result is never release authorization, authentic custody, bank settlement, refund receipt, goods release or inventory authority.**
