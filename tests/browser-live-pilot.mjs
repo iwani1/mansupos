@@ -92,6 +92,35 @@ try {
       notice: 'Woo refund not proof of physical cash payout.',
     }) });
   });
+  const resolutionCalls = [];
+  await page.route('**/api/payments/reconciliation/*/resolution', async route => {
+    resolutionCalls.push(route.request().method());
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      kind: 'non-executing-refund-resolution-dossier',
+      originalSaleId: '00000000-0000-4000-8000-000000000001',
+      originalOrderNumber: 'POS-SYNTHETIC', wooOrderId: 123,
+      saleStatus: 'needs_reconciliation', originalUpdatedAt: '2026-11-15T12:00:00.000Z',
+      recordedRefundedCents: 2000, originalTotalCents: 12000,
+      source: 'local-pos-ledger', websiteOrdersIncluded: false,
+      actionsAvailable: false, recordProposalAllowed: false,
+      recordOwnerReviewAllowed: false,
+      historicalProposal: null, historicalOwnerReview: null, truncatedHistory: false,
+      warnings: ['local_payment_evidence_incomplete'],
+      requiredChecks: [
+        { code: 'external_settlement_and_all_prior_payouts', source: 'independent_bank_or_gateway',
+          observed: false, required: 'Independently verify external settlement and prior payouts' },
+        { code: 'physically_received_and_inspected_return', source: 'manual_item_inspection',
+          observed: false, required: 'Physically inspect returned garment before restoring stock' },
+      ],
+      conflictingLocalEvidence: ['local_payment_evidence_incomplete'],
+      settlementVerified: false, payoutVerified: false, returnPhysicallyInspected: false,
+      ownerRefundApprovalIssued: false, cashPayoutAuthorized: false, refundExecuted: false,
+      wooStockRestorationAuthorized: false, stockRestored: false,
+      goodsReleaseAuthorized: false, checkoutAuthorized: false, mutationsAllowed: false,
+      decision: 'external_evidence_and_authorization_required',
+      notice: 'Drafts cannot authorize money or inventory.',
+    }) });
+  });
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
   await page.getByRole('region', { name: 'Live catalogue read-only notice' }).getByText('Live catalogue · no checkout').waitFor();
@@ -128,6 +157,17 @@ try {
   await page.getByText('Verify original settlement and prior refund independently').waitFor();
   if (refundPolicyCalls.join(',') !== 'GET') {
     throw new Error('Refund evidence worksheet must use local GET only.');
+  }
+  await page.getByRole('button', { name: 'Inspect resolution dossier (read-only)' }).click();
+  await page.getByRole('region', { name: 'Refund resolution dossier' }).waitFor();
+  await page.getByText('Independently verify external settlement and prior payouts').waitFor();
+  if (resolutionCalls.join(',') !== 'GET') {
+    throw new Error('Live resolution dossier must only read local POS evidence.');
+  }
+  if (await page.locator('main').getByRole('button', {
+    name: /record non-executing proposal|mark owner review|execute refund|restore stock/i,
+  }).count()) {
+    throw new Error('Live pilot must not offer resolution proposal or financial execution controls.');
   }
   if (financialHistoryCalls.join(',') !== 'GET') {
     throw new Error('Financial review history screen must use read-only GET only.');
