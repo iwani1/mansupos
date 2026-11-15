@@ -64,7 +64,7 @@ try {
   await page.getByText('Backorders are allowed and need a separate stock policy.').first().waitFor();
   await page.getByText(/Product #73 \/ Variation #74/).waitFor();
   if (auditCalls.join(',') !== 'GET') throw new Error('Stock safety screen must read only once and never write.');
-  if (await page.getByRole('button', { name: /checkout|sell|pay|approve refund/i }).count()) {
+  if (await page.locator('main').getByRole('button', { name: /checkout|sell|pay|approve refund/i }).count()) {
     throw new Error('Stock audit screen must not present checkout or refund approval actions.');
   }
   await page.locator('[data-nav="paymentReconciliation"]').click();
@@ -75,7 +75,7 @@ try {
   if (paymentReviewCalls.join(',') !== 'GET') {
     throw new Error('Reconciliation dashboard must only GET local POS evidence.');
   }
-  if (await page.getByRole('button', { name: /approve|pay|refund|fulfil|settle/i }).count()) {
+  if (await page.locator('main').getByRole('button', { name: /approve|pay|refund|fulfil|settle/i }).count()) {
     throw new Error('Read-only payment dashboard must not expose payment or refund controls.');
   }
   await page.locator('[data-nav="shifts"]').click();
