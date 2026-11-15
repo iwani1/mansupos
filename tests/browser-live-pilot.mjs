@@ -66,6 +66,32 @@ try {
       notice: 'No refund or cash action authorized.',
     }) });
   });
+  const refundPolicyCalls = [];
+  await page.route('**/api/payments/reconciliation/*/refund-evidence*', async route => {
+    refundPolicyCalls.push(route.request().method());
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      kind: 'read-only-refund-evidence-policy', source: 'local-pos-ledger',
+      auditOnly: true, mutationsAllowed: false, checkoutAuthorized: false,
+      websiteOrdersIncluded: false, refundAuthorized: false, refundExecuted: false,
+      cashPayoutVerified: false, gatewaySettlementVerified: false,
+      stockRestored: false, returnInspected: false, fulfilmentAuthorized: false,
+      saleId: '00000000-0000-4000-8000-000000000001',
+      saleNumber: 'POS-SYNTHETIC', wooOrderId: 123, saleStatus: 'needs_reconciliation',
+      paymentMethod: 'cash', originalShiftId: 'synthetic-shift',
+      originalTotalCents: 12000, observedWooRefundCents: 2000,
+      observedRemainingCents: 10000, recordedRefundKind: 'partial',
+      hypotheticalNewRefundCents: null, proposalWithinObservedRemaining: false,
+      hypotheticalBalanceAfterCents: null, decision: 'manual_review_only',
+      checks: [
+        { code: 'external_settlement_and_prior_payout', observed: false,
+          requirement: 'Verify original settlement and prior refund independently' },
+        { code: 'goods_return_and_inspection', observed: false,
+          requirement: 'Physically inspect any garment before restoring stock' },
+      ],
+      warnings: ['recorded_woo_cash_refund_does_not_prove_physical_payout'],
+      notice: 'Woo refund not proof of physical cash payout.',
+    }) });
+  });
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
   await page.getByRole('region', { name: 'Live catalogue read-only notice' }).getByText('Live catalogue · no checkout').waitFor();
@@ -97,6 +123,12 @@ try {
   await page.getByRole('button', { name: 'Review evidence' }).click();
   await page.getByRole('heading', { name: 'Documented investigation requests' }).waitFor();
   await page.getByText('No investigation instructions have been recorded for this original sale.').waitFor();
+  await page.getByRole('button', { name: 'Inspect refund evidence (read-only)' }).click();
+  await page.getByRole('region', { name: 'Refund policy worksheet results' }).waitFor();
+  await page.getByText('Verify original settlement and prior refund independently').waitFor();
+  if (refundPolicyCalls.join(',') !== 'GET') {
+    throw new Error('Refund evidence worksheet must use local GET only.');
+  }
   if (financialHistoryCalls.join(',') !== 'GET') {
     throw new Error('Financial review history screen must use read-only GET only.');
   }
