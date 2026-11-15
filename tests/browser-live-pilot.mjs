@@ -94,6 +94,52 @@ try {
       rows:selected.slice((pageNumber-1)*25,pageNumber*25),
     })});
   });
+  // Synthetic owner mapping proposals. Never contacts production Woo.
+  const ownerMappingCalls=[];
+  let ownerMappingLatest=null;
+  await page.route('**/api/stock-safety/owner-mapping-evidence*',async route=>{
+    const request=route.request();
+    if(request.method()==='POST'){
+      const body=request.postDataJSON();
+      ownerMappingCalls.push({method:'POST',body});
+      ownerMappingLatest={
+        id:601,decision:body.decision,note:body.note,
+        proposedProductId:body.proposedProductId,
+        proposedVariationId:body.proposedVariationId,
+        proposedSku:'OWNER001',exactSkuMatch:true,
+        actor:'synthetic-owner',
+        mappingApproved:false,recordedAt:'2026-11-15T12:00:00.000Z',
+      };
+      await route.fulfill({status:201,contentType:'application/json',body:JSON.stringify({
+        kind:'local-unverified-owner-mapping-proposal',
+        recorded:true,replayed:false,reviewId:601,auditOnly:true,
+        mappingApproved:false,checkoutAuthorized:false,stockImportAuthorized:false,
+      })});
+      return;
+    }
+    const url=new URL(request.url());
+    const requestedPage=Number(url.searchParams.get('page')||1);
+    ownerMappingCalls.push({method:'GET',page:requestedPage,
+      expectedRef:url.searchParams.get('expectedRef')||''});
+    const entries=[
+      {reportRow:1,sku:'OWNER001',classification:'provisional_match',
+       initialProductId:101,initialVariationId:null,latestReview:ownerMappingLatest,
+       mappingApproved:false,stockImportAuthorized:false},
+      {reportRow:2,sku:'OWNER002',classification:'missing_on_website',
+       initialProductId:null,initialVariationId:null,latestReview:null,
+       mappingApproved:false,stockImportAuthorized:false},
+    ];
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'local-owner-mapping-evidence-review',auditOnly:true,
+      checkoutAuthorized:false,stockImportAuthorized:false,
+      sharedStockVerified:false,mappingApproved:false,evidenceVerified:true,
+      sourceHash:'a'.repeat(64),identityRef:'b'.repeat(64),
+      page:requestedPage,pageSize:25,pages:1,total:2,hasMore:false,
+      counts:{notReviewed:ownerMappingLatest?1:2,proposed:ownerMappingLatest?1:0,
+        investigation:0,hold:0},
+      items:entries,
+    })});
+  });
   // Synthetic physical recount planning: ALL count fields remain blank.
   const recountCalls=[];
   await page.route('**/api/stock-safety/recount-plan*',async route=>{
@@ -317,6 +363,31 @@ try {
      mappingCalls[2].status!=='provisional_match'){
     throw Error('Mapping workbench must use GET-only, safe snapshot-bound pagination and filters.');
   }
+  const ownerMapping=page.getByRole('region',{name:'Owner product mapping evidence'});
+  await ownerMapping.getByRole('button',{name:'Open owner mapping review'}).click();
+  const ownerMappingTable=ownerMapping.getByRole('region',{name:'Owner product identity proposals'}).locator('table');
+  await ownerMappingTable.locator('tbody tr').first().waitFor();
+  if(await ownerMappingTable.locator('tbody tr').count()!==2)
+    throw Error('Owner mapping workbench should display both synthetic identities.');
+  await ownerMapping.getByRole('button',{name:'Review identity'}).first().click();
+  await ownerMapping.getByRole('heading',{name:/Record owner mapping evidence/}).waitFor();
+  await ownerMapping.getByRole('combobox',{name:'Choose mapping review action'}).selectOption('propose_option');
+  await ownerMapping.getByRole('spinbutton',{name:'Published WooCommerce product ID'}).fill('101');
+  await ownerMapping.getByRole('textbox',{name:'Owner mapping investigation note'})
+    .fill('Check actual blue dress and size before agreeing on this SKU.');
+  await ownerMapping.getByRole('button',{name:'Save proposal / investigation only'}).click();
+  await ownerMapping.getByText(/Owner mapping evidence saved locally/).waitFor();
+  await ownerMapping.getByText(/Check actual blue dress and size before agreeing/).waitFor();
+  if(ownerMappingCalls.filter(x=>x.method==='POST').length!==1||
+     ownerMappingCalls.find(x=>x.method==='POST').body.expectedRef!=='b'.repeat(64)||
+     ownerMappingCalls.find(x=>x.method==='POST').body.proposedProductId!==101||
+     ownerMappingCalls.find(x=>x.method==='POST').body.decision!=='propose_option'||
+     ownerMappingCalls.find(x=>x.method==='POST').body.expectedLatestReviewId!==null){
+    throw Error('Owner SKU proposal must be source-bound and unapproved.');
+  }
+  if(await ownerMapping.getByRole('button',{name:/approve stock|import stock|start checkout/i}).count())
+    throw Error('Mapping review must not allow inventory imports or checkout.');
+
   const recountArea=page.getByRole('region',{name:'Physical stock recount preparation'});
   await recountArea.getByRole('button',{name:'Build recount task list'}).click();
   const recountTable=recountArea.getByRole('region',{name:'Physical recount review tasks'}).locator('table');

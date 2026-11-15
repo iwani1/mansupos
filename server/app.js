@@ -24,6 +24,7 @@ import { auditCrossChannelSkus, listCrossChannelSkuFindings } from './cross-chan
 import { listPhysicalMappingCoverage } from './physical-mapping-coverage.js';
 import { planPhysicalRecounts } from './physical-recount-plan.js';
 import { PhysicalCountClaims } from './physical-count-claims.js';
+import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
 import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
@@ -100,6 +101,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const operations = new DailyOperations(db);
   const weekly = new WeeklyOperations(db);
   const countClaims = new PhysicalCountClaims(db);
+  const mappingEvidence = new OwnerMappingEvidence(db);
   let inStore;
   try { inStore = new InStoreService(db, config); }
   catch (error) { db.close(); throw error; }
@@ -394,6 +396,32 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
       res.status(201).json(result);
     });
 
+
+  // Append-only, Owner-only identity PROPOSALS in the read-only pilot.
+  // No Woo order/stock writes and no physical stock authorization.
+  app.get('/api/stock-safety/owner-mapping-evidence',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        page:z.coerce.number().int().min(1).max(10000).default(1),
+        pageSize:z.coerce.number().int().min(1).max(50).default(25),
+        status:z.enum(['all','not_reviewed','proposed','investigation','hold']).default('all'),
+        search:z.string().trim().max(64).default(''),
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const output=mappingEvidence.review(inStore.snapshot(),await catalog.get(),options);
+      if(options.expectedRef&&output.identityRef!==options.expectedRef)
+        throw new AppError('The source or published Woo identities changed; restart mapping review.',409,'MAPPING_EVIDENCE_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(output);
+    });
+
+  app.post('/api/stock-safety/owner-mapping-evidence',
+    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
+      const output=mappingEvidence.submit(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body);
+      res.set('Cache-Control','no-store');
+      res.status(201).json(output);
+    });
 
   // Separately gated live trading service only. The read-only pilot, demo and
   // ordinary Woo checkout never enroll a device or issue offline allocations.
