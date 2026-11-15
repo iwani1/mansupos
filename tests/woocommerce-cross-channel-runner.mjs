@@ -124,6 +124,22 @@ try {
     console.log('DISPOSABLE_CROSS_PARENT_KIND_OK ' + kind);
   }
 
+  // An actual disposable WordPress mysqli close/reconnect mid-Paystack
+  // verification discards GET_LOCK without ending the PHP HTTP request.
+  // The bridge must detect changed ownership before payment_complete and
+  // leave the original order unfulfilled for Owner/Manager reconciliation.
+  const resetSetup = outputStage('reset-setup');
+  const reset = JSON.parse(resetSetup.match(/^DISPOSABLE_CONNECTION_RESET_SETUP (.+)$/m)?.[1] || 'null');
+  assert.ok(reset?.id && reset?.ref, 'No synthetic MySQL disconnect payment fixture');
+  await webhook(reset.ref, 200);
+  outputStage('reset-verify');
+  // Upstream Paystack still sees a verified gateway transaction on replay;
+  // quarantined Woo stock/payment evidence must never advance a second time.
+  await webhook(reset.ref, 200);
+  outputStage('reset-replay-verify');
+  console.log('DISPOSABLE_DB_CONNECTION_LOSS_OK: original Paystack order quarantined' +
+    ' after real local mysqli reconnect; stock and callback replay verified');
+
   const lockSetup = outputStage('lock-setup');
   const lock = JSON.parse(lockSetup.match(/^DISPOSABLE_LOCK_SETUP (.+)$/m)?.[1] || 'null');
   assert.ok(lock?.id && lock?.ref, 'Missing lock timeout fixture');
@@ -149,8 +165,8 @@ try {
   await webhook(lock.ref, 200);
   outputStage('lock-recovered-verify');
   console.log('DISPOSABLE_CROSS_CHANNEL_AND_LOCK_RECOVERY_OK: simple/parent-managed' +
-    ' same-last-unit POS vs Paystack races, pre-lock forged GET rejection,' +
-    ' and MySQL lock timeout/retry; no real Paystack or live website.');
+    ' POS vs Paystack races, forged GET rejection, mysqli connection loss,' +
+    ' webhook replay and DB lock timeout/retry; no real Paystack or live website.');
 } finally {
   if (holder?.process.exitCode === null) holder.process.kill('SIGTERM');
   server.kill('SIGTERM');
