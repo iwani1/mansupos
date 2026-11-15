@@ -8,7 +8,7 @@
  * names, SKUs, prices, private notes, count amounts or Woo metadata.
  */
 const HEX=/^[a-f0-9]{64}$/;
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SKU=/^[0-9]{1,8}$/;
 const DATE=/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 const MAX_SOURCE=10000;
