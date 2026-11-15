@@ -12,6 +12,7 @@ import { assessSharedWooInventoryCutover } from '../server/shared-woo-cutover-re
 const maxExportBytes=64*1024*1024;
 const maxEvidenceBytes=1024*1024;
 const maxReviewDraftBytes=1024*1024;
+const maxSecondRecountBytes=1024*1024;
 const hash=b=>createHash('sha256').update(b).digest('hex');
 function readLocalFile(input,maxBytes,privateOnly=false) {
   const name=path.resolve(input);
@@ -27,10 +28,14 @@ export function renderSharedWooCutoverReadiness(result) {
       result.auditOnly!==true ||
       result.reviewWorkflow?.ownerSignOffIssued!==false ||
       result.reviewWorkflow?.importOrStockWriteAuthorized!==false ||
-      result.reviewWorkflow?.ownerIdentityIndependentlyVerified!==false)
+      result.reviewWorkflow?.ownerIdentityIndependentlyVerified!==false ||
+      result.secondRecountSummary?.importOrStockWriteAuthorized!==false ||
+      result.secondRecountSummary?.physicalQuantitiesIndependentlyVerified!==false ||
+      result.secondRecountSummary?.counterIdentityIndependentlyVerified!==false)
     throw Error('unsafe report');
   const n=result.counts;
   const review=result.reviewWorkflow;
+  const second=result.secondRecountSummary;
   const reviewRows=review.reviewQueues.map(q=>
     '| '+q.priority+' | '+q.task+' | '+q.affectedSourceRows+
     ' | '+(q.hasGlobalIssue?'yes':'no')+
@@ -65,6 +70,25 @@ export function renderSharedWooCutoverReadiness(result) {
     '| Claimed recent two-person count records | '+n.claimedRecentTwoPersonCounts+' |',
     '| Stale or future dated count claims | '+n.claimedStaleTwoPersonCounts+' |',
     '| Historical-count discrepancies (NOT adjustments) | '+n.countVsHistoricalDiscrepancies+' |',
+    '',
+    '## Phase 4.3 second recount claim review (read-only)',
+    '',
+    'Second recount draft supplied: '+(second.supplied?'yes':'no')+'.',
+    'Second-counter UUIDs are UNVERIFIED claims, not authenticated staff identities.',
+    'Comparing two claimed physical counts cannot certify stock or release a held item.',
+    '',
+    '| Recount indicator | Number |',
+    '| --- | ---: |',
+    '| Submitted second count claims | '+second.submittedClaims+' |',
+    '| Matching first count claims (NOT verified) | '+second.claimedMatchingFirst+' |',
+    '| Disagreements between first and second claims | '+second.claimedDisagreements+' |',
+    '| Missing second count claims (only if draft supplied) | '+second.missingSecondClaims+' |',
+    '| Second counts lacking a first claim | '+second.secondWithoutFirst+' |',
+    '| Stale or future dated second counts | '+second.staleOrFutureClaims+' |',
+    '| First/second observation window conflicts | '+second.observationWindowConflicts+' |',
+    '| Second counts for held items (NOT released) | '+second.quarantinedSecondClaims+' |',
+    '',
+    'NO PHYSICAL STOCK OR OWNER AUTHENTICATION; NO IMPORT OR CHECKOUT APPROVAL.',
     '',
     '## Phase 4.2 owner-review triage (read-only)',
     '',
@@ -101,9 +125,9 @@ export function renderSharedWooCutoverReadiness(result) {
   ].join('\n');
 }
 function main() {
-  if (![3,4,5].includes(process.argv.length) || !process.argv[2] ||
+  if (![3,4,5,6].includes(process.argv.length) || !process.argv[2] ||
       process.argv.slice(2).some(a=>a.startsWith('-'))) {
-    console.error('Usage: node scripts/assess-shared-woo-cutover.mjs /private/woo-products.csv [/private/cutover-evidence.json [/private/owner-review-draft.json]]');
+    console.error('Usage: node scripts/assess-shared-woo-cutover.mjs /private/woo-products.csv [/private/cutover-evidence.json [/private/owner-review-draft.json [/private/second-recounts.json]]]');
     process.exitCode=2;
     return;
   }
@@ -117,9 +141,13 @@ function main() {
     const reviewDraft=process.argv[4]
       ? JSON.parse(readLocalFile(process.argv[4],maxReviewDraftBytes,true).toString('utf8'))
       : null;
+    const secondRecounts=process.argv[5]
+      ? JSON.parse(readLocalFile(process.argv[5],maxSecondRecountBytes,true).toString('utf8'))
+      : null;
     const result=assessSharedWooInventoryCutover({
       physical:source,wooExport,wooExportSha256:hash(bytes),evidence,
-      cutoverEvidenceSha256:evidenceBytes?hash(evidenceBytes):null,reviewDraft,
+      cutoverEvidenceSha256:evidenceBytes?hash(evidenceBytes):null,
+      reviewDraft,secondRecounts,
     });
     process.stdout.write(renderSharedWooCutoverReadiness(result));
   } catch {

@@ -17,6 +17,8 @@ const MAX_EXAMPLES=15;
 const MAX_COUNT_AGE_MS=24*60*60*1000; // suggestion only, not production-approved SLA
 const linkKeys={new_woo_required:['sourceSku','target'],existing_woo:['sourceSku','target','wooProductId','wooVariationId','reviewEvidenceId']};
 const countKeys=['sourceSku','units','countedAt','counterId','witnessId'];
+const secondCountKeys=['sourceSku','units','countedAt','counterId'];
+const MAX_SECOND_RECOUNT_SPAN_MS=4*60*60*1000; // review heuristic, not an SLA
 const MAX_REVIEW_SAMPLES=12;
 // Privacy-safe triage view; NOT an approval ledger. A row may appear in many queues.
 const REVIEW_CATEGORIES=[
@@ -50,6 +52,13 @@ const REVIEW_CATEGORY_BY_ISSUE={
   fresh_two_person_count_missing:'physical_recount',
   stale_or_future_physical_count_claim:'physical_recount',
   count_differs_from_historical_pdf:'physical_recount',
+  independent_second_recount_missing:'physical_recount',
+  second_recount_unknown_source:'physical_recount',
+  second_recount_without_first:'physical_recount',
+  second_recount_stale_or_future:'physical_recount',
+  second_recount_too_far_from_first:'physical_recount',
+  independent_recounts_disagree:'physical_recount',
+  second_recount_on_quarantined_item:'quarantine',
   variation_stock_owner_requires_live_verification:'variation_owner',
   possible_shared_parent_managed_stock_pool:'variation_owner',
 };
@@ -87,7 +96,8 @@ function recordIssues(sourceIndex,issueCounts,examples,code){
  * owner consent or verification that a physical count actually took place.
  */
 export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha256,
-  evidence=null,reviewDraft=null,cutoverEvidenceSha256=null,now=Date.now()}={}) {
+  evidence=null,reviewDraft=null,secondRecounts=null,
+  cutoverEvidenceSha256=null,now=Date.now()}={}) {
   if (!Array.isArray(physical?.items) ||
       !HEX.test(physical?.manifestHash || '') ||
       physical.items.length>MAX_SOURCE ||
@@ -247,6 +257,82 @@ export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha
       }
     }
   }
+  // Phase 4.3: a SECOND independent recount claim, bound to the original
+  // private first-count/crosswalk bytes, physical manifest and Woo CSV bytes.
+  // Different UUIDs are user claims, not independently proven staff identity.
+  const secondRecountSummary={
+    kind:'offline-second-recount-claims',
+    supplied:secondRecounts!==null,
+    submittedClaims:0,claimedMatchingFirst:0,claimedDisagreements:0,
+    missingSecondClaims:0,secondWithoutFirst:0,
+    staleOrFutureClaims:0,observationWindowConflicts:0,
+    quarantinedSecondClaims:0,
+    counterIdentityIndependentlyVerified:false,
+    physicalQuantitiesIndependentlyVerified:false,
+    websiteReservationsReconciled:false,
+    importOrStockWriteAuthorized:false,
+  };
+  if(secondRecounts!==null){
+    if(evidence===null || !HEX.test(cutoverEvidenceSha256||'') ||
+      !exact(secondRecounts,['schemaVersion','physicalManifestSha256',
+        'wooExportSha256','cutoverEvidenceSha256','recounts']) ||
+      secondRecounts.schemaVersion!==1 ||
+      secondRecounts.physicalManifestSha256!==physical.manifestHash ||
+      secondRecounts.wooExportSha256!==wooExportSha256 ||
+      secondRecounts.cutoverEvidenceSha256!==cutoverEvidenceSha256 ||
+      !Array.isArray(secondRecounts.recounts) ||
+      secondRecounts.recounts.length>physical.items.length) fail();
+    const seconds=new Map();
+    for(const entry of secondRecounts.recounts){
+      if(!exact(entry,secondCountKeys) || !SKU.test(entry.sourceSku) ||
+        seconds.has(entry.sourceSku) ||
+        !Number.isSafeInteger(entry.units) || entry.units<0 || entry.units>1000000 ||
+        !validTime(entry.countedAt) || !UUID.test(entry.counterId||'')) fail();
+      seconds.set(entry.sourceSku,entry);
+    }
+    secondRecountSummary.submittedClaims=seconds.size;
+    for(const sku of seconds.keys()){
+      if(!physicalBySku.has(sku))issue(0,'second_recount_unknown_source');
+    }
+    for(const [sku,{row,item}] of physicalBySku){
+      const second=seconds.get(sku);
+      if(item.status==='review'){
+        if(second){
+          secondRecountSummary.quarantinedSecondClaims++;
+          issue(row,'second_recount_on_quarantined_item');
+        }
+        continue;
+      }
+      if(!second){
+        secondRecountSummary.missingSecondClaims++;
+        issue(row,'independent_second_recount_missing');
+        continue;
+      }
+      const first=counts.get(sku);
+      if(!first){
+        secondRecountSummary.secondWithoutFirst++;
+        issue(row,'second_recount_without_first');
+        continue;
+      }
+      // Distinct synthetic IDs cannot authenticate staff, but the same
+      // asserted ID reused from either first-count role is never acceptable.
+      if(second.counterId===first.counterId || second.counterId===first.witnessId)fail();
+      const secondAge=now-Date.parse(second.countedAt);
+      if(secondAge<0 || secondAge>MAX_COUNT_AGE_MS){
+        secondRecountSummary.staleOrFutureClaims++;
+        issue(row,'second_recount_stale_or_future');
+      }
+      if(Math.abs(Date.parse(second.countedAt)-Date.parse(first.countedAt))>
+        MAX_SECOND_RECOUNT_SPAN_MS){
+        secondRecountSummary.observationWindowConflicts++;
+        issue(row,'second_recount_too_far_from_first');
+      }
+      if(second.units!==first.units){
+        secondRecountSummary.claimedDisagreements++;
+        issue(row,'independent_recounts_disagree');
+      } else secondRecountSummary.claimedMatchingFirst++;
+    }
+  }
   // These are private human-entered WORKFLOW NOTES, never signatures.
   // They bind physical + Woo + exact crosswalk/count bytes (no names/text).
   const annotations=new Map(REVIEW_CATEGORIES.map(x=>[x.task,new Map()]));
@@ -314,7 +400,7 @@ export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha
       claimedStaleTwoPersonCounts:claimedStaleCounts,
       countVsHistoricalDiscrepancies:historicalCountDiscrepancies,
     },
-    issueCounts,examples,reviewWorkflow,
+    issueCounts,examples,reviewWorkflow,secondRecountSummary,
     allPhysicalMappingsIndependentlyVerified:false,
     currentPhysicalCountsIndependentlyVerified:false,
     existingWooIdentitiesOwnerApproved:false,

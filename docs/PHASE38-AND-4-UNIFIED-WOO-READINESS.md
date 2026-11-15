@@ -42,6 +42,10 @@ The assessment now flags orphaned Woo variations, requires installed-site owner 
 
 The aggregate report also groups outstanding problems into P0/P1 review queues. An optional third private, source/recount/export hash-bound JSON records only provisional review statuses for previously detected issues; there is no approved state, no second ledger, no per-item data in output, and no Woo write path. See [Phase 4.2 review workflow](PHASE42-OWNER-INVENTORY-REVIEW.md).
 
+## Phase 4.3 — Second independent recount claim review
+
+The same offline command accepts an optional FOURTH private source-bound file, after the existing private crosswalk/count draft and owner review draft. It compares a separately entered second count to the original first count, detects missing/stale/different counts and reused synthetic counter roles, and emits only aggregate results. No second live stock authority or import/export file is created. Even an apparent match does not verify staff identity, actual counted stock or checkout safety. See [Phase 4.3 recount claims](PHASE43-SECOND-RECOUNT-CLAIMS.md).
+
 ## Manual reconciliation work before any cutover
 
 1. Recount all actual physical units by SKU, size and colour, with independent witness; resolve all 41 held records.
