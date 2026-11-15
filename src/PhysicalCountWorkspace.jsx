@@ -86,7 +86,7 @@ export default function PhysicalCountWorkspace({ user }) {
     finally{setPosting(false);}
   };
 
-  return <div className="sales-page" aria-label="Physical count claims workspace">
+  return <div className="sales-page" role="region" aria-label="Physical count claims workspace">
     <PageHeading eyebrow="Physical inventory / count declarations"
       title={owner?'Owner physical count review':'Physical stock count entry'}
       description="Claims from individual POS staff accounts only. Never use this information to release stock or take payment.">
