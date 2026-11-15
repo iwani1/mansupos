@@ -9,6 +9,14 @@
 - **Shop wholesale:** Build on the existing Woo-backed Wholesale quote workflow, with owner/manager approval, a negotiated final tax-inclusive unit price **for one sale only**, a cash shift and a reconciled Woo order. Never change the product's retail website price to the wholesale price. Actual pending/paid notifications, tax calculation, last-item safety and loss-of-response recovery require real-store acceptance before taking cash. The existing web POS has no offline checkout queue or direct POS Paystack. A historical, uninstalled [offline till draft](WINDOWS-OFFLINE-DESIGN.md) was designed to queue local receipts against pre-allocated stock, but the owner clarified that the requested Windows POS must be **online-only**. The separate [online Windows QA pilot](WINDOWS-ONLINE-PILOT.md) instead reads the existing read-only POS service and cannot sell.
 - **No double pool:** The current `In-store collection` source snapshot and POS-only sale/stock-count routes are **legacy for this target**. Do not import its 1,530 eligible items into the POS-only ledger, record an `IS-...` sale for these goods, or present its PDF counts as live shared stock. Retain historical test coverage, but leave all production gates locked until a reviewed Woo-backed cutover. The trading service is not installed.
 
+## Phase 3.8 / Phase 4 — source-bound offline cutover readiness
+
+The latest **no-write inventory readiness review** is documented in [Phase 3.8 and Phase 4 unified Woo readiness](PHASE38-AND-4-UNIFIED-WOO-READINESS.md). It adds a SHA-bound, aggregate-only CLI for a local fresh Woo product export:
+
+    node scripts/assess-shared-woo-cutover.mjs /path/to/private/woo-products.csv
+
+A second optional 0600 private JSON file can contain **draft-only** existing-Woo simple/variation links or new-Woo identity placeholders plus independently witnessed recount *claims*. The tool rejects duplicate/mismatched Woo identities, unknown or quarantined source rows, malformed variation-parent links, old/future count claims and source hash mismatches. It writes **no import CSV**, never calls Woo APIs and cannot authorize creation, sales, refund, stock edits or checkout. The historical **1,571** physical records (**1,206** positive, **324** zero, **41** held) are not live stock. Woo remains the single stock authority, and full physical recount, fresh Woo identities, installed-site last-unit/payment compatibility and Owner review are mandatory.
+
 ## Read-only matching tool
 
 Run from the project checkout with a current **products-only** Woo CSV export. It uses the SHA-256-validated physical source, does **not** request a Woo key, and emits an aggregate-only Markdown preview to standard output. The export is not copied into the POS database or `dist/`:
