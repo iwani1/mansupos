@@ -290,8 +290,10 @@ export class SyntheticAuditExternalProtocol {
     let witness;
     try {witness=this.#localWitness(journal);}
     catch {return this.#blocked(operationId,'LOCAL_EVIDENCE_INVALID');}
+    let latest;
+    try {latest=await this.transport.latestCheckpoint();}
+    catch {return this.#blocked(operationId,'EXTERNAL_WITNESS_UNAVAILABLE');}
     try {
-      const latest=await this.transport.latestCheckpoint();
       compareExpected(latest,witness,this.custodianPublicKey,this.siteId);
       return noFinance('synthetic-external-audit-health','fixture_receipt_consistent',{
         anchoredSequence:latest.sequence,needsOwnerSecurityReview:false,
