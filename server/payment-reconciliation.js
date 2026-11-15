@@ -50,13 +50,15 @@ const common = `
     LEFT JOIN event_flags ef ON ef.sale_id=s.id
   )
   SELECT * FROM evidence
-  WHERE status IN ('creating','awaiting_payment','needs_reconciliation')
+  WHERE (
+    status IN ('creating','awaiting_payment','needs_reconciliation')
     OR (refunded > 0 AND payment_method='cash')
     OR (cash_accepted_event=1 AND paid_at IS NULL)
     OR (cash_intent_event=1 AND cash_accepted_event=0 AND paid_at IS NULL)
     OR (online_intent_event=1 AND woo_order_id IS NULL)
     OR (online_intent_event=1 AND status IN ('paid','partially_refunded','refunded')
       AND (paid_at IS NULL OR payment_verified_event=0))
+  )
 `;
 
 function decodeCursor(cursor) {
