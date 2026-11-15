@@ -977,6 +977,12 @@ function mansu_online_paystack_route_lock() {
         status_header( 503 );
         exit;
     }
+    // Register release IMMEDIATELY after GET_LOCK. The status recheck may
+    // exit early on an already-paid/quarantined order, and some Woo stores
+    // use persistent DB connections: skipping release would poison retries.
+    register_shutdown_function( static function () use ( $wpdb, $lock_name ) {
+        $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+    } );
     // Re-read after acquiring the lock; a concurrent callback may have
     // changed the original attempt or gateway while this request waited.
     $order = wc_get_order( $order_id );
@@ -1035,12 +1041,8 @@ function mansu_online_paystack_route_lock() {
         status_header( 503 );
         exit;
     }
-    // Both Paystack handlers terminate via exit. PHP shutdown still releases
-    // the lock if it remains on this connection, so a second verified callback
-    // sees the final persisted order state.
-    register_shutdown_function( static function () use ( $wpdb, $lock_name ) {
-        $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
-    } );
+    // Gateway proceeds only on a still-pending order while this request
+    // owns the lock. Shutdown releases it on every path, including PHP exit.
 }
 add_action( 'woocommerce_api_tbz_wc_paystack_webhook', 'mansu_online_paystack_route_lock', 0 );
 add_action( 'woocommerce_api_wc_gateway_paystack', 'mansu_online_paystack_route_lock', 0 );
