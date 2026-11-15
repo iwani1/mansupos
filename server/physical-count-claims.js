@@ -204,7 +204,7 @@ export class PhysicalCountClaims {
 
   // Only the Owner can inspect actual quantities and identify discrepancies.
   // This is explicitly NON-EXECUTING: no approve/accept/import endpoint exists.
-  ownerReview(physical,website,query={},clock=Date.now()){
+  ownerReview(physical,website,query={},clock=Date.now(),collectRows=null){
     const {page=1,pageSize=25,search=''}=query;
     if(!Number.isSafeInteger(page)||page<1||page>10000||
        !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>50||
@@ -235,6 +235,7 @@ export class PhysicalCountClaims {
       };
     }).filter(row=>!needle||row.sku.toUpperCase().includes(needle)||
       String(row.reportRow).includes(needle));
+    if(Array.isArray(collectRows))collectRows.push(...items);
     const currentIds=new Set(claims.filter(c=>c.planRef===plan.snapshotRef&&
       c.sourceHash===plan.physicalManifestSha256).map(c=>c.id));
     const staleClaimEvents=claims.filter(c=>!currentIds.has(c.id)).length;

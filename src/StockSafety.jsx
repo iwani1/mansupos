@@ -6,6 +6,7 @@ import SkuReviewQueue from './SkuReviewQueue.jsx';
 import PhysicalMappingWorkbench from './PhysicalMappingWorkbench.jsx';
 import PhysicalRecountPlan from './PhysicalRecountPlan.jsx';
 import OwnerMappingEvidence from './OwnerMappingEvidence.jsx';
+import InventoryEvidenceDossier from './InventoryEvidenceDossier.jsx';
 
 // A catalogue audit is evidence about *displayed* Woo product balances, not a
 // sale/reservation gate. Never derive a checkout authorization from issueCounts.
@@ -139,6 +140,7 @@ export default function StockSafety({ active, user }) {
         <SkuReviewQueue issueCounts={sourceMatch.issueCounts} labelFor={sourceIssueLabel}/>
         <PhysicalMappingWorkbench/>
         {user?.role==='owner'&&<OwnerMappingEvidence/>}
+        {user?.role==='owner'&&<InventoryEvidenceDossier/>}
         <PhysicalRecountPlan/>
       </>}
     </section>

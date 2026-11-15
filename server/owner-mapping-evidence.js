@@ -119,7 +119,7 @@ function view(row,latest){
 export class OwnerMappingEvidence {
   constructor(db){this.db=db;}
 
-  review(physical,website,query={},clock=Date.now()){
+  review(physical,website,query={},clock=Date.now(),collectRows=null){
     const {page=1,pageSize=25,search='',status='all'}=query;
     if(!Number.isSafeInteger(page)||page<1||page>10000||
        !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>50||
@@ -138,6 +138,7 @@ export class OwnerMappingEvidence {
       counts[key]++;
       return {item,key};
     });
+    if(Array.isArray(collectRows))collectRows.push(...all.map(x=>x.item));
     const needle=normalize(search);
     const filtered=all.filter(({item,key})=>
       (status==='all'||(status==='not_reviewed'?'notReviewed':status)===key)&&

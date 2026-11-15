@@ -140,6 +140,47 @@ try {
       items:entries,
     })});
   });
+  // Synthetic owner dossier is read-only and never reaches production Woo.
+  const dossierCalls=[];
+  await page.route('**/api/stock-safety/inventory-dossier*',async route=>{
+    const url=new URL(route.request().url());
+    const pageNumber=Number(url.searchParams.get('page')||1);
+    const focus=url.searchParams.get('focus')||'all';
+    dossierCalls.push({method:route.request().method(),page:pageNumber,focus,
+      expectedRef:url.searchParams.get('expectedRef')||''});
+    const rows=Array.from({length:27},(_,i)=>({
+      reportRow:i+1,sku:'DOSSIER'+String(i+1).padStart(3,'0'),
+      mappingClassification:i===2?'held':'provisional_match',
+      ownerMappingDecision:i===0?'propose_option':null,
+      proposedWooProductId:i===0?101:null,proposedWooVariationId:null,
+      proposedSkuMatch:i===0,countStage:'first_needed',
+      nextReview:i===2?'identity_hold':i===0?'first_count_missing':'mapping_not_proposed',
+      blockers:i===2?['unresolved_physical_identity','owner_mapping_proposal_missing',
+        'independent_physical_witness_unverified','woo_stock_reservation_unverified']:
+        ['first_count_missing','independent_physical_witness_unverified',
+        'woo_stock_reservation_unverified'],
+      stockImportAuthorized:false,mappingApproved:false,
+    }));
+    const selected=rows.filter(row=>focus==='all'||row.nextReview===focus);
+    const pages=Math.max(1,Math.ceil(selected.length/25));
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'read-only-inventory-evidence-dossier',auditOnly:true,
+      evidenceVerified:true,ownerApproved:false,
+      independentWitnessVerified:false,sharedStockVerified:false,
+      mappingApproved:false,stockImportAuthorized:false,checkoutAuthorized:false,
+      dossierRef:'c'.repeat(64),sourceHash:'a'.repeat(64),
+      mappingRef:'b'.repeat(64),countRef:'d'.repeat(64),
+      totalPhysical:27,historicalCountClaims:0,
+      focusCounts:{identity_hold:1,mapping_not_proposed:25,first_count_missing:1,
+        mapping_investigation:0,sku_difference:0,second_count_missing:0,
+        count_discrepancy:0,matching_count_unverified:0,source_mismatch:0},
+      globalBlockers:['no_independently_witnessed_current_physical_stock',
+        'no_approved_trading_rollout'],
+      page:pageNumber,pageSize:25,pages,total:selected.length,
+      hasMore:pageNumber<pages,
+      items:selected.slice((pageNumber-1)*25,pageNumber*25),
+    })});
+  });
   // Synthetic physical recount planning: ALL count fields remain blank.
   const recountCalls=[];
   await page.route('**/api/stock-safety/recount-plan*',async route=>{
@@ -387,6 +428,34 @@ try {
   }
   if(await ownerMapping.getByRole('button',{name:/approve stock|import stock|start checkout/i}).count())
     throw Error('Mapping review must not allow inventory imports or checkout.');
+
+  const dossierArea=page.getByRole('region',{name:'Prelaunch inventory evidence dossier'});
+  await dossierArea.getByRole('button',{name:'Build investigation dossier'}).click();
+  const dossierTable=dossierArea.getByRole('region',{name:'Prelaunch inventory investigation rows'}).locator('table');
+  await dossierTable.locator('tbody tr').first().waitFor();
+  if(await dossierTable.locator('tbody tr').count()!==25)
+    throw Error('Inventory dossier should show 25 source-bound issue rows on first page.');
+  const [dossierFile]=await Promise.all([
+    page.waitForEvent('download'),
+    dossierArea.getByRole('button',{name:'Download private investigation CSV (this page)'}).click(),
+  ]);
+  if(!dossierFile.suggestedFilename().includes('NOT-APPROVED.csv'))
+    throw Error('Inventory dossier CSV must be labeled NOT APPROVED.');
+  await dossierArea.getByRole('button',{name:'Next'}).click();
+  await dossierArea.getByText(/Page 2 of 2/).waitFor();
+  if(await dossierTable.locator('tbody tr').count()!==2)
+    throw Error('Inventory dossier should show two source rows on last page.');
+  await dossierArea.getByRole('combobox',{name:'Filter inventory dossier'}).selectOption('identity_hold');
+  await dossierArea.getByRole('button',{name:'Build investigation dossier'}).click();
+  await dossierArea.getByText(/1 product rows for this filter/).waitFor();
+  if(await dossierTable.locator('tbody tr').count()!==1)
+    throw Error('Owner dossier identity hold filter should return one quarantined row.');
+  if(dossierCalls.some(call=>call.method!=='GET')||dossierCalls.length!==3||
+     dossierCalls[1].expectedRef!=='c'.repeat(64)||
+     dossierCalls[2].focus!=='identity_hold')
+    throw Error('Owner dossier must use only GET with snapshot-bound pagination.');
+  if(await dossierArea.getByRole('button',{name:/approve stock|release stock|start checkout/i}).count())
+    throw Error('Investigation dossier cannot authorize inventory or checkout.');
 
   const recountArea=page.getByRole('region',{name:'Physical stock recount preparation'});
   await recountArea.getByRole('button',{name:'Build recount task list'}).click();

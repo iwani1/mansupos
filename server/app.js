@@ -25,6 +25,7 @@ import { listPhysicalMappingCoverage } from './physical-mapping-coverage.js';
 import { planPhysicalRecounts } from './physical-recount-plan.js';
 import { PhysicalCountClaims } from './physical-count-claims.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
+import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
 import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
@@ -421,6 +422,32 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
         await catalog.get(true),req.body);
       res.set('Cache-Control','no-store');
       res.status(201).json(output);
+    });
+
+  // Pre-launch Owner dossier: join ONLY existing local count/mapping review
+  // records to a single authenticated Woo product GET observation. No writes.
+  app.get('/api/stock-safety/inventory-dossier',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        page:z.coerce.number().int().min(1).max(10000).default(1),
+        pageSize:z.coerce.number().int().min(1).max(50).default(25),
+        focus:z.enum([
+          'all','identity_hold','mapping_not_proposed','mapping_investigation',
+          'sku_difference','first_count_missing','second_count_missing',
+          'count_discrepancy','matching_count_unverified','source_mismatch',
+        ]).default('all'),
+        search:z.string().trim().max(64).default(''),
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const physical=inStore.snapshot();
+      const website=await catalog.get();
+      const report=buildInventoryDossier(
+        physical,website,mappingEvidence,countClaims,options);
+      if(options.expectedRef&&options.expectedRef!==report.dossierRef)
+        throw new AppError('Inventory evidence changed; restart the dossier from page one.',409,
+          'INVENTORY_DOSSIER_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(report);
     });
 
   // Separately gated live trading service only. The read-only pilot, demo and
