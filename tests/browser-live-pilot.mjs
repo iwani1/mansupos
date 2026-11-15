@@ -28,6 +28,28 @@ try {
       limitations: ['This audit cannot authorize checkout.'],
     }) });
   });
+  const paymentReviewCalls = [];
+  await page.route('**/api/payments/reconciliation*', async route => {
+    paymentReviewCalls.push(route.request().method());
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      kind: 'read-only-pos-payment-reconciliation', auditOnly: true,
+      checkoutAuthorized: false, mutationsAllowed: false, source: 'local-pos-ledger',
+      websiteOrdersIncluded: false, gatewaySettlementVerified: false,
+      refundPayoutVerified: false, fullCaseCount: 1,
+      pageSummary: { cases: 1, urgentCases: 1,
+        unconfirmedCashCustodyCents: 12000, unverifiedCashRefundCents: 0 },
+      cases: [{ id: '00000000-0000-4000-8000-000000000001',
+        number: 'POS-SYNTHETIC', status: 'needs_reconciliation',
+        wooOrderId: 123, originalShiftId: 'synthetic-shift',
+        originalShiftStatus: 'closed', totalCents: 12000, refundedCents: 0,
+        updatedAt: '2026-11-15T12:00:00.000Z', issueCodes: ['cash_custody_unconfirmed'],
+        priority: 'urgent', evidence: {
+          posCashCustodyRecorded: true, posWooPaymentVerifiedEvent: false,
+        } }],
+      hasMore: false, nextCursor: null,
+      notice: 'Local POS-only evidence; external settlements are excluded.',
+    }) });
+  });
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Point of sale', exact: true }).waitFor();
   await page.getByRole('region', { name: 'Live catalogue read-only notice' }).getByText('Live catalogue · no checkout').waitFor();
@@ -44,6 +66,17 @@ try {
   if (auditCalls.join(',') !== 'GET') throw new Error('Stock safety screen must read only once and never write.');
   if (await page.getByRole('button', { name: /checkout|sell|pay|approve refund/i }).count()) {
     throw new Error('Stock audit screen must not present checkout or refund approval actions.');
+  }
+  await page.locator('[data-nav="paymentReconciliation"]').click();
+  await page.getByRole('heading', { name: 'Payment reconciliation' }).waitFor();
+  await page.getByText(/This screen does not read the WooCommerce website order ledger/).waitFor();
+  await page.getByText('Cash custody; payment unconfirmed').waitFor();
+  await page.getByText('External settlement: not verified').waitFor();
+  if (paymentReviewCalls.join(',') !== 'GET') {
+    throw new Error('Reconciliation dashboard must only GET local POS evidence.');
+  }
+  if (await page.getByRole('button', { name: /approve|pay|refund|fulfil|settle/i }).count()) {
+    throw new Error('Read-only payment dashboard must not expose payment or refund controls.');
   }
   await page.locator('[data-nav="shifts"]').click();
   await page.getByRole('heading', { name: 'Shifts & drawer' }).waitFor();
