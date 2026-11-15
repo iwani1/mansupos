@@ -990,6 +990,44 @@ function mansu_online_paystack_route_lock() {
         status_header( 403 );
         exit;
     }
+    // Snapshot reads before GET_LOCK are NOT authoritative. In particular,
+    // the order object may have been primed in this PHP worker while another
+    // callback was finishing. A new wc_get_order() alone can hit that same
+    // request cache and replay paid status / duplicate gateway success notes.
+    // Read the canonical Woo status directly from the SAME MySQL connection
+    // that owns the advisory lock, before entering upstream Paystack code.
+    // HPOS and legacy CPT are deliberately explicit; an unsupported/missing
+    // status fails closed instead of inferring an unpaid order from the cache.
+    $hpos = class_exists( '\\Automattic\\WooCommerce\\Utilities\\OrderUtil' ) &&
+        \\Automattic\\WooCommerce\\Utilities\\OrderUtil::custom_orders_table_usage_is_enabled();
+    $table = $hpos ? $wpdb->prefix . 'wc_orders' : $wpdb->posts;
+    $status_column = $hpos ? 'status' : 'post_status';
+    $db_status = $wpdb->get_var( $wpdb->prepare(
+        "SELECT {$status_column} FROM {$table} WHERE id=%d", $order_id
+    ) );
+    if ( ! is_string( $db_status ) || $db_status === '' ) {
+        status_header( 503 );
+        exit;
+    }
+    // A previous callback already left pending. Do not re-run the gateway
+    // on a stale WC_Order (which can overwrite paid state with on-hold/review).
+    // For an already-paid return, navigate to the canonical Woo order receipt.
+    // A quarantined on-hold order is not a new authorization to ship goods.
+    if ( $db_status !== 'wc-pending' ) {
+        if ( in_array( $db_status, array( 'wc-processing', 'wc-completed',
+                 'wc-refunded', 'wc-on-hold' ), true ) ) {
+            if ( ! $is_webhook ) {
+                wp_safe_redirect( $order->get_checkout_order_received_url() );
+            } else {
+                status_header( 200 );
+            }
+            exit;
+        }
+        // Cancelled/failed/draft orders may have returned their hold. A
+        // signed external success still needs human settlement reconciliation.
+        status_header( 409 );
+        exit;
+    }
     // Assert the same connection still owns the lock after Woo identity
     // reads, and remember that later payment/stock hooks MUST recheck it.
     mansu_online_paystack_request_lock_expected( $order_id, true );
