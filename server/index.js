@@ -1,8 +1,8 @@
 import { createServer } from 'node:http';
-import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { createApp } from './app.js';
+import { mountProductionUi } from './web-ui.js';
 import { APP_VERSION, readConfig, shouldRunReconcileTimer } from './config.js';
 import { acquireInstanceLease } from './instance-lease.js';
 
@@ -24,20 +24,7 @@ server.headersTimeout = 35000;
 server.keepAliveTimeout = 5000;
 
 if (config.production) {
-  // A demo build may have copied sample illustrations into dist. Never serve
-  // those assets from a live/staging POS, even if the wrong build was deployed.
-  if (config.mode !== 'demo') app.use('/demo', (_req, res) => res.sendStatus(404));
-  app.use(express.static(dist, {
-    index: false,
-    maxAge: 0,
-    setHeaders(res, filePath) {
-      if (filePath.endsWith(`${path.sep}sw.js`)) res.setHeader('Cache-Control', 'no-store');
-      else if (filePath.endsWith('.html') || filePath.endsWith('.webmanifest')) res.setHeader('Cache-Control', 'no-cache');
-      else if (filePath.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      else res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
-    },
-  }));
-  app.get('/{*path}', (req, res) => res.sendFile(path.join(dist, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
+  mountProductionUi(app,{dist,mode:config.mode});
 } else {
   const { createServer: createViteServer } = await import('vite');
   const vite = await createViteServer({ server: { middlewareMode: true, hmr: { server }, host: '0.0.0.0', allowedHosts: true }, appType: 'spa' });
