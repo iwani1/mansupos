@@ -22,6 +22,7 @@ import { localTransaction, readSaleEvents } from './sale-events.js';
 import { auditSharedWooStock } from './phase2-stock-audit.js';
 import { auditCrossChannelSkus, listCrossChannelSkuFindings } from './cross-channel-sku-audit.js';
 import { listPhysicalMappingCoverage } from './physical-mapping-coverage.js';
+import { planPhysicalRecounts } from './physical-recount-plan.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
 import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
@@ -307,6 +308,37 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     }
     if (options.expectedRef && options.expectedRef !== report.snapshotRef) {
       throw new AppError('The physical or Woo snapshot changed. Restart the mapping review from page one.', 409, 'MAPPING_SNAPSHOT_CHANGED');
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json(report);
+  });
+  // A planning-only view of every historical stock row's recount blockers.
+  // No physical counts are submitted or kept in the POS ledger.
+  app.get('/api/stock-safety/recount-plan', auth, role('owner', 'manager'), async (req, res) => {
+    if (config.mode !== 'live' || !config.liveReadOnly) {
+      throw new AppError('Stock-count planning is available only in the read-only live pilot.', 403, 'RECOUNT_PLANNING_LOCKED');
+    }
+    const options = z.object({
+      page: z.coerce.number().int().min(1).max(10000).default(1),
+      pageSize: z.coerce.number().int().min(1).max(50).default(25),
+      priority: z.enum(['all','P0','P1','P2']).default('all'),
+      action: z.string().regex(/^[a-z_]{1,80}$/).default('all'),
+      search: z.string().trim().max(64).default(''),
+      expectedRef: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    }).strict().parse(req.query);
+    const physical = inStore.snapshot();
+    const website = await catalog.get();
+    let report;
+    try {
+      report = planPhysicalRecounts(physical, website, options);
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new AppError('Invalid recount priority or review action.', 400, 'RECOUNT_PLAN_FILTER_INVALID');
+      }
+      throw error;
+    }
+    if (options.expectedRef && options.expectedRef !== report.snapshotRef) {
+      throw new AppError('The source or website catalogue changed. Restart the recount plan from page one.', 409, 'RECOUNT_PLAN_CHANGED');
     }
     res.set('Cache-Control', 'no-store');
     res.json(report);

@@ -94,6 +94,45 @@ try {
       rows:selected.slice((pageNumber-1)*25,pageNumber*25),
     })});
   });
+  // Synthetic physical recount planning: ALL count fields remain blank.
+  const recountCalls=[];
+  await page.route('**/api/stock-safety/recount-plan*',async route=>{
+    const url=new URL(route.request().url());
+    const requestedPage=Number(url.searchParams.get('page')||1);
+    const priority=url.searchParams.get('priority')||'all';
+    recountCalls.push({
+      method:route.request().method(),page:requestedPage,priority,
+      expectedRef:url.searchParams.get('expectedRef')||'',
+    });
+    const all=Array.from({length:27},(_,i)=>({
+      reportRow:i+1,sku:'RECOUNT'+String(i+1).padStart(3,'0'),
+      mappingStatus:i===2?'held':i<2?'provisional_match':'missing_on_website',
+      priority:i===2?'P0':i<2?'P2':'P1',
+      nextAction:i===2?'investigate_quarantined_item':
+        i<2?'verify_candidate_style_size_and_stock_owner':'review_missing_website_product',
+      candidateWooProductId:i<2?201+i:null,candidateWooVariationId:null,
+      physicalCountEvidenceRecorded:false,independentRecountEvidenceRecorded:false,
+      ownerVerificationRecorded:false,stockImportAuthorized:false,
+    }));
+    const selected=all.filter(item=>priority==='all'||item.priority===priority);
+    const total=selected.length;
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'read-only-physical-recount-plan',
+      auditOnly:true,checkoutAuthorized:false,sharedStockVerified:false,
+      mappingApproved:false,stockImportAuthorized:false,
+      freshPhysicalCountVerified:false,independentWitnessVerified:false,
+      evidenceVerified:true,physicalManifestSha256:'a'.repeat(64),
+      websiteFetchedAt:'2026-11-15T12:00:00.000Z',
+      snapshotRef:'d'.repeat(64),totalPhysical:27,
+      priorityCounts:{P0:1,P1:24,P2:2},
+      actionCounts:{investigate_quarantined_item:1,review_missing_website_product:24,
+        verify_candidate_style_size_and_stock_owner:2},
+      page:requestedPage,pageSize:25,
+      pages:Math.max(1,Math.ceil(total/25)),total,
+      hasMore:requestedPage<Math.ceil(total/25),
+      tasks:selected.slice((requestedPage-1)*25,requestedPage*25),
+    })});
+  });
   const paymentReviewCalls = [];
   await page.route('**/api/payments/reconciliation*', async route => {
     paymentReviewCalls.push(route.request().method());
@@ -238,6 +277,35 @@ try {
      mappingCalls[1].expectedRef!=='e'.repeat(64) ||
      mappingCalls[2].status!=='provisional_match'){
     throw Error('Mapping workbench must use GET-only, safe snapshot-bound pagination and filters.');
+  }
+  const recountArea=page.getByRole('region',{name:'Physical stock recount preparation'});
+  await recountArea.getByRole('button',{name:'Build recount task list'}).click();
+  const recountTable=recountArea.getByRole('region',{name:'Physical recount review tasks'}).locator('table');
+  await recountTable.locator('tbody tr').first().waitFor();
+  if(await recountTable.locator('tbody tr').count()!==25){
+    throw Error('Recount plan must display 25 historical tasks per page.');
+  }
+  const [recountDownload]=await Promise.all([
+    page.waitForEvent('download'),
+    recountArea.getByRole('button',{name:'Download blank worksheet (this page)'}).click(),
+  ]);
+  if(!recountDownload.suggestedFilename().includes('NOT-APPROVED.csv')){
+    throw Error('Count-sheet download must be labelled NOT APPROVED.');
+  }
+  await recountArea.getByRole('button',{name:/Next/}).click();
+  await recountArea.getByText(/Page 2 of 2/).waitFor();
+  if(await recountTable.locator('tbody tr').count()!==2){
+    throw Error('Recount planner page two should contain two remaining tasks.');
+  }
+  await recountArea.getByRole('combobox',{name:'Filter recount priority'}).selectOption('P0');
+  await recountArea.getByRole('button',{name:'Build recount task list'}).click();
+  await recountArea.getByText(/1 tasks for this filter/).waitFor();
+  if(await recountTable.locator('tbody tr').count()!==1){
+    throw Error('The P0 physical recount filter should show one quarantined task.');
+  }
+  if(recountCalls.some(call=>call.method!=='GET')||recountCalls.length!==3||
+      recountCalls[1].expectedRef!=='d'.repeat(64)||recountCalls[2].priority!=='P0'){
+    throw Error('Recount planner must use GET only, stable snapshots and bounded task filters.');
   }
   if (await page.locator('main').getByRole('button', { name: /checkout|sell|pay|approve refund/i }).count()) {
     throw new Error('Stock audit screen must not present checkout or refund approval actions.');

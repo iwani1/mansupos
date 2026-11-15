@@ -12,7 +12,9 @@ const normalize = value => typeof value === 'string' ? value.trim().toUpperCase(
 const validId = value => Number.isSafeInteger(value) && value > 0;
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
-export function listPhysicalMappingCoverage(physical, woo, options = {}, clock = Date.now()) {
+// A trusted internal caller may collect the full derived review rows in one pass.
+// Never send the collector to the client; public API responses remain paged.
+export function listPhysicalMappingCoverage(physical, woo, options = {}, clock = Date.now(), collectRows = null) {
   const { page = 1, pageSize = 25, status = 'all', search = '' } = options;
   if (!Number.isSafeInteger(page) || page < 1 || page > 10000 ||
       !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 50 ||
@@ -89,6 +91,8 @@ export function listPhysicalMappingCoverage(physical, woo, options = {}, clock =
     };
     return row;
   });
+
+  if (Array.isArray(collectRows)) collectRows.push(...rows);
 
   const snapshotRef = hash({
     physicalManifestSha256: physical?.manifestHash || null,
