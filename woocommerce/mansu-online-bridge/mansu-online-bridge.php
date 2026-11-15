@@ -922,8 +922,24 @@ function mansu_online_paystack_route_lock() {
         if ( ! is_string( $raw_reference ) ) { return; }
         $reference = sanitize_text_field( wp_unslash( $raw_reference ) );
     }
-    if ( ! preg_match( '/^([1-9][0-9]{0,11})_/', $reference, $matches ) ) { return; }
+    // Untrusted payment-return URLs must not be able to monopolize a
+    // genuine order's advisory lock merely by guessing its numeric ID.
+    // Reject before GET_LOCK; this is not proof of external settlement.
+    if ( ! preg_match( '/^([1-9][0-9]{0,11})_/', $reference, $matches ) ) {
+        status_header( 403 );
+        exit;
+    }
     $order_id = (int) $matches[1];
+    $original = wc_get_order( $order_id );
+    $saved_ref = $original instanceof WC_Order ?
+        $original->get_meta( '_paystack_txn_ref', true ) : '';
+    if ( ! mansu_online_website_order( $original ) ||
+         $original->get_payment_method() !== 'paystack' ||
+         ! is_string( $saved_ref ) || $saved_ref === '' ||
+         ! hash_equals( $saved_ref, $reference ) ) {
+        status_header( 403 );
+        exit;
+    }
     global $wpdb;
     $lock_name = 'mansu-paystack-order-' . $order_id;
     // MySQL advisory lock is shared by all PHP workers using this DB. A
@@ -933,10 +949,18 @@ function mansu_online_paystack_route_lock() {
         status_header( 503 );
         exit;
     }
+    // Re-read after acquiring the lock; a concurrent callback may have
+    // changed the original attempt or gateway while this request waited.
     $order = wc_get_order( $order_id );
-    if ( ! mansu_online_website_order( $order ) || $order->get_payment_method() !== 'paystack' ) {
+    $locked_ref = $order instanceof WC_Order ?
+        $order->get_meta( '_paystack_txn_ref', true ) : '';
+    if ( ! mansu_online_website_order( $order ) ||
+         $order->get_payment_method() !== 'paystack' ||
+         ! is_string( $locked_ref ) || $locked_ref === '' ||
+         ! hash_equals( $locked_ref, $reference ) ) {
         $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
-        return;
+        status_header( 403 );
+        exit;
     }
     // Both Paystack handlers terminate via exit. PHP shutdown still releases
     // the lock, so a second verified callback sees final persisted order state.
