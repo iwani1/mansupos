@@ -20,7 +20,8 @@ Every page shares a document-like title, understated icon, context, primary acti
 - The left directory collapses on desktop and becomes an accessible drawer below 1081 px. Navigation, search, stock badges, alert details, owner account functions and direct POS permissions remain functional.
 - DM Sans, neutral paper/grey surfaces, charcoal primary actions, meaningful amber/red/green financial states, quiet borders and restrained motion replace the previous pink retail-studio framing.
 - Read-only, demo, offline, stale stock and unresolved-transaction banners are **not** hidden or softened.
-- All backend endpoints, ledger migration rules, HMAC, WooCommerce identifiers, cash custody and payment sequence are untouched by this redesign.
+- All checkout, stock mutation, WooCommerce, cash custody and payment controls remain unchanged.
+- **New owner-only Audit log activity review:** server-side text/category/period searches and cursor pagination over the local POS ledger. No audit edits, external custody claim or authority to trade. See [Owner activity review](OWNER-AUDIT-ACTIVITY.md).
 
 ## Contabo installation
 
