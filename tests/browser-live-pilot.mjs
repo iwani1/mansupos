@@ -181,6 +181,52 @@ try {
       items:selected.slice((pageNumber-1)*25,pageNumber*25),
     })});
   });
+  // Synthetic GET-only owner acceptance-preparation checklist.
+  const acceptanceCalls=[];
+  await page.route('**/api/stock-safety/acceptance-preparation*',async route=>{
+    const url=new URL(route.request().url());
+    const pageNo=Number(url.searchParams.get('page')||1);
+    const gate=url.searchParams.get('gate')||'all';
+    acceptanceCalls.push({method:route.request().method(),pageNo,gate,
+      expectedRef:url.searchParams.get('expectedRef')||''});
+    const gateCheck=(name,state,detail)=>({gate:name,state,detail});
+    const rows=Array.from({length:27},(_,i)=>({
+      reportRow:i+1,sku:'ACCEPT'+String(i+1).padStart(3,'0'),
+      nextReview:i===0?'identity_hold':'mapping_not_proposed',
+      identityHeld:i===0,proposalRecorded:false,staffClaimsAgree:false,
+      approved:false,readyForInventoryImport:false,readyForCheckout:false,
+      checks:[
+        gateCheck('identity_resolution',i===0?'investigate':'provisional','Historical source only'),
+        gateCheck('owner_option_proposal','missing','No proposal'),
+        gateCheck('two_count_claims','incomplete','Missing count claims'),
+        gateCheck('independent_physical_witness','not_verified','Witness not verified'),
+        gateCheck('formal_mapping_signoff','not_authorized','No approved identity crosswalk'),
+        gateCheck('live_woo_stock_and_payment_safety','not_verified','Woo safety unverified'),
+      ],
+    }));
+    const selected=gate==='historical_source_integrity'?[]:rows;
+    const pages=Math.max(1,Math.ceil(selected.length/25));
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'read-only-inventory-acceptance-preparation',
+      auditOnly:true,historicalSourceVerified:true,
+      independentWitnessVerified:false,ownerApproved:false,
+      mappingApproved:false,stockImportAuthorized:false,
+      sharedStockVerified:false,checkoutAuthorized:false,
+      acceptanceCertificateIssued:false,
+      preparationRef:'f'.repeat(64),dossierRef:'c'.repeat(64),
+      sourceHash:'a'.repeat(64),
+      observations:{totalHistoricalRows:27,identityHolds:1,
+        provisionalOwnerProposals:0,matchingStaffDeclarations:0,
+        independentWitnessedRows:0,formallyApprovedCrosswalkRows:0,
+        stockImportAuthorizedRows:0},
+      mandatoryGlobalEvidence:['independent_witness_identity_and_signed_current_counts',
+        'owner_approved_style_colour_size_variation_crosswalk',
+        'verified_woo_stock_owner_and_last_unit_reservations'],
+      page:pageNo,pageSize:25,pages,total:selected.length,
+      hasMore:pageNo<pages,
+      items:selected.slice((pageNo-1)*25,pageNo*25),
+    })});
+  });
   // Synthetic physical recount planning: ALL count fields remain blank.
   const recountCalls=[];
   await page.route('**/api/stock-safety/recount-plan*',async route=>{
@@ -456,6 +502,27 @@ try {
     throw Error('Owner dossier must use only GET with snapshot-bound pagination.');
   if(await dossierArea.getByRole('button',{name:/approve stock|release stock|start checkout/i}).count())
     throw Error('Investigation dossier cannot authorize inventory or checkout.');
+
+  const prepArea=page.getByRole('region',{name:'Inventory acceptance preparation checklist'});
+  await prepArea.getByRole('button',{name:'Prepare evidence checklist'}).click();
+  const prepTable=prepArea.getByRole('region',{name:'Unverified inventory acceptance checklist'}).locator('table');
+  await prepTable.locator('tbody tr').first().waitFor();
+  if(await prepTable.locator('tbody tr').count()!==25)
+    throw Error('Owner acceptance checklist must display 25 source rows.');
+  await prepArea.getByRole('button',{name:'Next'}).click();
+  await prepArea.getByText(/Page 2 of 2/).waitFor();
+  if(await prepTable.locator('tbody tr').count()!==2)
+    throw Error('Owner acceptance checklist must page without mixing snapshots.');
+  await prepArea.getByRole('combobox',{name:'Filter acceptance evidence gate'})
+    .selectOption('historical_source_integrity');
+  await prepArea.getByRole('button',{name:'Prepare evidence checklist'}).click();
+  await prepArea.getByText(/No source rows match this requirement/).waitFor();
+  if(acceptanceCalls.some(x=>x.method!=='GET')||acceptanceCalls.length!==3||
+     acceptanceCalls[1].expectedRef!=='f'.repeat(64)||
+     acceptanceCalls[2].gate!=='historical_source_integrity')
+    throw Error('Acceptance preparation must use GET-only snapshot-bound filters.');
+  if(await prepArea.getByRole('button',{name:/approve|authorize|import stock|checkout/i}).count())
+    throw Error('Acceptance checklist must not expose a stock approval action.');
 
   const recountArea=page.getByRole('region',{name:'Physical stock recount preparation'});
   await recountArea.getByRole('button',{name:'Build recount task list'}).click();

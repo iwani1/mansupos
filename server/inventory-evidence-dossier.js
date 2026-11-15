@@ -49,7 +49,7 @@ function classify(mapping,count,verified){
 }
 
 export function buildInventoryDossier(
-  physical,website,mappingEvidence,countClaims,options={},clock=Date.now()
+  physical,website,mappingEvidence,countClaims,options={},clock=Date.now(),collectRows=null
 ){
   const {page=1,pageSize=25,focus='all',search=''}=options;
   if(!Number.isSafeInteger(page)||page<1||page>10000||
@@ -109,6 +109,7 @@ export function buildInventoryDossier(
       stockImportAuthorized:false,mappingApproved:false,
     });
   }
+  if(Array.isArray(collectRows))collectRows.push(...rows);
   const dossierRef=hash({
     physicalHash:physical?.manifestHash||null,
     mappingRef:mappings.identityRef,

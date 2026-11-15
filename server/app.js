@@ -26,6 +26,7 @@ import { planPhysicalRecounts } from './physical-recount-plan.js';
 import { PhysicalCountClaims } from './physical-count-claims.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
+import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
 import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
@@ -448,6 +449,29 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
           'INVENTORY_DOSSIER_CHANGED');
       res.set('Cache-Control','no-store');
       res.json(report);
+    });
+
+  // Owner-only, GET-only acceptance PREPARATION. No signoff or import path.
+  app.get('/api/stock-safety/acceptance-preparation',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        page:z.coerce.number().int().min(1).max(10000).default(1),
+        pageSize:z.coerce.number().int().min(1).max(50).default(25),
+        gate:z.enum([
+          'all','identity_resolution','owner_option_proposal','two_count_claims',
+          'independent_physical_witness','formal_mapping_signoff',
+          'live_woo_stock_and_payment_safety','historical_source_integrity',
+        ]).default('all'),
+        search:z.string().trim().max(64).default(''),
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const result=prepareInventoryAcceptance(
+        inStore.snapshot(),await catalog.get(),mappingEvidence,countClaims,options);
+      if(options.expectedRef&&options.expectedRef!==result.preparationRef)
+        throw new AppError('Acceptance evidence changed. Restart from the first page.',409,
+          'ACCEPTANCE_PREPARATION_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(result);
     });
 
   // Separately gated live trading service only. The read-only pilot, demo and
