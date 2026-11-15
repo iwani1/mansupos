@@ -20,6 +20,7 @@ import { AppError, now } from './errors.js';
 import { createLogger, requestId } from './logger.js';
 import { localTransaction, readSaleEvents } from './sale-events.js';
 import { auditSharedWooStock } from './phase2-stock-audit.js';
+import { paymentReconciliation } from './payment-reconciliation.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -306,6 +307,14 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 250);
     const cursor = z.string().max(500).optional().parse(req.query.cursor);
     res.json(sales.listPage(req.user, { limit, cursor }));
+  });
+  // Source-limited Owner/Manager payment review: SQLite POS evidence only.
+  // No Woo order read, Paystack request, cash update, refund or stock write.
+  // The live catalogue pilot has only a product-read Woo key.
+  app.get('/api/payments/reconciliation', auth, role('owner', 'manager'), (req, res) => {
+    const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit || 50);
+    const cursor = z.string().max(500).optional().parse(req.query.cursor);
+    res.json(paymentReconciliation(db, { limit, cursor }));
   });
   app.get('/api/recovery/queue', auth, role('owner', 'manager'), (req, res) => {
     const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 200);
