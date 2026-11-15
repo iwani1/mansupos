@@ -17,6 +17,45 @@ const MAX_EXAMPLES=15;
 const MAX_COUNT_AGE_MS=24*60*60*1000; // suggestion only, not production-approved SLA
 const linkKeys={new_woo_required:['sourceSku','target'],existing_woo:['sourceSku','target','wooProductId','wooVariationId','reviewEvidenceId']};
 const countKeys=['sourceSku','units','countedAt','counterId','witnessId'];
+const MAX_REVIEW_SAMPLES=12;
+// Privacy-safe triage view; NOT an approval ledger. A row may appear in many queues.
+const REVIEW_CATEGORIES=[
+  {task:'quarantine',priority:'P0'},
+  {task:'export_integrity',priority:'P0'},
+  {task:'identity',priority:'P1'},
+  {task:'physical_recount',priority:'P1'},
+  {task:'variation_owner',priority:'P1'},
+];
+const REVIEW_CATEGORY_BY_ISSUE={
+  quarantined_source_record:'quarantine',
+  quarantined_item_must_not_link:'quarantine',
+  quarantined_item_count_not_released:'quarantine',
+  invalid_woo_id:'export_integrity',
+  duplicate_woo_id:'export_integrity',
+  duplicate_woo_sku:'export_integrity',
+  unsupported_woo_product_type:'export_integrity',
+  orphan_or_invalid_woo_variation_parent:'export_integrity',
+  missing_or_invalid_source_sku:'identity',
+  duplicate_source_sku:'identity',
+  link_for_unknown_source_sku:'identity',
+  identity_mapping_missing:'identity',
+  no_source_bound_cutover_evidence:'identity',
+  new_woo_product_identity_unassigned:'identity',
+  existing_woo_parent_variation_mismatch:'identity',
+  duplicate_woo_target_mapping:'identity',
+  variation_sku_unassigned_for_manual_review:'identity',
+  variation_sku_differs_from_source:'identity',
+  simple_woo_sku_differs_from_source:'identity',
+  count_for_unknown_source_sku:'physical_recount',
+  fresh_two_person_count_missing:'physical_recount',
+  stale_or_future_physical_count_claim:'physical_recount',
+  count_differs_from_historical_pdf:'physical_recount',
+  variation_stock_owner_requires_live_verification:'variation_owner',
+  possible_shared_parent_managed_stock_pool:'variation_owner',
+};
+const REVIEW_STATES=['open','investigating','recount_requested',
+  'owner_decision_required','installed_site_check_required'];
+
 function fail(){throw new Error('Offline shared-stock cutover evidence invalid; no quantity or product change permitted.');}
 function exact(row,keys){return !!row && typeof row==='object' && !Array.isArray(row) &&
   Object.keys(row).length===keys.length && keys.every(key=>Object.hasOwn(row,key));}
@@ -48,7 +87,7 @@ function recordIssues(sourceIndex,issueCounts,examples,code){
  * owner consent or verification that a physical count actually took place.
  */
 export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha256,
-  evidence=null,now=Date.now()}={}) {
+  evidence=null,reviewDraft=null,cutoverEvidenceSha256=null,now=Date.now()}={}) {
   if (!Array.isArray(physical?.items) ||
       !HEX.test(physical?.manifestHash || '') ||
       physical.items.length>MAX_SOURCE ||
@@ -59,7 +98,15 @@ export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha
 
   const issueCounts={};
   const examples=[];
-  const issue=(i,c)=>recordIssues(i,issueCounts,examples,c);
+  const triageCases=new Map(REVIEW_CATEGORIES.map(x=>[x.task,new Set()]));
+  const triageEvents=new Map(REVIEW_CATEGORIES.map(x=>[x.task,0]));
+  const issue=(i,c)=>{
+    const task=REVIEW_CATEGORY_BY_ISSUE[c];
+    if(!task) fail(); // never silently omit a future blocker
+    recordIssues(i,issueCounts,examples,c);
+    triageCases.get(task).add(i);
+    triageEvents.set(task,triageEvents.get(task)+1);
+  };
   const physicalBySku=new Map(),wooById=new Map(),wooBySku=new Map();
   let held=0,eligiblePositive=0,eligibleZero=0;
   physical.items.forEach((item,index)=>{
@@ -200,6 +247,58 @@ export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha
       }
     }
   }
+  // These are private human-entered WORKFLOW NOTES, never signatures.
+  // They bind physical + Woo + exact crosswalk/count bytes (no names/text).
+  const annotations=new Map(REVIEW_CATEGORIES.map(x=>[x.task,new Map()]));
+  if(reviewDraft!==null){
+    if(evidence===null || !HEX.test(cutoverEvidenceSha256||'') ||
+      !exact(reviewDraft,['schemaVersion','physicalManifestSha256',
+        'wooExportSha256','cutoverEvidenceSha256','actions']) ||
+      reviewDraft.schemaVersion!==1 ||
+      reviewDraft.physicalManifestSha256!==physical.manifestHash ||
+      reviewDraft.wooExportSha256!==wooExportSha256 ||
+      reviewDraft.cutoverEvidenceSha256!==cutoverEvidenceSha256 ||
+      !Array.isArray(reviewDraft.actions) ||
+      reviewDraft.actions.length>MAX_SOURCE*REVIEW_CATEGORIES.length) fail();
+    for(const action of reviewDraft.actions){
+      if(!exact(action,['sourceRow','task','state']) ||
+        !Number.isSafeInteger(action.sourceRow) ||
+        action.sourceRow<0 || action.sourceRow>physical.items.length ||
+        !annotations.has(action.task) ||
+        !REVIEW_STATES.includes(action.state) ||
+        !triageCases.get(action.task).has(action.sourceRow) ||
+        annotations.get(action.task).has(action.sourceRow)) fail();
+      annotations.get(action.task).set(action.sourceRow,action.state);
+    }
+  }
+  const reviewQueues=REVIEW_CATEGORIES.map(({task,priority})=>{
+    const cases=triageCases.get(task), claims=annotations.get(task);
+    const draftStateCounts={};
+    for(const state of REVIEW_STATES)draftStateCounts[state]=0;
+    for(const state of claims.values())draftStateCounts[state]++;
+    return {
+      task,priority,
+      affectedSourceRows:[...cases].filter(row=>row!==0).length,
+      hasGlobalIssue:cases.has(0),
+      issueEvents:triageEvents.get(task),
+      sampledSourceRows:[...cases].filter(row=>row!==0).slice(0,MAX_REVIEW_SAMPLES),
+      recordedDraftActions:claims.size,
+      casesStillWithoutDraftAction:cases.size-claims.size,
+      draftStateCounts,
+    };
+  });
+  const reviewWorkflow={
+    kind:'offline-owner-review-triage',
+    usesPrivateSourceBoundDraft:reviewDraft!==null,
+    draftActionsRecorded:reviewQueues.reduce((sum,row)=>sum+row.recordedDraftActions,0),
+    // Queue counts overlap where one physical row has more than one issue.
+    reviewQueues,
+    ownerIdentityIndependentlyVerified:false,
+    physicalRecountIndependentlyVerified:false,
+    ownerSignOffIssued:false,
+    importOrStockWriteAuthorized:false,
+    approvalDecision:'manual_review_and_separate_independent_acceptance_required',
+  };
   return {
     kind:'read-only-shared-woo-cutover-readiness',
     source:'offline-historical-physical-and-export',
@@ -215,7 +314,7 @@ export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha
       claimedStaleTwoPersonCounts:claimedStaleCounts,
       countVsHistoricalDiscrepancies:historicalCountDiscrepancies,
     },
-    issueCounts,examples,
+    issueCounts,examples,reviewWorkflow,
     allPhysicalMappingsIndependentlyVerified:false,
     currentPhysicalCountsIndependentlyVerified:false,
     existingWooIdentitiesOwnerApproved:false,

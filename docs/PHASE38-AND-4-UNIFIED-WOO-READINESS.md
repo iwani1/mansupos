@@ -38,6 +38,10 @@ All results permanently state that real Woo stock ownership, physical count auth
 
 The assessment now flags orphaned Woo variations, requires installed-site owner review for every existing variation link, and flags multiple mapped variations of one parent as a **possible single shared managed-stock pool**. This is not a quantity to sum, an assertion of shared stock, or a release approval. See [Phase 4.1 stock-owner review](PHASE41-WOO-STOCK-OWNER-REVIEW.md).
 
+## Phase 4.2 — Offline discrepancy and owner-review drafts
+
+The aggregate report also groups outstanding problems into P0/P1 review queues. An optional third private, source/recount/export hash-bound JSON records only provisional review statuses for previously detected issues; there is no approved state, no second ledger, no per-item data in output, and no Woo write path. See [Phase 4.2 review workflow](PHASE42-OWNER-INVENTORY-REVIEW.md).
+
 ## Manual reconciliation work before any cutover
 
 1. Recount all actual physical units by SKU, size and colour, with independent witness; resolve all 41 held records.

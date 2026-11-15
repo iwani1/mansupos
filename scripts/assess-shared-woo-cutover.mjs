@@ -11,6 +11,7 @@ import { assessSharedWooInventoryCutover } from '../server/shared-woo-cutover-re
 
 const maxExportBytes=64*1024*1024;
 const maxEvidenceBytes=1024*1024;
+const maxReviewDraftBytes=1024*1024;
 const hash=b=>createHash('sha256').update(b).digest('hex');
 function readLocalFile(input,maxBytes,privateOnly=false) {
   const name=path.resolve(input);
@@ -23,8 +24,21 @@ export function renderSharedWooCutoverReadiness(result) {
   if (result?.kind!=='read-only-shared-woo-cutover-readiness' ||
       result.checkoutAuthorized!==false || result.wooStockMutationsAllowed!==false ||
       result.productCreationAllowed!==false || result.uploadOrImportReady!==false ||
-      result.auditOnly!==true) throw Error('unsafe report');
+      result.auditOnly!==true ||
+      result.reviewWorkflow?.ownerSignOffIssued!==false ||
+      result.reviewWorkflow?.importOrStockWriteAuthorized!==false ||
+      result.reviewWorkflow?.ownerIdentityIndependentlyVerified!==false)
+    throw Error('unsafe report');
   const n=result.counts;
+  const review=result.reviewWorkflow;
+  const reviewRows=review.reviewQueues.map(q=>
+    '| '+q.priority+' | '+q.task+' | '+q.affectedSourceRows+
+    ' | '+(q.hasGlobalIssue?'yes':'no')+
+    ' | '+q.recordedDraftActions+' | '+q.casesStillWithoutDraftAction+' |');
+  const stateTotals={};
+  for(const queue of review.reviewQueues)
+    for(const [state,count] of Object.entries(queue.draftStateCounts))
+      stateTotals[state]=(stateTotals[state]||0)+count;
   const issueRows=Object.entries(result.issueCounts).sort(([a],[b])=>a.localeCompare(b))
     .map(([code,count])=>'| '+code+' | '+count+' |');
   const examples=result.examples.map(x=>'| '+(x.sourceRow||'global')+' | '+x.code+' |');
@@ -52,6 +66,22 @@ export function renderSharedWooCutoverReadiness(result) {
     '| Stale or future dated count claims | '+n.claimedStaleTwoPersonCounts+' |',
     '| Historical-count discrepancies (NOT adjustments) | '+n.countVsHistoricalDiscrepancies+' |',
     '',
+    '## Phase 4.2 owner-review triage (read-only)',
+    '',
+    'Priority P0 = holds/export integrity; P1 = identity, recount and variation ownership.',
+    'One physical source row can belong to multiple review queues. All draft actions are untrusted.',
+    'Private draft supplied: '+(review.usesPrivateSourceBoundDraft?'yes':'no')+'.',
+    '',
+    '| Priority | Review task | Source rows | Global issue | Draft actions | Unannotated cases |',
+    '| --- | --- | ---: | --- | ---: | ---: |',
+    ...reviewRows,
+    '',
+    'Draft action counts (NOT completed approvals):',
+    ...Object.entries(stateTotals).map(([state,count])=>'- '+state+': '+count),
+    '',
+    'Owner identity, physical recount and final sign-off: NOT INDEPENDENTLY VERIFIED.',
+    'Nothing in this workflow authorizes stock writes, import, product creation or checkout.',
+    '',
     '## Outstanding conditions',
     '',
     '| Condition code | Count |','| --- | ---: |',
@@ -71,9 +101,9 @@ export function renderSharedWooCutoverReadiness(result) {
   ].join('\n');
 }
 function main() {
-  if (![3,4].includes(process.argv.length) || !process.argv[2] ||
+  if (![3,4,5].includes(process.argv.length) || !process.argv[2] ||
       process.argv.slice(2).some(a=>a.startsWith('-'))) {
-    console.error('Usage: node scripts/assess-shared-woo-cutover.mjs /private/woo-products.csv [/private/cutover-evidence.json]');
+    console.error('Usage: node scripts/assess-shared-woo-cutover.mjs /private/woo-products.csv [/private/cutover-evidence.json [/private/owner-review-draft.json]]');
     process.exitCode=2;
     return;
   }
@@ -81,11 +111,15 @@ function main() {
     const bytes=readLocalFile(process.argv[2],maxExportBytes);
     const wooExport=parseWooExport(bytes);
     const source=loadInStoreSnapshot();
-    const evidence=process.argv[3]
-      ? JSON.parse(readLocalFile(process.argv[3],maxEvidenceBytes,true).toString('utf8'))
+    const evidenceBytes=process.argv[3]
+      ? readLocalFile(process.argv[3],maxEvidenceBytes,true) : null;
+    const evidence=evidenceBytes?JSON.parse(evidenceBytes.toString('utf8')):null;
+    const reviewDraft=process.argv[4]
+      ? JSON.parse(readLocalFile(process.argv[4],maxReviewDraftBytes,true).toString('utf8'))
       : null;
     const result=assessSharedWooInventoryCutover({
       physical:source,wooExport,wooExportSha256:hash(bytes),evidence,
+      cutoverEvidenceSha256:evidenceBytes?hash(evidenceBytes):null,reviewDraft,
     });
     process.stdout.write(renderSharedWooCutoverReadiness(result));
   } catch {
