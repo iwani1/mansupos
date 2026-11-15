@@ -98,11 +98,16 @@ async function webhook(key, validSignature = true, port = 8091) {
   assert.equal(res.status, validSignature ? 200 : 401,
     'Synthetic signed/forged webhook returned unexpected HTTP status');
 }
-async function redirected(key, port = 8091) {
+async function redirected(key, port = 8091, expectedStatus = 302) {
   const ref = encodeURIComponent(cases[key].ref);
   const res = await call('GET', '/?wc-api=wc_gateway_paystack&reference=' + ref, undefined, undefined, port);
-  assert.ok(res.status === 302 || res.status === 303,
-    'Synthetic Paystack return must redirect, not fail');
+  if (expectedStatus === 302) {
+    assert.ok(res.status === 302 || res.status === 303,
+      'Synthetic valid Paystack return must redirect');
+  } else {
+    assert.equal(res.status, expectedStatus,
+      'Unbound Paystack return must be rejected before DB lock');
+  }
 }
 try {
   for (const [server, port] of [[primaryServer, 8091], [secondaryServer, 8092]]) {
@@ -137,7 +142,7 @@ try {
   process.stdout.write(wpCli('webhook-mismatch'));
   await webhook('webhook_underpaid');
   process.stdout.write(wpCli('webhook-underpaid'));
-  await redirected('return_reference_mismatch');
+  await redirected('return_reference_mismatch', 8091, 403);
   process.stdout.write(wpCli('return-reference-mismatch'));
   await webhook('webhook_verify_failed');
   process.stdout.write(wpCli('webhook-verify-failed'));
