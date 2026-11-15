@@ -5,8 +5,12 @@ import path from 'node:path';
 // wildcard fallback left / returning 404 in the live pilot while /index.html
 // worked. Keep /api handlers registered in createApp before this UI mount.
 export function mountProductionUi(app,{dist,mode}) {
-  const entry=path.join(dist,'index.html');
-  const serveEntry=(_req,res)=>res.sendFile(entry,{
+  // Serve relative to an explicit root. An absolute sendFile path containing
+  // a .candidate-* worktree component is rejected by send's dotfile guard
+  // even when express.static can serve /index.html from that same directory.
+  // Do not disable dotfile protections globally or allow request-derived paths.
+  const serveEntry=(_req,res)=>res.sendFile('index.html',{
+    root:dist,
     headers:{'Cache-Control':'no-cache'},
   });
   // Never expose demo illustrations on production live/staging services.
