@@ -22,6 +22,7 @@ import { localTransaction, readSaleEvents } from './sale-events.js';
 import { auditSharedWooStock } from './phase2-stock-audit.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
 import { refundEvidencePolicy } from './refund-evidence-policy.js';
+import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
 import { financeReviewWritesAllowed, financeReviewHistory, createFinanceReviewRequest, acknowledgeFinanceReview, reviewSteps } from './payment-review-workflow.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -344,6 +345,40 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     const id = reviewSaleId.parse(req.params.saleId);
     const proposed = z.coerce.number().int().positive().max(100000000).optional().parse(req.query.proposedCents);
     res.json(refundEvidencePolicy(db, id, proposed ?? null));
+  });
+  const resolutionDraftSchema = z.object({
+    draftKey: reviewKey,
+    intent: z.enum(resolutionIntents),
+    reasonCode: z.enum(resolutionReasons),
+    proposedCents: z.number().int().min(0).max(100000000),
+    expectedStatus: z.string().min(1).max(60),
+    expectedUpdatedAt: z.string().datetime(),
+    expectedWooOrderId: z.number().int().positive().nullable(),
+    expectedRefundedCents: z.number().int().min(0),
+  }).strict();
+  const resolutionReviewSchema = z.object({
+    draftKey: reviewKey,
+    draftEventId: z.number().int().positive(),
+    expectedStatus: z.string().min(1).max(60),
+    expectedUpdatedAt: z.string().datetime(),
+    expectedRefundedCents: z.number().int().min(0),
+  }).strict();
+  // Draft proposal and separate Owner review are NOT disbursement,
+  // payment settlement, garment inspection, or stock restoration.
+  app.get('/api/payments/reconciliation/:saleId/resolution', auth, role('owner', 'manager'), (req, res) => {
+    res.json(refundResolutionDossier(db, reviewSaleId.parse(req.params.saleId), financeReviewDemo));
+  });
+  app.post('/api/payments/reconciliation/:saleId/resolution', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => {
+    if (!financeReviewDemo) throw new AppError('Resolution drafts are disabled on every non-test POS.', 403, 'REFUND_RESOLUTION_LOCKED');
+    const result = draftRefundResolution(db, req.user, reviewSaleId.parse(req.params.saleId),
+      resolutionDraftSchema.parse(req.body), financeReviewDemo);
+    res.status(result.created ? 201 : 200).json({ ...result, nonExecuting: true });
+  });
+  app.post('/api/payments/reconciliation/:saleId/resolution/owner-review', auth, role('owner'), sensitiveLimit, (req, res) => {
+    if (!financeReviewDemo) throw new AppError('Resolution review recording is disabled on every non-test POS.', 403, 'REFUND_RESOLUTION_LOCKED');
+    const result = ownerReviewRefundResolution(db, req.user, reviewSaleId.parse(req.params.saleId),
+      resolutionReviewSchema.parse(req.body), financeReviewDemo);
+    res.status(result.created ? 201 : 200).json({ ...result, nonExecuting: true });
   });
   app.get('/api/payments/reconciliation/:saleId/review', auth, role('owner', 'manager'), (req, res) => {
     const id = reviewSaleId.parse(req.params.saleId);
