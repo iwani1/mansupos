@@ -2,7 +2,7 @@
 // No stock balance, name, price, customer record, payment, Woo write or staff
 // approval is embedded. Browser downloads should be protected as private files.
 const csvCell = value => {
-  let safe=String(value ?? '').replace(/[\u0000-\u001f\u007f]/g,'');
+  // eslint-disable-next-line no-control-regex -- CSV export intentionally strips control bytes.\n  let safe=String(value ?? '').replace(/[\u0000-\u001f\u007f]/g,'');
   if (/^\s*[=+@-]/u.test(safe)) safe="'"+safe;
   return '"'+safe.replaceAll('"','""')+'"';
 };

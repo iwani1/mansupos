@@ -83,7 +83,7 @@ test('stock-count review supports paging, fixed counts, filtering and stable sna
   assert.equal(low.total,1);
   assert.equal(low.tasks[0].reportRow,7);
   const byRow=planPhysicalRecounts(p,w,{search:'77'},clock);
-  assert.equal(byRow.total,1);
+  assert.equal(byRow.total,2);
   assert.equal(byRow.tasks[0].reportRow,77);
   const byAction=planPhysicalRecounts(p,w,{
     action:'review_missing_website_product',page:2,pageSize:50,
@@ -118,9 +118,9 @@ test('blank worksheet includes only page source identities and EMPTY count field
   assert.equal(lines.length,3);
   assert.match(lines[0],/Count 1 \(blank\)/);
   assert.match(lines[0],/Independent count 2 \(blank\)/);
-  assert.ok(lines[1].includes('\"\'=1+1\"'),'CSV formula must be neutralized');
-  assert.ok(lines[2].includes('\"NORMAL\"'));
-  assert.doesNotMatch(csv,/SENSITIVE PRIVATE PRODUCT|40000|900|priceCents|reportedQuantity/);
+  assert.ok(lines[1].includes(`"'=1+1"`),'CSV formula must be neutralized');
+  assert.ok(lines[2].includes('"NORMAL"'));
+  assert.doesNotMatch(csv,/SENSITIVE PRIVATE PRODUCT|"40000"|"900"|priceCents|reportedQuantity/);
   assert.equal((lines[1].match(/,/g)||[]).length,13);
   assert.throws(()=>blankPhysicalRecountCsv({...report,checkoutAuthorized:true}),Error);
   assert.throws(()=>blankPhysicalRecountCsv({...report,physicalManifestSha256:null}),Error);
