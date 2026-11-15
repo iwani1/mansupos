@@ -168,7 +168,11 @@ export class SyntheticEvidenceAuditJournal {
       notices:'A valid local HMAC chain is not proof of trusted host custody or bank settlement. Retain and authenticate the head independently to detect a file rollback.',
     });
   }
-  append({orderId,siteId,correlationId,outcome,time}={}) {
+  append(input={}) {
+    // Prevent accidental persistence of customer names, bank details, gateway
+    // references, credentials, or arbitrary caller-supplied metadata.
+    if (!keysMatch(input,['orderId','siteId','correlationId','outcome','time'])) throw refused();
+    const {orderId,siteId,correlationId,outcome,time}=input;
     // CI only. A cross-process O_EXCL lock fails closed if another appender
     // is active or a crashed process left stale state. No force-unlock API.
     let lockFd;
