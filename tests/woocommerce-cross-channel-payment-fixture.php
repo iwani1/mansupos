@@ -14,6 +14,10 @@ if ( ! defined( 'WP_CLI' ) || ! WP_CLI ||
     throw new RuntimeException( 'Cross-channel test refused outside disposable Woo/Paystack CI.' );
 }
 $phase = getenv( 'MANSU_CI_CROSS_PHASE' );
+$kind = getenv( 'MANSU_CI_CROSS_KIND' ) ?: 'simple';
+if ( ! in_array( $kind, array( 'simple', 'shared-parent' ), true ) ) {
+    throw new RuntimeException( 'Unknown disposable stock-owner kind.' );
+}
 global $wpdb;
 $assertions = 0;
 $check = static function ( $ok, $why ) use ( &$assertions ) {
@@ -63,8 +67,36 @@ if ( $phase === 'cross-setup' ) {
         'payment_page' => 'redirect', 'autocomplete_order' => 'no',
         'saved_cards' => 'no',
     ) );
-    $product = $make_product( 'last-item' );
-    list( $website, $ref ) = $make_website( $product, 'late_vs_pos_cash' );
+    if ( $kind === 'shared-parent' ) {
+        $product = new WC_Product_Variable();
+        $product->set_name( 'SYNTHETIC CROSS SHARED PARENT FINAL UNIT' );
+        $product->set_status( 'publish' );
+        $product->set_manage_stock( true );
+        $product->set_stock_quantity( 1 );
+        $product->set_backorders( 'no' );
+        $product->save();
+        $variations = array();
+        foreach ( array( 'Size A', 'Size B' ) as $size ) {
+            $variation = new WC_Product_Variation();
+            $variation->set_parent_id( $product->get_id() );
+            $variation->set_status( 'publish' );
+            $variation->set_regular_price( '100.00' );
+            $variation->set_manage_stock( false );
+            $variation->set_sku( 'SYN-CROSS-' . wp_generate_uuid4() );
+            $variation->save();
+            $variations[] = $variation;
+        }
+        $website_item = $variations[0];
+        $pos_item = $variations[1];
+        $check( (int) $website_item->get_stock_managed_by_id() === (int) $product->get_id() &&
+            (int) $pos_item->get_stock_managed_by_id() === (int) $product->get_id(),
+            'Different size variations failed to share original parent stock pool.' );
+    } else {
+        $product = $make_product( 'last-item' );
+        $website_item = $product;
+        $pos_item = $product;
+    }
+    list( $website, $ref ) = $make_website( $website_item, 'late_vs_pos_cash_' . $kind );
     $expired = $wpdb->update( $wpdb->wc_reserved_stock,
         array( 'expires' => gmdate( 'Y-m-d H:i:s', time() - 30 ) ),
         array( 'order_id' => $website->get_id() ) );
@@ -79,9 +111,10 @@ if ( $phase === 'cross-setup' ) {
         'shiftId' => '39fda408-7303-42c5-bbdf-e89ed1eb4c5b',
         'saleType' => 'retail',
         'items' => array( array(
-            'productId' => (int) $product->get_id(), 'variationId' => 0,
+            'productId' => (int) $product->get_id(),
+            'variationId' => $kind === 'shared-parent' ? (int) $pos_item->get_id() : 0,
             'quantity' => 1, 'expectedUnitCents' => 10000,
-            'ownerId' => (int) $product->get_id(), 'sku' => $product->get_sku(),
+            'ownerId' => (int) $product->get_id(), 'sku' => $pos_item->get_sku(),
         ) ),
     );
     $req = new WP_REST_Request( 'POST', '/mansu-pos/v1/attempts' );
@@ -100,10 +133,20 @@ if ( $phase === 'cross-setup' ) {
         'POS cash-intent was not durably recorded: ' .
         ( is_wp_error( $intent ) ? $intent->get_error_code() : wp_json_encode( $intent ) ) );
     $dir = WP_CONTENT_DIR . '/mansu-ci-cross-payment';
-    $check( ! is_dir( $dir ) && wp_mkdir_p( $dir ), 'Could not create synthetic cross-channel barrier.' );
+    $check( is_dir( $dir ) || wp_mkdir_p( $dir ),
+        'Could not prepare synthetic cross-channel barrier.' );
+    // The same disposable DB runs both variants sequentially. Never accept
+    // a previous race's marker as proof of a second simultaneous admission.
+    foreach ( array( 'website', 'pos' ) as $marker ) {
+        if ( is_file( $dir . '/' . $marker ) && ! unlink( $dir . '/' . $marker ) ) {
+            throw new RuntimeException( 'Could not reset previous synthetic race marker.' );
+        }
+    }
     $data = array( 'websiteId' => $website->get_id(),
         'posId' => (int) $reserved['orderId'], 'productId' => $product->get_id(),
-        'ref' => $ref, 'posKey' => $key );
+        'websiteVariationId' => $kind === 'shared-parent' ? (int) $website_item->get_id() : 0,
+        'posVariationId' => $kind === 'shared-parent' ? (int) $pos_item->get_id() : 0,
+        'kind' => $kind, 'ref' => $ref, 'posKey' => $key );
     update_option( 'mansu_ci_cross_payment', $data, false );
     $fixtures = get_option( 'mansu_ci_paystack_http_cases', array() );
     $fixtures['cross_paid_late'] = array( 'id' => $website->get_id(),
@@ -147,6 +190,21 @@ if ( $phase === 'cross-verify' ) {
         'POS+website race oversold the final synthetic unit: ' . $product->get_stock_quantity() );
     $check( $notes( $web ) === 1,
         'Cross-channel race produced duplicate external Paystack success notes.' );
+    if ( $kind === 'shared-parent' ) {
+        $check( $data['kind'] === 'shared-parent' &&
+            (int) $data['websiteVariationId'] > 0 &&
+            (int) $data['posVariationId'] > 0 &&
+            (int) $data['websiteVariationId'] !== (int) $data['posVariationId'] &&
+            (int) $web_line->get_variation_id() === (int) $data['websiteVariationId'] &&
+            (int) $pos_line->get_variation_id() === (int) $data['posVariationId'],
+            'The website and POS did not purchase different variants of one parent stock pool.' );
+        $website_variant = wc_get_product( $data['websiteVariationId'] );
+        $pos_variant = wc_get_product( $data['posVariationId'] );
+        $check( $website_variant && $pos_variant &&
+            (int) $website_variant->get_stock_managed_by_id() === (int) $product->get_id() &&
+            (int) $pos_variant->get_stock_managed_by_id() === (int) $product->get_id(),
+            'Shared parent stock owner was changed or fragmented during simultaneous payment.' );
+    }
     $dir = WP_CONTENT_DIR . '/mansu-ci-cross-payment';
     $check( is_file( $dir . '/pos' ) && is_file( $dir . '/website' ),
         'Both payment channels did not meet the same original-item barrier.' );
