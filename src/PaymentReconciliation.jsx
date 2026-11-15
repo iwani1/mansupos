@@ -41,6 +41,10 @@ export default function PaymentReconciliation({ user }) {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [selectedStep, setSelectedStep] = useState('');
   const [pendingKey, setPendingKey] = useState(null);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundEvidence, setRefundEvidence] = useState(null);
+  const [refundEvidenceError, setRefundEvidenceError] = useState('');
+  const [refundEvidenceBusy, setRefundEvidenceBusy] = useState(false);
   const load = useCallback(async (after = '') => {
     setBusy(true);
     setError('');
@@ -48,6 +52,7 @@ export default function PaymentReconciliation({ user }) {
       // Never retain stale POS financial evidence after a failed refresh.
       setCases([]); setSummary(null); setFullCount(0); setMore(false);
       setCursor(null); setLoaded(false);
+      setSelected(null); setReview(null); setRefundEvidence(null); setRefundAmount('');
     }
     try {
       const suffix = after ? `?limit=50&cursor=${encodeURIComponent(after)}` : '?limit=50';
@@ -114,10 +119,50 @@ export default function PaymentReconciliation({ user }) {
   const openReview = async item => {
     if (selected?.id === item.id) {
       setSelected(null); setReview(null); setPendingKey(null); setReviewError('');
+      setRefundEvidence(null); setRefundEvidenceError(''); setRefundAmount('');
       return;
     }
     setSelected(item); setReview(null); setSelectedStep(''); setPendingKey(null);
+    setRefundEvidence(null); setRefundEvidenceError(''); setRefundAmount('');
     await readReview(item);
+  };
+  const inspectRefundEvidence = async () => {
+    if (!selected || refundEvidenceBusy) return;
+    setRefundEvidenceBusy(true); setRefundEvidence(null); setRefundEvidenceError('');
+    try {
+      const raw = refundAmount.trim();
+      let cents = null;
+      if (raw) {
+        if (!/^[0-9]+(?:\\.[0-9]{1,2})?$/.test(raw)) {
+          throw new Error('Enter an illustrative amount in GHS with no more than two decimal places.');
+        }
+        const [whole, fraction = ''] = raw.split('.');
+        cents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+        if (!Number.isSafeInteger(cents) || cents < 1 || cents > 100000000) {
+          throw new Error('Illustrative amount must be between GH₵0.01 and GH₵1,000,000.');
+        }
+      }
+      const endpoint = `/payments/reconciliation/${encodeURIComponent(selected.id)}/refund-evidence` +
+        (cents === null ? '' : `?proposedCents=${cents}`);
+      const result = await api(endpoint);
+      if (result?.kind !== 'read-only-refund-evidence-policy' ||
+          result.source !== 'local-pos-ledger' || result.auditOnly !== true ||
+          result.mutationsAllowed !== false || result.checkoutAuthorized !== false ||
+          result.refundAuthorized !== false || result.refundExecuted !== false ||
+          result.cashPayoutVerified !== false || result.gatewaySettlementVerified !== false ||
+          result.stockRestored !== false || result.returnInspected !== false ||
+          result.fulfilmentAuthorized !== false ||
+          result.decision !== 'manual_review_only' ||
+          result.saleId !== selected.id ||
+          !Array.isArray(result.checks) || !Array.isArray(result.warnings)) {
+        throw new Error('The original refund evidence response did not meet read-only safeguards.');
+      }
+      setRefundEvidence(result);
+    } catch (failure) {
+      setRefundEvidenceError(failure.message || 'Refund evidence could not be inspected.');
+    } finally {
+      setRefundEvidenceBusy(false);
+    }
   };
   const recordRequest = async () => {
     if (!selected || !review?.actionsAvailable || !selectedStep) return;
@@ -247,6 +292,46 @@ export default function PaymentReconciliation({ user }) {
       </div>
       {reviewError && <Notice tone="error">{reviewError}</Notice>}
       {reviewBusy && <p role="status" className="field-hint">Checking original POS review events.</p>}
+      <div className="section-heading"><div>
+        <span className="eyebrow">No payment or stock actions</span>
+        <h2>Refund evidence worksheet</h2>
+        <p>Hypothetical partial/full refund arithmetic and required manual verification only.</p>
+      </div></div>
+      <div className="form-stack">
+        <label>Illustrative new refund (GH₵) — optional
+          <input className="input" type="number" min="0.01" max="1000000"
+            step="0.01" value={refundAmount} placeholder="e.g. 50.00"
+            onChange={event => { setRefundAmount(event.target.value); setRefundEvidence(null); }} />
+        </label>
+        <button type="button" className="button secondary" disabled={refundEvidenceBusy}
+          onClick={inspectRefundEvidence}>
+          {refundEvidenceBusy ? 'Inspecting POS evidence…' : 'Inspect refund evidence (read-only)'}
+        </button>
+      </div>
+      {refundEvidenceError && <Notice tone="error">{refundEvidenceError}</Notice>}
+      {refundEvidence && <section aria-label="Refund policy worksheet results">
+        <Notice tone="warning">Manual review required. This worksheet never authorizes a refund, confirms a cash payout or bank settlement, or restores inventory.</Notice>
+        <div className="stats-grid four">
+          <Stat label="Original POS sale" value={money(refundEvidence.originalTotalCents)} detail="Not independent settlement evidence" />
+          <Stat label="Observed Woo refund" value={money(refundEvidence.observedWooRefundCents)} detail={refundEvidence.recordedRefundKind + ' · payout not verified'} />
+          <Stat label="Observed remaining" value={refundEvidence.observedRemainingCents === null ? 'Unverified' : money(refundEvidence.observedRemainingCents)} detail="A ceiling from POS data, not cash availability" />
+          <Stat label="Hypothetical new amount" value={refundEvidence.hypotheticalNewRefundCents === null ? 'Not entered' : money(refundEvidence.hypotheticalNewRefundCents)} detail="Never an authorized payout" />
+        </div>
+        {refundEvidence.warnings.length > 0 && <Notice tone="error">
+          Evidence gaps: {refundEvidence.warnings.join(', ').replaceAll('_', ' ')}.
+        </Notice>}
+        <TableRegion label="Refund safety evidence checklist">
+          <table className="responsive-table records-sales"><thead>
+            <tr><th>Required review</th><th>Local evidence</th></tr>
+          </thead><tbody>{refundEvidence.checks.map(item => <tr key={item.code}>
+            <td data-label="Required review">{item.requirement}</td>
+            <td data-label="Local evidence"><Badge tone={item.observed ? 'amber' : 'red'}>
+              {item.observed ? 'POS indication only' : 'Not independently verified'}
+            </Badge></td>
+          </tr>)}</tbody></table>
+        </TableRegion>
+        <p className="field-hint">{refundEvidence.notice}</p>
+      </section>}
       {review && <>
         <Notice tone="warning">No refund approval, no physical cash payout, no Paystack settlement verification, and no stock restoration are possible here. These are investigation instructions only.</Notice>
         {review.entries.length === 0
