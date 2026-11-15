@@ -153,6 +153,7 @@ export class SyntheticReadOnlyEvidenceReader {
       settlement: null, gatewayRefunds: null, relatedWooOrders: [],
     });
     return {
+      ...comparison,
       kind: 'synthetic-woo-paystack-read-contract',
       disconnectedFromMerchant: true,
       merchantSourceAuthenticated: false,
@@ -162,7 +163,6 @@ export class SyntheticReadOnlyEvidenceReader {
       financialOperationsEnabled: false,
       originalOrderId: orderId,
       numberOfWooRefundRowsInspected: total,
-      ...comparison,
     };
   }
 }
