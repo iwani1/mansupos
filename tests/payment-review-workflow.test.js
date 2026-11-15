@@ -44,12 +44,15 @@ function fixture(live = false) {
 }
 function createSale(db,{refund=0,status='needs_reconciliation'}={}) {
   const id=randomUUID(), timestamp='2026-11-15T13:30:00.000Z';
+  // Each original order must have a distinct Woo ID under the real v9
+  // ledger uniqueness invariant; duplicate source IDs are a fixture fault.
+  const wooId=45678+db.prepare('SELECT COUNT(*) AS n FROM sales').get().n;
   db.prepare('INSERT INTO sales(id,idempotency_key,fingerprint,number,status,woo_order_id,'+
     'payment_method,total,refunded,paid_at,shift_id,updated_at,created_at,currency,'+
     'cashier_id,cashier_name,note,items_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(id,randomUUID(),'synthetic','SYN-'+id.slice(0,8),status,45678,'cash',
+    .run(id,randomUUID(),'synthetic','SYN-'+id.slice(0,8),status,wooId,'cash',
       16000,refund,null,null,timestamp,timestamp,'GHS','cashier','Synthetic','', '[]');
-  saleEvent(db,id,'online.intent','system',{wooOrderId:45678});
+  saleEvent(db,id,'online.intent','system',{wooOrderId:wooId});
   return id;
 }
 const requestInput=(item,step,key=randomUUID())=>({
