@@ -22,17 +22,18 @@ test('owner-only activity history supports safe server-side search, time filters
     const response=await fetch(url+'/audit'+query,{headers:{Authorization:'Bearer '+token}});
     return {status:response.status,body:await response.json()};
   };
-  const date=new Date().toISOString();
   const old=new Date(Date.now()-50*24*3600000).toISOString();
-  for(let i=0;i<17;i++) {
+  // Append-only audit tables intentionally refuse UPDATE/DELETE. Create an
+  // old fixture at INSERT time and preserve the immutable historical record.
+  db.prepare('INSERT INTO audit(actor,action,subject,created_at) VALUES(?,?,?,?)')
+    .run('demo-owner','staff.password_reset','MANAGEMENT_REVIEW_16',old);
+  for(let i=0;i<16;i++) {
     const type=i%3===0?'auth.login':i%3===1?'staff.deactivated':'wholesale.quote_approved';
     audit(db,'demo-owner',type,'MANAGEMENT_REVIEW_'+i);
   }
   const rows=db.prepare("SELECT id,action,subject FROM audit WHERE subject LIKE 'MANAGEMENT_REVIEW_%' ORDER BY id DESC").all();
   assert.equal(rows.length,17);
   const oldId=rows.at(-1).id;
-  db.prepare('UPDATE audit SET created_at=? WHERE id=?').run(old,oldId);
-  db.prepare('UPDATE audit SET created_at=? WHERE id=?').run(date,rows[0].id);
 
   const before=db.prepare('SELECT COUNT(*) AS n FROM audit').get().n;
   const first=await get('?limit=5&period=all');
