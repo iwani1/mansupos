@@ -90,6 +90,14 @@ export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha
       else wooBySku.set(sku,id);
     }
   });
+  // An incomplete Woo export can conceal a missing or wrong variation parent.
+  for (const wooRow of wooExport.rows) {
+    if (wooRow.Type!=='variation') continue;
+    const candidateParentId=parentId(wooRow);
+    const candidateParent=wooById.get(candidateParentId);
+    if (!candidateParentId || !candidateParent || candidateParent.Type!=='variable')
+      issue(0,'orphan_or_invalid_woo_variation_parent');
+  }
   const links=new Map(),counts=new Map();
   let proposedExisting=0,proposedNew=0,claimedRecentCounts=0,
     claimedStaleCounts=0,historicalCountDiscrepancies=0;
@@ -131,6 +139,9 @@ export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha
     if(!physicalBySku.has(sku))issue(0,'count_for_unknown_source_sku');
   }
   const allocatedTargets=new Set();
+  // Different Woo variation IDs can still consume ONE parent-managed pool.
+  // CSV snapshots cannot independently prove the live installed stock owner.
+  const variationMappingsByParent=new Map();
   for(const [sku,{row,item}] of physicalBySku.entries()){
     const link=links.get(sku);
     const count=counts.get(sku);
@@ -156,6 +167,12 @@ export function assessSharedWooInventoryCutover({physical,wooExport,wooExportSha
       } else {
         // An explicit existing Woo mapping is still a *draft* even if the
         // SKU happens to match. No implicit name or price equality matching.
+        if (variation) {
+          issue(row,'variation_stock_owner_requires_live_verification');
+          const prior=variationMappingsByParent.get(link.wooProductId)||0;
+          if (prior>0) issue(row,'possible_shared_parent_managed_stock_pool');
+          variationMappingsByParent.set(link.wooProductId,prior+1);
+        }
         if (variation && !normalizeSKU(variation.SKU))
           issue(row,'variation_sku_unassigned_for_manual_review');
         if(variation && normalizeSKU(variation.SKU) &&

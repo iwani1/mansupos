@@ -34,6 +34,10 @@ The CLI reads files only, validates SHA-256 bindings, and emits only aggregate i
 
 All results permanently state that real Woo stock ownership, physical count authenticity, Owner identity approval, catalogue freshness, last-unit concurrency, retail-tax approval, cashier custody and late gateway guard are UNVERIFIED. Product creation, import, stock adjustment, cash checkout and refund authorization remain FALSE even if the offline report has zero identified issue codes.
 
+## Phase 4.1 — Offline variation stock-owner ambiguity gate
+
+The assessment now flags orphaned Woo variations, requires installed-site owner review for every existing variation link, and flags multiple mapped variations of one parent as a **possible single shared managed-stock pool**. This is not a quantity to sum, an assertion of shared stock, or a release approval. See [Phase 4.1 stock-owner review](PHASE41-WOO-STOCK-OWNER-REVIEW.md).
+
 ## Manual reconciliation work before any cutover
 
 1. Recount all actual physical units by SKU, size and colour, with independent witness; resolve all 41 held records.
