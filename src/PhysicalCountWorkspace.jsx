@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ClipboardCheck, LockKeyhole, RefreshCw, ShieldCheck } from 'lucide-react';
-import { api, dateTime, uuid } from './api.js';
+import { api, uuid } from './api.js';
 import { Notice, PageHeading, TableRegion } from './components.jsx';
 
 const stages={
@@ -49,7 +49,7 @@ export default function PhysicalCountWorkspace({ user }) {
     finally{if(id===requestId.current)setLoading(false);}
   },[endpoint,owner,search]);
 
-  useEffect(()=>{void load(1);return()=>{requestId.current++;};},[load]);
+  useEffect(()=>{const ref=requestId;void load(1);return()=>{ref.current++;};},[load]);
   const begin=row=>{
     setNotice('');setError('');
     if(!row.canSubmit)return;
