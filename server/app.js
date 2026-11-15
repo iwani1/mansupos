@@ -21,6 +21,7 @@ import { createLogger, requestId } from './logger.js';
 import { localTransaction, readSaleEvents } from './sale-events.js';
 import { auditSharedWooStock } from './phase2-stock-audit.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
+import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { financeReviewWritesAllowed, financeReviewHistory, createFinanceReviewRequest, acknowledgeFinanceReview, reviewSteps } from './payment-review-workflow.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -336,6 +337,14 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     expectedStatus: z.string().min(1).max(60),
     expectedUpdatedAt: z.string().datetime(),
   }).strict();
+  // Refund amounts here are illustrative POS-only arithmetic. This GET
+  // cannot fetch/verify bank settlement or move money/stock, and remains safe
+  // on the live catalogue-only pilot.
+  app.get('/api/payments/reconciliation/:saleId/refund-evidence', auth, role('owner', 'manager'), (req, res) => {
+    const id = reviewSaleId.parse(req.params.saleId);
+    const proposed = z.coerce.number().int().positive().max(100000000).optional().parse(req.query.proposedCents);
+    res.json(refundEvidencePolicy(db, id, proposed ?? null));
+  });
   app.get('/api/payments/reconciliation/:saleId/review', auth, role('owner', 'manager'), (req, res) => {
     const id = reviewSaleId.parse(req.params.saleId);
     res.json(financeReviewHistory(db, id, financeReviewDemo));
