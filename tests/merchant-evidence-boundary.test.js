@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { assessMerchantEvidenceProvisioning,
   buildMerchantEvidenceAuditEvent, compareMerchantIdentityClaims
@@ -187,4 +188,31 @@ test('preflight module never imports the Woo, Paystack, POS app or network trans
   assert.equal(source.includes('http.request('),false);
   assert.equal(source.includes('createApp('),false);
   assert.equal(source.includes('app.js'),true, 'Boundary documents deliberate absence from POS app');
+});
+
+test('manually invoked offline preflight does not print environment secrets or enable any live operation', () => {
+  const catalogue=credentialOptions();
+  const script=fileURLToPath(new URL('../scripts/merchant-evidence-preflight.mjs',import.meta.url));
+  const run=spawnSync(process.execPath,[script],{
+    encoding:'utf8',timeout:5000,
+    env:{ ...process.env,...approved(),
+      WOO_CONSUMER_KEY:catalogue.catalogueCredentials.consumerKey,
+      WOO_CONSUMER_SECRET:catalogue.catalogueCredentials.consumerSecret,
+      POS_ONLINE_BRIDGE_APP_PASSWORD:catalogue.onlineBridgeCredentials.appPassword,
+    },
+  });
+  assert.equal(run.status,0,run.stderr);
+  assert.equal(run.stderr,'');
+  const report=JSON.parse(run.stdout);
+  assert.equal(report.kind,'merchant-evidence-provisioning-preflight');
+  assert.equal(report.formattingChecksPassed,true,JSON.stringify(report.blockers));
+  assert.equal(report.liveSiteContacted,false);
+  assert.equal(report.enabledForLivePOS,false);
+  assert.equal(report.checkoutAuthorized,false);
+  assert.equal(report.clientCreated,false);
+  for(const sensitive of [wooKey,wooSecret,paystackSecret,auditSecret,
+    catalogue.catalogueCredentials.consumerSecret,
+    catalogue.onlineBridgeCredentials.appPassword]) {
+    assert.equal(run.stdout.includes(sensitive),false,'Offline CLI leaked secret');
+  }
 });
