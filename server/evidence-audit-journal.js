@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { constants, createHmac, createHash, timingSafeEqual } from 'node:crypto';
+import { createHmac, createHash, timingSafeEqual } from 'node:crypto';
 import { buildMerchantEvidenceAuditEvent } from './merchant-evidence-boundary.js';
 
 const F = fs.constants;
