@@ -20,12 +20,12 @@ assert.ok(wp?.endsWith('/mansu-disposable-wordpress') &&
   cli?.endsWith('/wp-cli.phar') && fs.existsSync(path.join(wp, 'wp-config.php')) &&
   fs.existsSync(cli) && fs.existsSync(fixture), 'Disposable WP fixtures not found');
 
-function cmd(stage) {
+function cmd(stage, kind = 'simple') {
   return ['php', [cli, 'eval-file', fixture, '--path=' + wp, '--skip-themes'],
-    { ...process.env, MANSU_CI_CROSS_PHASE: stage }];
+    { ...process.env, MANSU_CI_CROSS_PHASE: stage, MANSU_CI_CROSS_KIND: kind }];
 }
-function outputStage(stage) {
-  const [binary, args, env] = cmd(stage);
+function outputStage(stage, kind = 'simple') {
+  const [binary, args, env] = cmd(stage, kind);
   const p = spawnSync(binary, args, { env, encoding: 'utf8', timeout: 95000 });
   if (p.status !== 0) {
     throw new Error('Synthetic ' + stage + ' failed: ' +
@@ -34,8 +34,8 @@ function outputStage(stage) {
   process.stdout.write(p.stdout);
   return p.stdout;
 }
-function asyncStage(stage) {
-  const [binary, args, env] = cmd(stage);
+function asyncStage(stage, kind = 'simple') {
+  const [binary, args, env] = cmd(stage, kind);
   const p = spawn(binary, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   for (const stream of [p.stdout, p.stderr])
@@ -105,20 +105,24 @@ try {
     await sleep(200);
   }
   assert.ok(started, 'Disposable cross-channel WordPress server not ready: ' + stderr);
-  const crossSetup = outputStage('cross-setup');
-  const cross = JSON.parse(crossSetup.match(/^DISPOSABLE_CROSS_SETUP (.+)$/m)?.[1] || 'null');
-  assert.ok(cross?.websiteId && cross?.posId && cross?.ref, 'No cross-channel fixture');
-  const pos = asyncStage('cross-pos-pay');
-  try {
-    const [cashLog] = await Promise.all([
-      pos.completed,
-      webhook(cross.ref, 200),
-    ]);
-    process.stdout.write(cashLog);
-  } finally {
-    if (pos.process.exitCode === null) pos.process.kill('SIGTERM');
+  for (const kind of ['simple', 'shared-parent']) {
+    const crossSetup = outputStage('cross-setup', kind);
+    const cross = JSON.parse(crossSetup.match(/^DISPOSABLE_CROSS_SETUP (.+)$/m)?.[1] || 'null');
+    assert.ok(cross?.websiteId && cross?.posId && cross?.ref && cross.kind === kind,
+      'No cross-channel ' + kind + ' fixture');
+    const pos = asyncStage('cross-pos-pay', kind);
+    try {
+      const [cashLog] = await Promise.all([
+        pos.completed,
+        webhook(cross.ref, 200),
+      ]);
+      process.stdout.write(cashLog);
+    } finally {
+      if (pos.process.exitCode === null) pos.process.kill('SIGTERM');
+    }
+    outputStage('cross-verify', kind);
+    console.log('DISPOSABLE_CROSS_PARENT_KIND_OK ' + kind);
   }
-  outputStage('cross-verify');
 
   const lockSetup = outputStage('lock-setup');
   const lock = JSON.parse(lockSetup.match(/^DISPOSABLE_LOCK_SETUP (.+)$/m)?.[1] || 'null');
@@ -127,6 +131,14 @@ try {
   holder = asyncStage('lock-hold');
   try {
     await untilFile(path.join(directory, 'held'), holder);
+    // An unauthenticated GET return claiming the right order ID but a
+    // different payment reference must NOT join the order's held DB lock.
+    // It should reject immediately (403), not wait 20s for timeout (503).
+    const forged = await send('GET', '/?wc-api=wc_gateway_paystack&reference=' +
+      encodeURIComponent(lock.ref + '_forged'));
+    assert.equal(forged.status, 403,
+      'Unbound return reference should be denied before MySQL lock');
+    console.log('DISPOSABLE_RETURN_PRELOCK_REJECT_OK: forged GET returned 403 while order lock held');
     await webhook(lock.ref, 503);
     outputStage('lock-timeout-verify');
   } finally {
@@ -136,8 +148,9 @@ try {
   holder = undefined;
   await webhook(lock.ref, 200);
   outputStage('lock-recovered-verify');
-  console.log('DISPOSABLE_CROSS_CHANNEL_AND_LOCK_RECOVERY_OK: same-item POS vs Paystack' +
-    ' race and MySQL lock timeout/retry; no real Paystack or live website.');
+  console.log('DISPOSABLE_CROSS_CHANNEL_AND_LOCK_RECOVERY_OK: simple/parent-managed' +
+    ' same-last-unit POS vs Paystack races, pre-lock forged GET rejection,' +
+    ' and MySQL lock timeout/retry; no real Paystack or live website.');
 } finally {
   if (holder?.process.exitCode === null) holder.process.kill('SIGTERM');
   server.kill('SIGTERM');
