@@ -6,7 +6,7 @@
  * grant, external audit attestation, or production deployment gate.
  * Even a perfectly completed synthetic matrix NEVER permits live operations.
  */
-import { createHash, createPublicKey, sign, timingSafeEqual, verify } from 'node:crypto';
+import { createHash, sign, timingSafeEqual, verify } from 'node:crypto';
 
 export const AUDIT_PROVIDER_CONTROLS=Object.freeze([
   'off_host_separate_custodian',
