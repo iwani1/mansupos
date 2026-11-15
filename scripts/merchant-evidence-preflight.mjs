@@ -12,13 +12,13 @@ import { assessMerchantEvidenceProvisioning } from '../server/merchant-evidence-
 const env = process.env;
 const result = assessMerchantEvidenceProvisioning({
   env,
-  catalogueCredentials: {
-    consumerKey: env.WOO_CONSUMER_KEY || '',
-    consumerSecret: env.WOO_CONSUMER_SECRET || '',
+  // Independently provisioned fingerprints only: never import existing
+  // catalogue / reservation-bridge raw credentials into this new runtime.
+  catalogueFingerprints: {
+    consumerKeySha256: env.MANSU_EVIDENCE_CATALOGUE_KEY_SHA256 || '',
+    consumerSecretSha256: env.MANSU_EVIDENCE_CATALOGUE_SECRET_SHA256 || '',
   },
-  onlineBridgeCredentials: {
-    appPassword: env.POS_ONLINE_BRIDGE_APP_PASSWORD || '',
-  },
+  onlineBridgeFingerprint: env.MANSU_EVIDENCE_BRIDGE_PASSWORD_SHA256 || '',
 });
 process.stdout.write(JSON.stringify(result, null, 2) + '\n');
 // Exit success only means the OFFLINE preflight ran. The report's explicit
