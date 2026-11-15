@@ -171,6 +171,22 @@ export class SyntheticEvidenceCheckpointWitness {
 }
 
 /**
+ * Export the latest full signed synthetic checkpoint for a SEPARATE verifier.
+ * Read-only; accepts only the public key and validates the entire witness
+ * chain. Does not import signing keys, reveal a payment reference, or prove
+ * external custody. A separate custodian must enforce its own high watermark.
+ */
+export function latestSyntheticSignedWitnessReceipt({env,witnessDirectory,publicKey}={}) {
+  requireSynthetic(env);
+  if (!validPublic(publicKey)) throw refused();
+  const directory=checkedDirectory(witnessDirectory);
+  const records=readRecords(path.join(directory,'synthetic-signed-checkpoints.ndjson'),publicKey);
+  const last=records.at(-1);
+  if (!last) throw refused();
+  return Object.freeze({...last});
+}
+
+/**
  * Uses a separately supplied, pinned Ed25519 PUBLIC key, not a private signer
  * key. The test directory may be different from journal storage. Does NOT
  * prove that the public key was obtained via a trusted independent channel.
