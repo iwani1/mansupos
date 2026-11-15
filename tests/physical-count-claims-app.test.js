@@ -113,6 +113,35 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal(review.data.ownerApproved,false);
   assert.equal(review.data.checkoutAuthorized,false);
   assert.equal(review.data.stockImportAuthorized,false);
+  const triageBody={
+    reportRow:row,expectedRef:review.data.snapshotRef,
+    expectedFirstClaimId:review.data.items[0].firstClaimId,
+    expectedSecondClaimId:review.data.items[0].secondClaimId,
+    expectedLatestTriageId:null,
+    decision:'request_recount',note:'Different counts. Request independent recount.',
+    requestId:randomUUID(),
+  };
+  assert.equal((await req('/stock-safety/count-owner-triage',one.data.token,'POST',triageBody)).status,403);
+  assert.equal((await req('/stock-safety/count-owner-triage',two.data.token,'POST',triageBody)).status,403);
+  assert.equal((await req('/stock-safety/count-owner-triage',null,'POST',triageBody)).status,401);
+  const triage=await req('/stock-safety/count-owner-triage',ownerToken,'POST',triageBody);
+  assert.equal(triage.status,201);
+  assert.equal(triage.data.kind,'local-unverified-count-owner-triage');
+  assert.equal(triage.data.ownerApproved,false);
+  assert.equal(triage.data.stockImportAuthorized,false);
+  assert.equal(triage.data.checkoutAuthorized,false);
+  assert.equal((await req('/stock-safety/count-owner-triage',ownerToken,'POST',triageBody)).data.replayed,true);
+  assert.equal((await req('/stock-safety/count-owner-triage',ownerToken,'POST',{
+    ...triageBody,requestId:randomUUID(),expectedLatestTriageId:null,
+  })).status,409);
+  assert.equal((await req('/stock-safety/count-owner-triage',ownerToken,'POST',{
+    ...triageBody,requestId:randomUUID(),decision:'approved',
+  })).status,400);
+  const reviewedAgain=await req('/stock-safety/count-claims-review?search='+encodeURIComponent(sku),ownerToken);
+  assert.equal(reviewedAgain.status,200);
+  assert.equal(reviewedAgain.data.items[0].triage.decision,'request_recount');
+  assert.equal(reviewedAgain.data.items[0].triage.needsRecheck,false);
+  assert.equal((await req('/stock-safety/count-worklist?search='+encodeURIComponent(sku),one.data.token)).data.items[0].triage,undefined);
   assert.equal((await req('/stock-safety/count-claims-review?unknown=1',ownerToken)).status,400);
   assert.equal((await req('/stock-safety/count-worklist?expectedRef='+ '0'.repeat(64),one.data.token)).status,409);
   sku='CHANGED-WOO-PRODUCT';
@@ -122,5 +151,6 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM instore_sales').get().n,0);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sale_events').get().n,0);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_claim'").get().n,2);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_owner_triage'").get().n,1);
   assert.ok(log.length>=1&&log.every(entry=>entry==='Woo GET products'));
 });

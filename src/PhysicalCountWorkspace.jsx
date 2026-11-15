@@ -3,6 +3,12 @@ import { AlertTriangle, ClipboardCheck, LockKeyhole, RefreshCw, ShieldCheck } fr
 import { api, uuid } from './api.js';
 import { Notice, PageHeading, TableRegion } from './components.jsx';
 
+const triageDecisions={
+  request_recount:'Request a fresh independent recount',
+  investigate_product_identity:'Investigate SKU, size or product identity',
+  collect_witness_evidence:'Collect independent witnessing evidence',
+  other_follow_up:'Other owner follow-up needed',
+};
 const stages={
   identity_hold:'Identity/hold review required',
   first_needed:'First count not recorded',
@@ -23,6 +29,11 @@ export default function PhysicalCountWorkspace({ user }) {
   const [selection,setSelection]=useState(null);
   const [units,setUnits]=useState('');
   const [posting,setPosting]=useState(false);
+  const [ownerSelection,setOwnerSelection]=useState(null);
+  const [triageDecision,setTriageDecision]=useState('request_recount');
+  const [triageNote,setTriageNote]=useState('');
+  const [triagePosting,setTriagePosting]=useState(false);
+  const triageRetry=useRef({key:'',requestId:''});
   const retry=useRef({key:'',requestId:''});
   const requestId=useRef(0);
   const endpoint=owner?'/stock-safety/count-claims-review':'/stock-safety/count-worklist';
@@ -86,6 +97,53 @@ export default function PhysicalCountWorkspace({ user }) {
     finally{setPosting(false);}
   };
 
+  const beginTriage=row=>{
+    setError('');setNotice('');
+    setOwnerSelection(row);
+    setTriageDecision(row.stage==='identity_hold'?
+      'investigate_product_identity':row.stage==='discrepant_claims'?
+      'request_recount':'collect_witness_evidence');
+    setTriageNote('');
+    triageRetry.current={key:'',requestId:''};
+  };
+  const submitTriage=async event=>{
+    event.preventDefault();
+    if(!owner||!ownerSelection||!result||triagePosting)return;
+    const note=triageNote.trim();
+    if(note.length<5||note.length>180||/[\r\n]/.test(note)){
+      setError('Write a single-line investigation note of 5–180 characters.');return;
+    }
+    const payload={
+      reportRow:ownerSelection.reportRow,expectedRef:result.snapshotRef,
+      expectedFirstClaimId:ownerSelection.firstClaimId??null,
+      expectedSecondClaimId:ownerSelection.secondClaimId??null,
+      expectedLatestTriageId:ownerSelection.triage?.id??null,
+      decision:triageDecision,note,
+    };
+    const key=JSON.stringify(payload);
+    if(triageRetry.current.key!==key){
+      triageRetry.current={key,requestId:uuid()};
+    }
+    setTriagePosting(true);setError('');setNotice('');
+    try{
+      const data=await api('/stock-safety/count-owner-triage',{
+        method:'POST',body:{...payload,requestId:triageRetry.current.requestId},
+      });
+      if(data?.kind!=='local-unverified-count-owner-triage'||
+         data.recorded!==true||data.auditOnly!==true||
+         data.ownerApproved!==false||data.stockImportAuthorized!==false||
+         data.checkoutAuthorized!==false||data.independentWitnessVerified!==false){
+        throw new Error('Unverified owner follow-up response. No stock action was taken.');
+      }
+      setOwnerSelection(null);setTriageNote('');
+      triageRetry.current={key:'',requestId:''};
+      setNotice('Owner investigation note recorded. Product identity and physical stock remain unverified.');
+      void load(result.page);
+    }catch(failure){setError(failure?.message||
+      'The follow-up note could not be confirmed. Check the recorded history before retrying.');}
+    finally{setTriagePosting(false);}
+  };
+
   return <div className="sales-page" role="region" aria-label="Physical count claims workspace">
     <PageHeading eyebrow="Physical inventory / count declarations"
       title={owner?'Owner physical count review':'Physical stock count entry'}
@@ -140,14 +198,26 @@ export default function PhysicalCountWorkspace({ user }) {
           <TableRegion label="Source-bound physical count claims">
             <table className="responsive-table"><thead><tr>
               <th>Report row</th><th>SKU</th><th>Review state</th>
-              {owner?<><th>Count 1</th><th>Count 2</th></>:<th>Recording</th>}
+              {owner?<><th>Count 1</th><th>Count 2</th><th>Owner follow-up</th></>:<th>Recording</th>}
             </tr></thead><tbody>
               {result.items.map(item=><tr key={item.reportRow}>
                 <td data-label="Report row">{item.reportRow}</td>
                 <td data-label="SKU">{item.sku||'Not identified'}</td>
                 <td data-label="Review state">{stages[item.stage]||'Needs review'}</td>
                 {owner?<><td data-label="Count 1">{item.firstUnits??'—'}</td>
-                  <td data-label="Count 2">{item.secondUnits??'—'}</td></>:
+                  <td data-label="Count 2">{item.secondUnits??'—'}</td>
+                  <td data-label="Owner follow-up">
+                    {item.triage&&<div className="field-hint">
+                      {triageDecisions[item.triage.decision]||'Investigation required'}
+                      {item.triage.needsRecheck&&<strong> · Counts changed — recheck needed</strong>}
+                      <small> · {item.triage.note}</small>
+                    </div>}
+                    <button type="button" className="button secondary small"
+                      disabled={Boolean(ownerSelection)||triagePosting||!result.evidenceVerified}
+                      onClick={()=>beginTriage(item)}>
+                      {item.triage?'Add follow-up note':'Record follow-up'}
+                    </button>
+                  </td></>:
                   <td data-label="Recording"><button type="button" className="button secondary small"
                     disabled={!item.canSubmit||!result.evidenceVerified||Boolean(selection)||posting}
                     onClick={()=>begin(item)}>
@@ -156,6 +226,34 @@ export default function PhysicalCountWorkspace({ user }) {
               </tr>)}
             </tbody></table>
           </TableRegion>:<p className="field-hint">No count tasks match this filter.</p>}
+        {owner&&ownerSelection&&<form onSubmit={submitTriage} className="form-stack"
+          aria-label="Record owner inventory investigation follow-up">
+          <h3>Record an owner follow-up — NOT STOCK APPROVAL</h3>
+          <p>Source row {ownerSelection.reportRow} · SKU {ownerSelection.sku}.
+            This records investigation next steps only. It cannot resolve an
+            inventory hold, approve Woo mapping, or adjust physical stock.</p>
+          <label>Required follow-up
+            <select className="input" value={triageDecision} disabled={triagePosting}
+              onChange={event=>setTriageDecision(event.target.value)}>
+              {Object.entries(triageDecisions).map(([key,label])=>
+                <option key={key} value={key}>{label}</option>)}
+            </select>
+          </label>
+          <label>Investigation note (5–180 characters; no customer details)
+            <textarea className="input" rows={2} maxLength={180}
+              required value={triageNote} disabled={triagePosting}
+              onChange={event=>setTriageNote(event.target.value)}
+              placeholder="e.g. Request an independent recount of this garment and size."/>
+          </label>
+          <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+            <button className="button secondary" type="submit"
+              disabled={triagePosting||!result.evidenceVerified}>
+              <ClipboardCheck size={16}/>{triagePosting?'Recording…':'Save investigation note only'}
+            </button>
+            <button className="button secondary" type="button" disabled={triagePosting}
+              onClick={()=>{setOwnerSelection(null);setTriageNote('');}}>Cancel</button>
+          </div>
+        </form>}
         {!owner&&selection&&<form onSubmit={submit} className="form-stack"
           aria-label="Submit a physical-count declaration">
           <h3>{selection.stage==='first'?'First':'Independent second'} count declaration</h3>
@@ -184,7 +282,8 @@ export default function PhysicalCountWorkspace({ user }) {
         </div>
         <p className="report-scope">
           The POS journal records who declared each count, not proof of physical witnessing.
-          No count is verified, approved, stock-adjusted or imported. Staff cannot view
+          No count is verified, approved, stock-adjusted or imported. Owner follow-up notes
+          are investigations only, not acceptance decisions. Staff cannot view
           other employees’ quantities. Owner review does not have an approval button.
         </p>
       </>}

@@ -384,6 +384,16 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     res.set('Cache-Control','no-store');
     res.json(result);
   });
+  // Staff may not see or change owner investigation notes. This is a local,
+  // append-only FOLLOW-UP ONLY; it never approves or adjusts Woo stock.
+  app.post('/api/stock-safety/count-owner-triage',
+    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
+      const result=countClaims.recordOwnerTriage(
+        req.user,inStore.snapshot(),await catalog.get(),req.body);
+      res.set('Cache-Control','no-store');
+      res.status(201).json(result);
+    });
+
 
   // Separately gated live trading service only. The read-only pilot, demo and
   // ordinary Woo checkout never enroll a device or issue offline allocations.

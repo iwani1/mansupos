@@ -135,6 +135,23 @@ try {
   });
   // Count review fixture intentionally has no approval or Woo stock writes.
   const countReviewCalls=[];
+  const ownerTriageCalls=[];
+  let mockTriage=null;
+  await page.route('**/api/stock-safety/count-owner-triage',async route=>{
+    const body=route.request().postDataJSON();
+    ownerTriageCalls.push({method:route.request().method(),body});
+    mockTriage={
+      id:501,decision:body.decision,note:body.note,
+      needsRecheck:false,recordedAt:'2026-11-15T12:00:00.000Z',
+      recordedBy:'synthetic-owner',
+    };
+    await route.fulfill({status:201,contentType:'application/json',body:JSON.stringify({
+      kind:'local-unverified-count-owner-triage',recorded:true,replayed:false,
+      triageId:501,auditOnly:true,ownerApproved:false,
+      stockImportAuthorized:false,checkoutAuthorized:false,
+      independentWitnessVerified:false,
+    })});
+  });
   await page.route('**/api/stock-safety/count-claims-review*',async route=>{
     countReviewCalls.push(route.request().method());
     await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
@@ -147,9 +164,11 @@ try {
         matchingUnverified:0,discrepancies:1},
       items:[
         {reportRow:1,sku:'CLAIM001',stage:'discrepant_claims',
-          firstUnits:3,secondUnits:4,ownerApproved:false},
+          firstUnits:3,secondUnits:4,firstClaimId:100,secondClaimId:101,
+          triage:mockTriage,ownerApproved:false},
         {reportRow:2,sku:'CLAIM002',stage:'second_needed',
-          firstUnits:5,secondUnits:null,ownerApproved:false},
+          firstUnits:5,secondUnits:null,firstClaimId:102,secondClaimId:null,
+          triage:null,ownerApproved:false},
       ],
     })});
   });
@@ -344,6 +363,24 @@ try {
   }
   if(await ownerReview.getByRole('button',{name:/approve|release|import|checkout/i}).count()){
     throw Error('Owner count review must not expose inventory approval or checkout actions.');
+  }
+  await ownerReview.getByRole('button',{name:'Record follow-up'}).first().click();
+  await ownerReview.getByRole('heading',{name:/Record an owner follow-up/}).waitFor();
+  await ownerReview.getByRole('combobox',{name:'Required follow-up'}).selectOption('request_recount');
+  await ownerReview.getByRole('textbox',{name:/Investigation note/}).fill('Independent second count differs; investigate.');
+  await ownerReview.getByRole('button',{name:'Save investigation note only'}).click();
+  await ownerReview.getByText(/Owner investigation note recorded/).waitFor();
+  await ownerReview.getByText('Independent second count differs; investigate.').waitFor();
+  if(ownerTriageCalls.length!==1||ownerTriageCalls[0].method!=='POST'||
+     ownerTriageCalls[0].body.expectedRef!=='a'.repeat(64)||
+     ownerTriageCalls[0].body.expectedFirstClaimId!==100||
+     ownerTriageCalls[0].body.expectedSecondClaimId!==101||
+     ownerTriageCalls[0].body.expectedLatestTriageId!==null||
+     ownerTriageCalls[0].body.decision!=='request_recount'){
+    throw Error('Owner follow-up must be bound to exact count events, not an approval.');
+  }
+  if(countReviewCalls.some(method=>method!=='GET')){
+    throw Error('Owner investigation history remains GET-only.');
   }
   await page.locator('[data-nav="paymentReconciliation"]').click();
   await page.getByRole('heading', { name: 'Payment reconciliation' }).waitFor();

@@ -10,6 +10,21 @@ import { planPhysicalRecounts } from './physical-recount-plan.js';
 const idPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const refPattern=/^[a-f0-9]{64}$/;
 const allowed=new Set(['provisional_match','missing_on_website']);
+const TRIAGE_DECISIONS=new Set([
+  'request_recount','investigate_product_identity',
+  'collect_witness_evidence','other_follow_up',
+]);
+export const ownerTriageSchema=z.object({
+  reportRow:z.number().int().min(1).max(10000),
+  expectedRef:z.string().regex(refPattern),
+  expectedFirstClaimId:z.number().int().positive().nullable(),
+  expectedSecondClaimId:z.number().int().positive().nullable(),
+  expectedLatestTriageId:z.number().int().positive().nullable(),
+  decision:z.enum([...TRIAGE_DECISIONS]),
+  note:z.string().trim().min(5).max(180).refine(
+    text=>!/[\r\n]/.test(text),'Write a single-line investigation note.'),
+  requestId:z.string().regex(idPattern),
+}).strict();
 export const countClaimSchema=z.object({
   reportRow:z.number().int().min(1).max(10000),
   units:z.number().int().min(0).max(1000000),
@@ -34,6 +49,28 @@ function readClaims(db){
   return claims;
 }
 
+// Local, immutable OWNER follow-up decisions: never an authorization or a
+// witnessed stock count. Events are only evidence of what the owner wrote.
+function readTriage(db) {
+  const notes=[];
+  for(const row of db.prepare(
+    "SELECT id,actor,subject,created_at FROM audit WHERE action='inventory.count_owner_triage' ORDER BY id ASC"
+  ).all()){
+    let data;
+    try{data=JSON.parse(row.subject);}catch{continue;}
+    if(data?.schemaVersion!==1||!refPattern.test(data.planRef||'')||
+       !refPattern.test(data.sourceHash||'')||
+       !Number.isSafeInteger(data.reportRow)||data.reportRow<1||
+       !TRIAGE_DECISIONS.has(data.decision)||typeof data.note!=='string'||
+       data.note.length<5||data.note.length>180||
+       !idPattern.test(data.requestId||'')||
+       !(data.firstClaimId===null||Number.isSafeInteger(data.firstClaimId)&&data.firstClaimId>0)||
+       !(data.secondClaimId===null||Number.isSafeInteger(data.secondClaimId)&&data.secondClaimId>0))
+      continue;
+    notes.push({...data,id:row.id,actor:row.actor,createdAt:row.created_at});
+  }
+  return notes;
+}
 function currentPlan(physical,website,clock){
   const rows=[];
   const plan=planPhysicalRecounts(physical,website,
@@ -175,12 +212,22 @@ export class PhysicalCountClaims {
     const {plan,rows}=currentPlan(physical,website,clock);
     const claims=readClaims(this.db);
     const needle=search.trim().toUpperCase();
+    const notes=readTriage(this.db);
     const items=rows.map(row=>{
       const {first,second}=claimsFor(claims,plan,row);
+      const latest=notes.filter(note=>note.planRef===plan.snapshotRef&&
+        note.sourceHash===plan.physicalManifestSha256&&note.reportRow===row.reportRow).at(-1);
+      const triage=latest?{
+        id:latest.id,decision:latest.decision,note:latest.note,
+        recordedAt:latest.createdAt,recordedBy:latest.actor,
+        needsRecheck:latest.firstClaimId!==(first?.id??null)||
+          latest.secondClaimId!==(second?.id??null),
+      }:null;
       return {
         reportRow:row.reportRow,sku:row.sku,
-        stage:currentStatus(row,first,second),
+        triage,stage:currentStatus(row,first,second),
         firstUnits:first?.units??null,secondUnits:second?.units??null,
+        firstClaimId:first?.id??null,secondClaimId:second?.id??null,
         firstActor:first?.actor??null,secondActor:second?.actor??null,
         firstSubmittedAt:first?.createdAt??null,secondSubmittedAt:second?.createdAt??null,
         // Matching numbers are declarations, not identity-verified witnesses.
@@ -210,4 +257,69 @@ export class PhysicalCountClaims {
       notice:'First/second count values are employee declarations. A matching number does not prove physically witnessed inventory, owner approval or safe Woo stock.',
     };
   }
+  // Owner-only investigation entry; not stock signoff or adjustment. Binding
+  // the exact observed first/second claim IDs prevents recording an obsolete
+  // investigation when a second count arrives while owner is writing.
+  recordOwnerTriage(user,physical,website,raw,clock=Date.now()) {
+    if(user?.role!=='owner')
+      throw new AppError('Only the owner may record count investigation notes.',403,'COUNT_TRIAGE_OWNER_ONLY');
+    const values=ownerTriageSchema.parse(raw);
+    const {plan,rows}=currentPlan(physical,website,clock);
+    if(!plan.evidenceVerified||!refPattern.test(plan.physicalManifestSha256||'')){
+      throw new AppError('The signed physical source or website identity observation is incomplete or stale.',409,'COUNT_TRIAGE_SOURCE_STALE');
+    }
+    if(values.expectedRef!==plan.snapshotRef)
+      throw new AppError('Stock identities changed. Reload the owner count review.',409,'COUNT_TRIAGE_SNAPSHOT_CHANGED');
+    const selected=rows.find(row=>row.reportRow===values.reportRow);
+    if(!selected)throw new AppError('Unknown source report row.',404,'COUNT_TRIAGE_ROW_MISSING');
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      const existing=readTriage(this.db);
+      const replay=existing.find(note=>note.requestId===values.requestId);
+      if(replay){
+        const same=replay.actor===user.id&&
+          replay.planRef===plan.snapshotRef&&
+          replay.sourceHash===plan.physicalManifestSha256&&
+          replay.reportRow===values.reportRow&&
+          replay.decision===values.decision&&replay.note===values.note&&
+          replay.firstClaimId===values.expectedFirstClaimId&&
+          replay.secondClaimId===values.expectedSecondClaimId;
+        if(!same)throw new AppError('This review request identifier belongs to a different submission.',409,'COUNT_TRIAGE_IDEMPOTENCY_CONFLICT');
+        this.db.exec('COMMIT');
+        return {kind:'local-unverified-count-owner-triage',recorded:true,
+          replayed:true,triageId:replay.id,auditOnly:true,
+          ownerApproved:false,stockImportAuthorized:false,
+          checkoutAuthorized:false,independentWitnessVerified:false};
+      }
+      const {first,second}=claimsFor(readClaims(this.db),plan,selected);
+      if(values.expectedFirstClaimId!==(first?.id??null)||
+         values.expectedSecondClaimId!==(second?.id??null)){
+        throw new AppError('A count changed while you were reviewing. Reload the case.',409,'COUNT_TRIAGE_CLAIMS_CHANGED');
+      }
+      const latest=existing.filter(note=>note.planRef===plan.snapshotRef&&
+        note.sourceHash===plan.physicalManifestSha256&&
+        note.reportRow===values.reportRow).at(-1);
+      if(values.expectedLatestTriageId!==(latest?.id??null)){
+        throw new AppError('This case has a newer owner follow-up. Reload before adding a note.',409,'COUNT_TRIAGE_NOTE_CHANGED');
+      }
+      audit(this.db,user.id,'inventory.count_owner_triage',JSON.stringify({
+        schemaVersion:1,sourceHash:plan.physicalManifestSha256,
+        planRef:plan.snapshotRef,reportRow:values.reportRow,
+        firstClaimId:first?.id??null,secondClaimId:second?.id??null,
+        decision:values.decision,note:values.note,requestId:values.requestId,
+      }));
+      const last=this.db.prepare(
+        "SELECT id FROM audit WHERE action='inventory.count_owner_triage' ORDER BY id DESC LIMIT 1"
+      ).get();
+      this.db.exec('COMMIT');
+      return {kind:'local-unverified-count-owner-triage',recorded:true,
+        replayed:false,triageId:last.id,auditOnly:true,
+        ownerApproved:false,stockImportAuthorized:false,
+        checkoutAuthorized:false,independentWitnessVerified:false};
+    }catch(error){
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
 }
