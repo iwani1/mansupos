@@ -23,6 +23,7 @@ import { auditSharedWooStock } from './phase2-stock-audit.js';
 import { auditCrossChannelSkus, listCrossChannelSkuFindings } from './cross-channel-sku-audit.js';
 import { listPhysicalMappingCoverage } from './physical-mapping-coverage.js';
 import { planPhysicalRecounts } from './physical-recount-plan.js';
+import { PhysicalCountClaims } from './physical-count-claims.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
 import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
@@ -98,6 +99,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const shifts = new ShiftService(db, config);
   const operations = new DailyOperations(db);
   const weekly = new WeeklyOperations(db);
+  const countClaims = new PhysicalCountClaims(db);
   let inStore;
   try { inStore = new InStoreService(db, config); }
   catch (error) { db.close(); throw error; }
@@ -343,6 +345,46 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     res.set('Cache-Control', 'no-store');
     res.json(report);
   });
+  // Local staff count CLAIMS: separate named accounts and append-only audit
+  // events. This pilot still cannot create Woo orders or modify Woo stock.
+  const countQuery = z.object({
+    page:z.coerce.number().int().min(1).max(10000).default(1),
+    pageSize:z.coerce.number().int().min(1).max(50).default(25),
+    search:z.string().trim().max(64).default(''),
+    expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  }).strict();
+  const countPilot = (req,res,next) =>
+    config.mode==='live' && config.liveReadOnly
+      ? next() : next(new AppError('Physical count claims require the read-only live pilot.',403,'COUNT_PILOT_LOCKED'));
+
+  app.get('/api/stock-safety/count-worklist',auth,role('owner','manager','cashier'),countPilot,async(req,res)=>{
+    const options=countQuery.parse(req.query);
+    const result=countClaims.worklist(req.user,inStore.snapshot(),await catalog.get(),options);
+    if(options.expectedRef && options.expectedRef!==result.snapshotRef){
+      throw new AppError('The source or catalogue changed. Reload the count worklist.',409,'COUNT_SNAPSHOT_CHANGED');
+    }
+    res.set('Cache-Control','no-store');
+    res.json(result);
+  });
+
+  app.post('/api/stock-safety/count-claim',auth,role('manager','cashier'),countPilot,sensitiveLimit,async(req,res)=>{
+    // Never accept userId, product quantity from Woo, or client-claimed
+    // approvals. The caller identity comes solely from the POS session.
+    const result=countClaims.submit(req.user,inStore.snapshot(),await catalog.get(),req.body);
+    res.set('Cache-Control','no-store');
+    res.status(201).json(result);
+  });
+
+  app.get('/api/stock-safety/count-claims-review',auth,role('owner'),countPilot,async(req,res)=>{
+    const options=countQuery.parse(req.query);
+    const result=countClaims.ownerReview(inStore.snapshot(),await catalog.get(),options);
+    if(options.expectedRef && options.expectedRef!==result.snapshotRef){
+      throw new AppError('The source or catalogue changed. Reload count review from page one.',409,'COUNT_REVIEW_SNAPSHOT_CHANGED');
+    }
+    res.set('Cache-Control','no-store');
+    res.json(result);
+  });
+
   // Separately gated live trading service only. The read-only pilot, demo and
   // ordinary Woo checkout never enroll a device or issue offline allocations.
   app.post('/api/desktop/enroll', auth, role('owner'), sensitiveLimit, (req, res) => res.json(desktop.enroll(req.user, req.body)));

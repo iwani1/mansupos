@@ -17,7 +17,7 @@ const taskTypes=new Set(['all',...Object.values(ACTIONS).map(x=>x.action)]);
 const hash = x => createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const normalize = x => typeof x==='string' ? x.trim().toUpperCase() : '';
 
-export function planPhysicalRecounts(physical, website, options={}, clock=Date.now()){
+export function planPhysicalRecounts(physical, website, options={}, clock=Date.now(), collectTasks=null){
   const {page=1,pageSize=25,priority='all',action='all',search=''}=options;
   if(!Number.isSafeInteger(page)||page<1||page>10000||
       !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>50||
@@ -52,6 +52,7 @@ export function planPhysicalRecounts(physical, website, options={}, clock=Date.n
       stockImportAuthorized:false,
     };
   });
+  if (Array.isArray(collectTasks)) collectTasks.push(...tasks);
   // A stable token binds pages to the exact source/mapping observation and
   // review priority logic. Changing the source or Woo identity invalidates it.
   const snapshotRef=hash({mappingRef:mapping.snapshotRef,version:1,tasks});

@@ -133,6 +133,26 @@ try {
       tasks:selected.slice((requestedPage-1)*25,requestedPage*25),
     })});
   });
+  // Count review fixture intentionally has no approval or Woo stock writes.
+  const countReviewCalls=[];
+  await page.route('**/api/stock-safety/count-claims-review*',async route=>{
+    countReviewCalls.push(route.request().method());
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'local-unverified-physical-count-owner-review',
+      auditOnly:true,checkoutAuthorized:false,stockImportAuthorized:false,
+      ownerApproved:false,independentWitnessVerified:false,evidenceVerified:true,
+      snapshotRef:'a'.repeat(64),staleClaimEvents:0,
+      page:1,pageSize:25,pages:1,total:2,hasMore:false,
+      totals:{identityHolds:0,firstNeeded:0,secondNeeded:1,
+        matchingUnverified:0,discrepancies:1},
+      items:[
+        {reportRow:1,sku:'CLAIM001',stage:'discrepant_claims',
+          firstUnits:3,secondUnits:4,ownerApproved:false},
+        {reportRow:2,sku:'CLAIM002',stage:'second_needed',
+          firstUnits:5,secondUnits:null,ownerApproved:false},
+      ],
+    })});
+  });
   const paymentReviewCalls = [];
   await page.route('**/api/payments/reconciliation*', async route => {
     paymentReviewCalls.push(route.request().method());
@@ -309,6 +329,21 @@ try {
   }
   if (await page.locator('main').getByRole('button', { name: /checkout|sell|pay|approve refund/i }).count()) {
     throw new Error('Stock audit screen must not present checkout or refund approval actions.');
+  }
+  await page.locator('[data-nav="physicalCounts"]').click();
+  await page.getByRole('heading',{name:'Owner physical count review'}).waitFor();
+  const ownerReview=page.getByRole('region',{name:'Physical count claims workspace'});
+  const ownerTable=ownerReview.getByRole('region',{name:'Source-bound physical count claims'}).locator('table');
+  await ownerTable.locator('tbody tr').first().waitFor();
+  if(await ownerTable.locator('tbody tr').count()!==2){
+    throw Error('Owner must see both recorded and incomplete synthetic count claims.');
+  }
+  await ownerReview.getByText(/Count claims disagree/).first().waitFor();
+  if(countReviewCalls.join(',')!=='GET'){
+    throw Error('Owner count review must make GET-only requests.');
+  }
+  if(await ownerReview.getByRole('button',{name:/approve|release|import|checkout/i}).count()){
+    throw Error('Owner count review must not expose inventory approval or checkout actions.');
   }
   await page.locator('[data-nav="paymentReconciliation"]').click();
   await page.getByRole('heading', { name: 'Payment reconciliation' }).waitFor();
