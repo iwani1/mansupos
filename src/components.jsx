@@ -42,7 +42,7 @@ const pageIconMap = {
   Overview:LayoutDashboard, 'Point of sale':ShoppingBag,
   'Wholesale management':Store, Products:Package, Categories:Tags,
   Inventory:Boxes, 'Sales history':ReceiptText, Orders:ScrollText,
-  'Recovery queue':ShieldCheck, Customers:UserRound, 'Shifts & drawer':Banknote,
+  'Recovery queue':ShieldCheck, 'Payment reconciliation':Banknote, Customers:UserRound, 'Shifts & drawer':Banknote,
   'Reports & analytics':ChartNoAxesCombined, 'Staff & permissions':Users,
   'Audit log':History, 'Settings & connection':Settings2,
   'Physical source review':PanelTop,
