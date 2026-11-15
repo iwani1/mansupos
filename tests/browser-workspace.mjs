@@ -21,6 +21,7 @@ async function navigate(id) {
   assert.equal(await page.locator('main h1:visible').innerText(), ({
     register: 'Point of sale', overview: 'Overview', products: 'Products', categories: 'Categories',
     inventory: 'Inventory', sales: 'Sales history', orders: 'Orders', customers: 'Customers',
+    operations: 'Daily staff operations',
   })[id]);
 }
 async function noOverflow(context) {
@@ -70,6 +71,13 @@ try {
   assert.equal(await page.locator('.overview-operational > button').nth(1).locator('strong').innerText(),
     String(stockAlerts(catalog.products, session.config.lowStockThreshold, false).low.length));
   await page.getByText('Website orders and legacy In-store cash receipts are not included.', { exact: false }).waitFor();
+
+
+  // New staff operations workspace must load without sale, stock or Woo writes.
+  await navigate('operations');
+  await page.getByText('No staff accounts yet').waitFor();
+  await page.getByText('Checklist ticks and daily figures are staff declarations', {exact:false}).waitFor();
+  assert.equal(await page.locator('.daily-operations-member').count(),0);
 
   await navigate('products');
   assert.equal(await page.locator('.catalogue-strip > div').first().locator('strong').innerText(), String(catalog.products.length));

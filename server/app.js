@@ -24,6 +24,7 @@ import { paymentReconciliation } from './payment-reconciliation.js';
 import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
 import { financeReviewWritesAllowed, financeReviewHistory, createFinanceReviewRequest, acknowledgeFinanceReview, reviewSteps } from './payment-review-workflow.js';
+import { DailyOperations } from './daily-operations.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -91,6 +92,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     ? new OnlineSalesService(db, catalog, injectedBridge || new OnlineBridgeClient(config), config)
     : null;
   const shifts = new ShiftService(db, config);
+  const operations = new DailyOperations(db);
   let inStore;
   try { inStore = new InStoreService(db, config); }
   catch (error) { db.close(); throw error; }
@@ -519,6 +521,26 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     res.type('text/csv').attachment(`mansu-pos-${config.mode}-${now().slice(0,10)}.csv`).send(csv);
   });
 
+  // Staff checklists are LOCAL self-reports, not WooCommerce writes.
+  // New entries append to the existing protected v9 audit journal.
+  app.get('/api/operations/day', auth, (req,res) => {
+    const {date}=z.object({date:z.string().optional()}).strict().parse(req.query);
+    res.json(operations.self(req.user,date));
+  });
+  app.get('/api/operations/team', auth, role('owner','manager'), (req,res) => {
+    const {date}=z.object({date:z.string().optional()}).strict().parse(req.query);
+    res.json(operations.team(date));
+  });
+  app.post('/api/operations/assign', auth, role('owner'), sensitiveLimit, (req,res) => {
+    res.json(operations.assign(req.user,req.body));
+  });
+  app.post('/api/operations/task', auth, sensitiveLimit, (req,res) => {
+    res.json(operations.setTask(req.user,req.body));
+  });
+  app.post('/api/operations/report', auth, sensitiveLimit, (req,res) => {
+    res.json(operations.submit(req.user,req.body));
+  });
+
   app.get('/api/staff', auth, role('owner'), (req, res) => res.json({ staff: db.prepare('SELECT * FROM users ORDER BY created_at').all().map(userView) }));
   app.post('/api/staff', auth, role('owner'), (req, res, next) => {
     if (config.mode === 'demo') return next(new AppError('Staff creation is available only in a configured staging/live workspace.', 403));
@@ -567,7 +589,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
       limit: z.coerce.number().int().min(1).max(500).default(100),
       cursor: z.coerce.number().int().positive().optional(),
       search: z.string().trim().max(80).default(''),
-      category: z.enum(['all','auth','staff','shift','wholesale']).default('all'),
+      category: z.enum(['all','auth','staff','shift','wholesale','operations']).default('all'),
       period: z.enum(['all','24h','7d','30d']).default('all'),
     }).strict().parse(req.query);
     const clauses = [], args = [];

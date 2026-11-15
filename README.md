@@ -2,6 +2,8 @@
 
 > **Current development branch — redesigned workspace:** An original Notion-inspired interface now covers the sidebar, global page switching, page headings, dashboard, register, catalogue, sales, wholesale, shifts, reports, staff and settings. See [workspace UI design](docs/WORKSPACE-REDESIGN.md) and [Contabo pull-and-run guide](docs/CONTABO-WORKSPACE-DEPLOY.md). This newer code is **not installed on your Contabo VPS**. The existing read-only pilot and live WooCommerce remain unchanged; checkout has separate approval and verification requirements.
 
+> **Daily staff operations — new development:** [Task checklists and staff reporting](docs/DAILY-STAFF-OPERATIONS.md) now adds owner-assigned Sales Representative and Fulfilment Officer workstreams, staff self-reporting and management review, without changing v9 schema or Woo checkout gates. It has **not been deployed by this code change**. The owner reports having activated the prior build `8302d299` on Contabo; the actual running commit was not independently checked here.
+
 A working, mobile-friendly point-of-sale application for **MansutRENDZGH**, designed to use the existing WooCommerce catalogue, inventory, and orders.
 
 ## Current status

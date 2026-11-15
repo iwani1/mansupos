@@ -7,6 +7,7 @@ const initialFilters = { search:'', category:'all', period:'30d' };
 const categoryNames = {
   all:'All actions',auth:'Sign-ins and account security',
   staff:'Staff management',shift:'Cash shifts and drawer',wholesale:'Wholesale',
+  operations:'Daily staff operations',
 };
 const statusFor = action => action.startsWith('auth.') ? 'amber' :
   action.startsWith('staff.') ? 'red' : 'neutral';
