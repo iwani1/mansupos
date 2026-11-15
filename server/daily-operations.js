@@ -118,8 +118,10 @@ export class DailyOperations {
     const assigned=currentAssignments(this.db);
     const members=this.db.prepare("SELECT id,name,role,active FROM users WHERE role IN ('manager','cashier') ORDER BY name,id").all()
       .map(member=>{
-        const {tasks,...state}=stateFor(member,day,events,assigned);
-        return state;
+        const state=stateFor(member,day,events,assigned);
+        return {id:state.id,name:state.name,role:state.role,active:state.active,
+          lane:state.lane,laneLabel:state.laneLabel,done:state.done,total:state.total,
+          report:state.report};
       });
     return {kind:'local-staff-operations-team',date:day,today:this.today(),members,
       scope:'Staff self-reports from this POS only. Incomplete tasks and missing reports require follow-up; checkmarks do not verify goods, money or delivery.'};
@@ -130,7 +132,7 @@ export class DailyOperations {
     const member=this.db.prepare("SELECT id,name,role,active FROM users WHERE id=?").get(staffId);
     if(!member||member.role==='owner')throw new AppError('Select a staff or manager account.',404);
     if(!member.active)throw new AppError('Inactive accounts cannot receive new duties.',409);
-    if(currentAssignments(this.db).get(staffId)!==(lane||undefined)){
+    if((currentAssignments(this.db).get(staffId)??null)!==lane){
       audit(this.db,user.id,'operations.assignment',JSON.stringify({staffId,lane}));
     }
     return {ok:true,staffId,lane};
