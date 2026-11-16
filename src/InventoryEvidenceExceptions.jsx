@@ -65,7 +65,7 @@ export default function InventoryEvidenceExceptions(){
     }catch(e){if(id===requestId.current)setError(e.message||'Could not load evidence queue.');}
     finally{if(id===requestId.current)setBusy(false);}
   },[page,status,search]);
-  useEffect(()=>{load();return()=>{requestId.current++;};},[load]);
+  useEffect(()=>{const counter=requestId;load();return()=>{counter.current++;};},[load]);
   function begin(row){
     setSelection({...row,requestId:crypto.randomUUID()});
     setNote('');setAction('request_independent_recount');
