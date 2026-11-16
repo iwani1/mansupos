@@ -22,6 +22,11 @@ step "1/7 Checking the server"
 node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||a===22&&b>=13?0:1)' \
   || fail "Node.js 22.13+ is required (found $(node -v 2>/dev/null || echo none))"
 command -v git >/dev/null || fail "git is not installed"
+[ -x /usr/bin/node ] || fail "the service runs /usr/bin/node, which is missing (Node is at $(command -v node)); link or install it there first"
+# Never collide with another application: port 3188 must be free or already ours.
+if ss -ltnH '( sport = :3188 )' 2>/dev/null | grep -q . && ! systemctl is-active --quiet "$SVC"; then
+  fail "port 3188 is used by another program: $(ss -ltnpH '( sport = :3188 )' | head -1). Nothing was changed."
+fi
 systemctl is-active --quiet mansu-pos-live-pilot && echo "Read-only pilot is running (kept as rollback)." \
   || echo "Note: read-only pilot service is not running."
 
@@ -87,6 +92,7 @@ ls -1 "$DATA/backups" | tail -3
 step "7/7 Done — trading service is running on 127.0.0.1:3188 (not public yet)"
 cat <<EOF
 Nginx file for the cutover: $(grep -rl "pos.mansutrendzgh.com" /etc/nginx/ 2>/dev/null | head -1 || echo "not found")
-Next: runbook step 8 switches pos.mansutrendzgh.com from port 3187 to 3188.
+Next (go live):  bash $APP/deploy/pos-domain-switch.sh trading
+Rollback:        bash $APP/deploy/pos-domain-switch.sh pilot
 Rollback info and backups: $BK
 EOF

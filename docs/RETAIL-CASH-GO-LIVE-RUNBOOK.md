@@ -162,6 +162,8 @@ Open `https://www.mansutrendzgh.com` and view a product page. Nothing on WordPre
 
 ## 8. Point pos.mansutrendzgh.com at the trading service
 
+**Preferred:** `bash /opt/mansu-pos-live-trading/deploy/pos-domain-switch.sh trading` does this safely. It refuses unless exactly one Nginx file declares pos.mansutrendzgh.com and the trading service is healthy; changes only that file's 3187 proxy lines; runs `nginx -t`; and restores the original automatically on any failure. Rollback: `... pos-domain-switch.sh pilot`. The manual steps below are the fallback.
+
 Use the single file the `grep` in step 1 printed. Replace `PATH_FROM_STEP_1` below with that path:
 
 ```bash
