@@ -1,5 +1,7 @@
 # Cash-only Retail go-live on Contabo — runbook
 
+**Fastest path:** `sudo bash deploy/golive-retail-cash.sh` performs steps 1–6 below in one run (prompts privately for keys, stops on any problem, never touches Nginx). Then continue at step 8.
+
 Owner decision (16 Nov 2026): go live with **cash-only Retail**, orders written straight to WooCommerce, **no WordPress plugin**. Wholesale, MoMo/card and offline tills stay locked.
 
 What this changes:
