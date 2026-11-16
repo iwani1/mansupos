@@ -340,6 +340,27 @@ test('Phase 5.4 reviewer account is case-scoped, denies other POS APIs and never
   assert.equal(exceptions.data.summary.approvedCases,0);
   assert.equal((await req(exceptionsUrl+'?status=approved',owner)).status,400);
   assert.equal((await req(exceptionsUrl+'?expectedRef='+('0'.repeat(64)),owner)).status,409);
+  // Phase 5.7: readiness is an Owner-only GET analysis; a real reviewer
+  // acknowledgement and file fingerprint NEVER authorize any stock or sale.
+  const readinessUrl='/stock-safety/verification-readiness';
+  assert.equal((await req(readinessUrl,reviewer)).status,403);
+  assert.equal((await req(readinessUrl,counter1)).status,403);
+  assert.equal((await req(readinessUrl)).status,401);
+  const readiness=await req(readinessUrl+'?search='+encodeURIComponent(source.sku),owner);
+  assert.equal(readiness.status,200);
+  assert.equal(readiness.data.kind,'owner-inventory-verification-readiness');
+  assert.equal(readiness.data.stockImportAuthorized,false);
+  assert.equal(readiness.data.checkoutAuthorized,false);
+  assert.equal(readiness.data.releaseReady,false);
+  assert.equal(readiness.data.summary.acceptedRows,0);
+  const heldReadiness=readiness.data.items.find(x=>x.reportRow===row.reportRow);
+  assert.ok(heldReadiness,'Disputed physical row must appear in readiness report.');
+  assert.equal(heldReadiness.staffCountDiscrepancyOpen,true);
+  assert.equal(heldReadiness.readiness,'blocked');
+  assert.equal(heldReadiness.stockImportAuthorized,false);
+  assert.ok(heldReadiness.criteria.every(x=>x.independentlyVerified===false));
+  assert.equal((await req(readinessUrl+'?focus=approved',owner)).status,400);
+  assert.equal((await req(readinessUrl+'?expectedRef='+('0'.repeat(64)),owner)).status,409);
   const ownerCounts=await req('/stock-safety/count-claims-review?search='+encodeURIComponent(source.sku),owner);
   assert.equal(ownerCounts.data.items[0].stage,'discrepant_claims');
   assert.equal(ownerCounts.data.checkoutAuthorized,false);
