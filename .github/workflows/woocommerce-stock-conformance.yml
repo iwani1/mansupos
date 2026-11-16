@@ -4,6 +4,13 @@ on:
     branches:
       - audit/lock-legacy-live-checkout-20261114
       - phase2/stock-safety-audit-20261114
+  pull_request:
+    paths:
+      - 'woocommerce/mansu-online-bridge/**'
+      - 'tests/woocommerce-**'
+      - 'tests/fixtures/paystack-token-precharge-flow.php'
+      - 'tests/fixtures/mansu-ci-paystack-http-mock.php'
+      - '.github/workflows/woocommerce-stock-conformance.yml'
   workflow_dispatch:
 
 permissions:
@@ -28,7 +35,7 @@ jobs:
       - name: Prepare disposable PHP CLI with Woo requirements
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.4'
           extensions: mysqli, mbstring, gd, zip, intl, curl, xml
           coverage: none
       - name: Install fresh LOCAL WordPress and pinned WooCommerce (synthetic data only)
