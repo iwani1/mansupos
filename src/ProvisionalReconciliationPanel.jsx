@@ -71,7 +71,7 @@ export default function ProvisionalReconciliationPanel(){
         expectedReadinessRef:data.readinessRef,
         expectedRowEvidenceRef:selected.rowEvidenceRef,
         expectedLatestPacketId:selected.latestPacket?.id??null,
-        intent,proposedUnits,note:note.trim(),
+        intent,proposedUnits:provisionalUnits,note:note.trim(),
         requestId:selected.requestId,
       }});
       if(r?.kind!=='owner-unverified-reconciliation-proposal'||
