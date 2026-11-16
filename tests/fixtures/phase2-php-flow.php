@@ -116,6 +116,15 @@ class FakeDatabase {
         return $this->attempts[ $query['params'][1] ] ?? null;
     }
     public function get_results( $query, $output ) {
+        // Woo's stock reservation expiry is recorded in UTC. A session-local
+        // MySQL NOW() comparison can shift an active hold when SQL connection
+        // time_zone differs from UTC (even though PHP's time() stays correct).
+        // Both POS and website stock checks must use the same UTC clock.
+        if ( str_contains( $query['sql'], $this->wc_reserved_stock ) &&
+             ( ! str_contains( $query['sql'], 'TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),expires)' ) ||
+               str_contains( $query['sql'], 'TIMESTAMPDIFF(SECOND,NOW(),expires)' ) ) ) {
+            throw new \RuntimeException( 'Woo reservation check used non-UTC SQL clock.' );
+        }
         $order = $query['params'][0]; $result = array();
         foreach ( $GLOBALS['holds'][ $order ] ?? array() as $owner => $hold ) {
             $result[] = array( 'product_id' => $owner, 'stock_quantity' => $hold['quantity'],
