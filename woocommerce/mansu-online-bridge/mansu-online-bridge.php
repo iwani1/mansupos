@@ -733,7 +733,7 @@ function mansu_online_website_order( $order ) {
         in_array( $order->get_created_via(), array( 'checkout', 'store-api' ), true ) &&
         $order->get_payment_method() !== 'pos_cash';
 }
-function mansu_online_website_hold_safe( $order ) {
+function mansu_online_website_hold_safe( $order, $minimum_seconds = 30 ) {
     global $wpdb;
     // A previously quarantined gateway payment must NEVER be auto-admitted
     // merely because a later job/manual edit created another Woo reservation.
@@ -762,7 +762,7 @@ function mansu_online_website_hold_safe( $order ) {
         $id = (int) $hold['product_id'];
         if ( ! isset( $expected[ $id ] ) ||
              (int) $hold['stock_quantity'] !== $expected[ $id ] ||
-             (int) $hold['remaining'] < 30 ) {
+             (int) $hold['remaining'] < $minimum_seconds ) {
             return false;
         }
         unset( $expected[ $id ] );
@@ -901,6 +901,13 @@ function mansu_online_website_status_review( $order_id, $from, $to, $order ) {
         $reviewing = false;
     }
 }
+// A fresh website checkout reservation is mandatory BEFORE an external
+// Paystack callback or browser return may reach the gateway's success path.
+// Reserve a short margin for the gateway's network verification; the later
+// payment_complete() hook MUST still re-check the hold and stock atomically.
+function mansu_online_paystack_original_hold_safe( $order ) {
+    return mansu_online_website_hold_safe( $order, MANSU_ONLINE_CASH_MARGIN_SECONDS );
+}
 /**
  * DRAFT ONLY: serialize the actual Paystack v5.8.6 WC-API entry points for
  * each website order, BEFORE upstream code fetches its order object.
@@ -1032,6 +1039,27 @@ function mansu_online_paystack_route_lock() {
         // Cancelled/failed/draft orders may have returned their hold. A
         // signed external success still needs human settlement reconciliation.
         status_header( 409 );
+        exit;
+    }
+    // An expired or nearly expired original hold must never enter the
+    // gateway success path. Paystack may have already settled externally:
+    // quarantine this ORIGINAL order for manual settlement review, and do
+    // not display/acknowledge an ordinary completed sale or consume POS stock.
+    // This does not reverse a charge; never ask a customer to pay again.
+    if ( ! mansu_online_paystack_original_hold_safe( $order ) ) {
+        mansu_online_website_review( $order, 'Paystack return/webhook arrived without an original hold valid for the verification margin' );
+        if ( $order->has_status( 'pending' ) ) {
+            $order->update_status( 'on-hold', 'External Paystack settlement unconfirmed; no fulfilment until Owner review.' );
+        }
+        if ( $is_webhook ) {
+            status_header( 409 );
+        } else {
+            wp_die(
+                'We could not confirm this order. If you were charged, please contact the store before trying to pay again.',
+                'Order requires verification',
+                array( 'response' => 409 )
+            );
+        }
         exit;
     }
     // Assert the same connection still owns the lock after Woo identity
