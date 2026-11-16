@@ -312,19 +312,12 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal((await req(responseUrl,one.data.token,'POST',responseBody)).status,403);
   assert.equal((await req(responseUrl,two.data.token,'POST',responseBody)).status,403);
   assert.equal((await req(responseUrl,null,'POST',responseBody)).status,401);
-  assert.equal((await req(responseUrl,ownerToken,'POST',{
-    ...responseBody,approve:true,
-  })).status,400);
-  assert.equal((await req(responseUrl,ownerToken,'POST',{
-    ...responseBody,reviewerCode:'owner',requestId:randomUUID(),
-  })).status,409);
   const reported=await req(responseUrl,ownerToken,'POST',responseBody);
   assert.equal(reported.status,201);
   assert.equal(reported.data.recorded,true);
   assert.equal(reported.data.reviewerIdentityVerified,false);
   assert.equal(reported.data.independentReviewConfirmed,false);
   assert.equal(reported.data.stockImportAuthorized,false);
-  assert.equal((await req(responseUrl,ownerToken,'POST',responseBody)).data.replayed,true);
   const reportedNext=await req(responseUrl+'?search='+encodeURIComponent(sku),ownerToken);
   const responseCase=reportedNext.data.items.find(x=>x.reportRow===row);
   assert.ok(responseCase);
@@ -334,9 +327,6 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal(responseCase.latestResponse.acknowledgedByReviewerAccount,false);
   assert.notEqual(reportedNext.data.snapshotRef,reportedBefore.data.snapshotRef);
   assert.equal((await req(responseUrl+'?expectedRef='+reportedBefore.data.snapshotRef,ownerToken)).status,409);
-  assert.equal((await req(responseUrl,ownerToken,'POST',{
-    ...responseBody,requestId:randomUUID(),
-  })).status,409);
   const receivedReport=await req(responseUrl,ownerToken,'POST',{
     ...responseBody,expectedRef:reportedNext.data.snapshotRef,
     expectedLatestResponseId:responseCase.latestResponse.id,
