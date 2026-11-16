@@ -419,6 +419,12 @@ export class SalesService {
   // Fails closed if the order list cannot be read completely.
   async assertNoOpenHolds(lines, excludeOrderId = null) {
     if (!this.config.liveRetailCashDirect) return;
+    // Shared stock only works if Woo counts it. An untracked item would sell
+    // without limit and never lower website stock, so the live till refuses it.
+    const untracked = lines.find(line => !line.manageStock);
+    if (untracked) {
+      throw new AppError(`${untracked.name}${untracked.label ? ` (${untracked.label})` : ''} has no stock count in WooCommerce. Turn on Manage stock and enter the real quantity before selling it here.`, 409, 'STOCK_NOT_TRACKED');
+    }
     const wanted = new Map();
     for (const line of lines) wanted.set(line.stockKey, (wanted.get(line.stockKey) || 0) + line.quantity);
     const lastUnits = new Map();
@@ -701,7 +707,7 @@ export class SalesService {
       } catch (error) {
         // A held/unverifiable last unit is checked before any payment intent or
         // remote write: keep the order payable so staff can retry or cancel it.
-        if (!remoteAttempted && ['LAST_UNIT_HELD', 'LAST_UNIT_UNVERIFIED'].includes(error.code) && !this.get(id, user).payment_method) throw error;
+        if (!remoteAttempted && ['LAST_UNIT_HELD', 'LAST_UNIT_UNVERIFIED', 'STOCK_NOT_TRACKED'].includes(error.code) && !this.get(id, user).payment_method) throw error;
         const latest = this.get(id, user);
         const hasPaymentIntent = Boolean(latest.payment_method);
         const status = error.code === 'ORDER_CANCELLED' && !hasPaymentIntent && !remoteAttempted ? 'cancelled' : 'needs_reconciliation';

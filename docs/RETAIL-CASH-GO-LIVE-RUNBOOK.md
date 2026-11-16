@@ -25,6 +25,7 @@ Remaining risk the owner accepted: two sales of the same last unit in the same o
 - A temporary owner password of 12 or more characters, used once and changed at first sign-in.
 - Receipt details: business name, address and phone (tax ID only if you have one).
 - About an hour, at a quiet time in the shop.
+- **Real stock counts in WooCommerce** for every item you will sell in the shop. Each size needs **Manage stock** turned on and the counted quantity entered. The live till refuses items without a stock count. As of 16 Nov many products show placeholder numbers (10 or 39); recount those before selling them.
 
 Do steps 1–3 **before** making the GitHub repository private. The server downloads the code from GitHub. After the repository is private, future updates need a GitHub deploy key (see step 12).
 

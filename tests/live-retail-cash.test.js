@@ -152,3 +152,13 @@ test('wholesale stays locked under direct retail cash', async t => {
   assert.equal(res.status, 403);
   assert.equal(res.data.code, 'WHOLESALE_CHECKOUT_LOCKED');
 });
+
+test('the live till refuses items whose stock WooCommerce does not track', async t => {
+  const h = await harness(t);
+  const original = h.api.variation;
+  h.api.variation = async () => ({ ...(await original()), manage_stock: false, stock_quantity: null });
+  const res = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: cartOf() });
+  assert.equal(res.status, 409);
+  assert.equal(res.data.code, 'STOCK_NOT_TRACKED');
+  assert.equal(h.api.state.creates, 0, 'No Woo order for an untracked item');
+});
