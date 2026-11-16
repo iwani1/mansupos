@@ -189,7 +189,7 @@ export class InventoryEvidenceExceptionReview{
         independentlyVerifiedCases:0,approvedCases:0,
       },
       items:filtered.slice((input.page-1)*input.pageSize,input.page*input.pageSize)
-        .map(({caseKey,...safe})=>safe),
+        .map(item=>{const safe={...item};delete safe.caseKey;return safe;}),
       ...locked,
       notice:'All physical stock remains unverified. Owner investigation notes cannot close a count dispute, approve inventory or release checkout.',
     };
