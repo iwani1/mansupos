@@ -384,6 +384,17 @@ test('Phase 5.4 reviewer account is case-scoped, denies other POS APIs and never
   assert.equal(reviewerPackets.data.reconciliationApproved,false);
   assert.equal(reviewerPackets.data.checkoutAuthorized,false);
   assert.deepEqual(reviewerPackets.data.items,[]);
+  const exportPath='/stock-safety/audit-handoff';
+  assert.equal((await req(exportPath,reviewer)).status,403);
+  assert.equal((await req(exportPath,counter1)).status,403);
+  const manifestResponse=await req(exportPath,owner);
+  assert.equal(manifestResponse.status,200);
+  assert.equal(manifestResponse.data.kind,'owner-inventory-audit-handoff');
+  assert.equal(manifestResponse.data.stockImportAuthorized,false);
+  assert.equal(manifestResponse.data.checkoutAuthorized,false);
+  assert.match(manifestResponse.data.sha256,/^[a-f0-9]{64}$/);
+  assert.equal(manifestResponse.data.content.summary.acceptedRows,0);
+  assert.equal((await req(exportPath+'?expectedRef='+('0'.repeat(64)),owner)).status,409);
   const ownerCounts=await req('/stock-safety/count-claims-review?search='+encodeURIComponent(source.sku),owner);
   assert.equal(ownerCounts.data.items[0].stage,'discrepant_claims');
   assert.equal(ownerCounts.data.checkoutAuthorized,false);
