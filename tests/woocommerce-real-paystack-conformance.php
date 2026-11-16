@@ -105,7 +105,17 @@ $exercise = static function ( $via, $mode, $expired ) use (
 ) {
     $paystack_mode = $mode;
     list( $order_id, $product_id ) = $make_website_case( $via, $expired );
-    // This is the REAL upstream gateway method, not a copied mock of its code.
+    // The public webhook/return entry point must reject the expired original
+    // Woo reservation BEFORE running the upstream gateway success path.
+    // This exercises the same hold-admission predicate used under its DB lock,
+    // on both classic checkout and Store API, without real Paystack credentials.
+    $entry_safe = mansu_online_paystack_original_hold_safe( wc_get_order( $order_id ) );
+    $paystack_assert( $entry_safe === ! $expired,
+        'Paystack entry would admit an expired hold or reject a valid original hold.' );
+    // This direct gateway token path deliberately BYPASSES the WC-API entry
+    // guard to prove that stock/payment hooks STILL quarantine late success;
+    // an external gateway may return true while Woo rejects payment_complete().
+    // This mismatch remains a separate release blocker.
     $reported_success = $gateway->process_token_payment( 'synthetic_authorization###synthetic@example.invalid', $order_id );
     $order = wc_get_order( $order_id );
     $product = wc_get_product( $product_id );
