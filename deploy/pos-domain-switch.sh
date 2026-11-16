@@ -33,7 +33,9 @@ fi
 HOSTS=$(grep -oE 'server_name[^;]*' "$F" | sed 's/server_name//' | tr -s ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')
 echo "Nginx file: $F  (hosts: $HOSTS)  lines to change: $N"
 
-BAK="$F.before-$1-$(date +%F-%H%M%S)"
+# Keep backups OUT of /etc/nginx so Nginx can never load a second copy of the site.
+install -d -m 0700 /root/mansu-nginx-backups
+BAK="/root/mansu-nginx-backups/$(basename "$F").before-$1-$(date +%F-%H%M%S)"
 cp -a "$F" "$BAK"
 sed -i "s#proxy_pass http://127.0.0.1:$FROM#proxy_pass http://127.0.0.1:$TO#g" "$F"
 if ! nginx -t 2>&1; then cp -a "$BAK" "$F"; fail "nginx -t failed; original file restored, nothing reloaded"; fi
