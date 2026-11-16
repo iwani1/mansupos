@@ -31,7 +31,13 @@ $paystack_assert( WC_VERSION === MANSU_ONLINE_PINNED_WOO && get_woocommerce_curr
 if ( ! WC()->cart ) { WC()->cart = new WC_Cart(); }
 $gateway = new WC_Gateway_Paystack();
 $gateway->secret_key = 'sk_test_disposable_fixture_not_a_real_key';
-$gateway->saved_cards = false;
+// Owner reports saved-payment cards ENABLED on the real WooCommerce site.
+// Keep this disposable direct-token fixture aligned with that option. This
+// still does not exercise a real merchant token, Paystack settlement or
+// every checkout entry point and is NOT production acceptance.
+$gateway->saved_cards = true;
+$paystack_assert( $gateway->saved_cards === true,
+    'Saved-card gateway test must match the owner-reported live configuration.' );
 $paystack_mode = 'exact';
 $synthetic_http_calls = 0;
 $http_mock = static function ( $preempt, $args, $url ) use ( &$paystack_mode, &$synthetic_http_calls ) {
