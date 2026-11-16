@@ -320,6 +320,26 @@ test('Phase 5.4 reviewer account is case-scoped, denies other POS APIs and never
   const after=await req('/reviewer/cases',reviewer);
   assert.equal(after.data.cases[0].status,'revoked');
   assert.equal(after.data.cases[0].mayAcknowledge,false);
+  // Phase 5.6: Owner sees unresolved evidence across count and reviewer
+  // reports; reviewer/staff sessions cannot query or write the hold queue.
+  const exceptionsUrl='/stock-safety/evidence-exceptions';
+  assert.equal((await req(exceptionsUrl,counter1)).status,403);
+  assert.equal((await req(exceptionsUrl,reviewer)).status,403);
+  assert.equal((await req(exceptionsUrl)).status,401);
+  assert.equal((await req(exceptionsUrl+'/followup',reviewer,'POST',{})).status,403);
+  const exceptions=await req(exceptionsUrl+'?search='+encodeURIComponent(source.sku),owner);
+  assert.equal(exceptions.status,200);
+  assert.equal(exceptions.data.kind,'owner-inventory-evidence-exception-queue');
+  const openCase=exceptions.data.items.find(x=>x.reportRow===row.reportRow);
+  assert.ok(openCase,'A current disputed source must be in the Owner hold queue.');
+  assert.equal(openCase.category,'count_disagreement');
+  assert.equal(openCase.countDiscrepancyOpen,true);
+  assert.equal(openCase.caseClosed,false);
+  assert.equal(exceptions.data.checkoutAuthorized,false);
+  assert.equal(exceptions.data.stockImportAuthorized,false);
+  assert.equal(exceptions.data.summary.approvedCases,0);
+  assert.equal((await req(exceptionsUrl+'?status=approved',owner)).status,400);
+  assert.equal((await req(exceptionsUrl+'?expectedRef='+('0'.repeat(64)),owner)).status,409);
   const ownerCounts=await req('/stock-safety/count-claims-review?search='+encodeURIComponent(source.sku),owner);
   assert.equal(ownerCounts.data.items[0].stage,'discrepant_claims');
   assert.equal(ownerCounts.data.checkoutAuthorized,false);
