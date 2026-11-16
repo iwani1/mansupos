@@ -32,6 +32,7 @@ import { IndependentReviewerAccess } from './independent-reviewer-access.js';
 import { InventoryEvidenceExceptionReview } from './inventory-evidence-exceptions.js';
 import { buildInventoryVerificationReadiness } from './inventory-verification-readiness.js';
 import { InventoryReconciliationPackets } from './inventory-reconciliation-packets.js';
+import { InventoryAuditHandoff } from './inventory-audit-handoff.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
@@ -119,6 +120,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const evidenceExceptions = new InventoryEvidenceExceptionReview(db,reviewerIntake,reviewerAccess);
   const mappingEvidence = new OwnerMappingEvidence(db);
   const reconciliationPackets = new InventoryReconciliationPackets(db,mappingEvidence,countClaims,evidenceExceptions,reviewerAccess);
+  const auditHandoff = new InventoryAuditHandoff(mappingEvidence,countClaims,evidenceExceptions,reconciliationPackets);
   let inStore;
   try { inStore = new InStoreService(db, config); }
   catch (error) { db.close(); throw error; }
@@ -756,6 +758,21 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
         await catalog.get(true),req.body);
       res.set('Cache-Control','no-store');
       res.status(201).json(result);
+    });
+
+  // Phase 5.9: Owner-only, GET-only offline audit metadata export. This is
+  // NOT a digital signature, independent physical count or import authority.
+  app.get('/api/stock-safety/audit-handoff',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const result=auditHandoff.build(req.user,inStore.snapshot(),await catalog.get());
+      if(options.expectedRef&&result.sha256!==options.expectedRef)
+        throw new AppError('Audit handoff evidence changed; repeat the Owner review.',409,
+          'AUDIT_HANDOFF_SNAPSHOT_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(result);
     });
 
   // Separately gated live trading service only. The read-only pilot, demo and
