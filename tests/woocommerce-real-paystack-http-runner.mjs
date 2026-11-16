@@ -101,12 +101,15 @@ async function webhook(key, validSignature = true, port = 8091) {
 async function redirected(key, port = 8091, expectedStatus = 302) {
   const ref = encodeURIComponent(cases[key].ref);
   const res = await call('GET', '/?wc-api=wc_gateway_paystack&reference=' + ref, undefined, undefined, port);
-  if (expectedStatus === 302) {
+  if (Array.isArray(expectedStatus)) {
+    assert.ok(expectedStatus.includes(res.status),
+      'Concurrent original-order late return must be rejected or redirected after signed quarantine: ' + res.status);
+  } else if (expectedStatus === 302) {
     assert.ok(res.status === 302 || res.status === 303,
       'Synthetic valid Paystack return must redirect');
   } else {
     assert.equal(res.status, expectedStatus,
-      'Unbound Paystack return must be rejected before DB lock');
+      'Unbound or expired Paystack return must fail closed');
   }
 }
 try {
@@ -136,7 +139,7 @@ try {
   process.stdout.write(wpCli('webhook-late-replay'));
   await redirected('return_valid');
   process.stdout.write(wpCli('return-valid'));
-  await redirected('return_late');
+  await redirected('return_late', 8091, 409);
   process.stdout.write(wpCli('return-late'));
   await webhook('webhook_mismatch');
   process.stdout.write(wpCli('webhook-mismatch'));
@@ -151,7 +154,10 @@ try {
   // either one proceeds. The mock's on-disk barrier proves genuine overlap.
   await Promise.all([webhook('race_valid', true, 8091), redirected('race_valid', 8092)]);
   process.stdout.write(wpCli('race-valid'));
-  await Promise.all([webhook('race_late', true, 8091), redirected('race_late', 8092)]);
+  // A signed webhook quarantines the expired order. The unsigned return
+  // either sees pending and receives 409, or sees the already-on-hold order
+  // and safely redirects; neither is evidence of Paystack payment success.
+  await Promise.all([webhook('race_late', true, 8091), redirected('race_late', 8092, [302, 303, 409])]);
   process.stdout.write(wpCli('race-late'));
   process.stdout.write('DISPOSABLE_REAL_PAYSTACK_HTTP_OK: signed/invalid/replayed webhooks, ' +
     'valid/late returns, verified transaction identity and two-worker same-order races; synthetic local HTTP only.\n');
