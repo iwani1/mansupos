@@ -30,6 +30,7 @@ import { EvidenceCustodyReview } from './evidence-custody-review.js';
 import { ReviewerResponseIntake } from './reviewer-response-intake.js';
 import { IndependentReviewerAccess } from './independent-reviewer-access.js';
 import { InventoryEvidenceExceptionReview } from './inventory-evidence-exceptions.js';
+import { buildInventoryVerificationReadiness } from './inventory-verification-readiness.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
@@ -688,6 +689,29 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
         await catalog.get(true),req.body);
       res.set('Cache-Control','no-store');
       res.status(201).json(result);
+    });
+
+  // Phase 5.7: Owner-only verification-readiness ANALYSIS, not an
+  // acceptance certificate. No POST/approval/import/stock/checkout path.
+  app.get('/api/stock-safety/verification-readiness',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        page:z.coerce.number().int().min(1).max(10000).default(1),
+        pageSize:z.coerce.number().int().min(1).max(50).default(25),
+        focus:z.enum(['all','count_disputes','identity_holds','document_problems',
+          'reviewer_handoff','other_missing']).default('all'),
+        search:z.string().trim().max(64).default(''),
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const {expectedRef,...filters}=options;
+      const result=buildInventoryVerificationReadiness(
+        inStore.snapshot(),await catalog.get(),mappingEvidence,countClaims,
+        evidenceExceptions,req.user,filters);
+      if(expectedRef&&result.readinessRef!==expectedRef)
+        throw new AppError('Inventory verification evidence changed. Restart from page one.',409,
+          'INVENTORY_READINESS_SNAPSHOT_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(result);
     });
 
   // Separately gated live trading service only. The read-only pilot, demo and
