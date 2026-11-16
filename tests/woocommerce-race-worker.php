@@ -16,7 +16,7 @@ $kind = getenv( 'MANSU_RACE_KIND' );
 $side = getenv( 'MANSU_RACE_SIDE' );
 if ( ! is_string( $dir ) || ! is_dir( $dir ) ||
      ! in_array( $stage, array( 'setup', 'worker', 'verify' ), true ) ||
-     ! in_array( $kind, array( 'simple', 'shared' ), true ) ) {
+     ! in_array( $kind, array( 'simple', 'shared', 'individual' ), true ) ) {
     throw new RuntimeException( 'Missing disposable race arguments.' );
 }
 $fixture_path = $dir . '/fixture.json';
@@ -32,6 +32,37 @@ if ( $stage === 'setup' ) {
         $product->set_sku( 'MANSU-RACE-' . wp_generate_uuid4() );
         $product->save();
         $owner = (int) $product->get_id();
+        $parent_id = $owner;
+        $ids = array( $owner, $owner );
+        $other_variation_id = 0;
+    } elseif ( $kind === 'individual' ) {
+        // LYSA-like variation-managed stock: the parent can display a stock
+        // number too, but each configured size has its own independent pool.
+        // Both workers contend for the SAME final unit of Size S, leaving
+        // Size M and the parent quantity untouched.
+        $parent = new WC_Product_Variable();
+        $parent->set_name( 'SYNTHETIC LYSA-STYLE INDIVIDUAL VARIATION STOCK' );
+        $parent->set_status( 'publish' );
+        $parent->set_manage_stock( true );
+        $parent->set_stock_quantity( 3 );
+        $parent->set_backorders( 'no' );
+        $parent->save();
+        $parent_id = (int) $parent->get_id();
+        $variations = array();
+        foreach ( array( 'S', 'M' ) as $label ) {
+            $v = new WC_Product_Variation();
+            $v->set_parent_id( $parent_id );
+            $v->set_status( 'publish' );
+            $v->set_regular_price( '100.00' );
+            $v->set_manage_stock( true );
+            $v->set_stock_quantity( 1 );
+            $v->set_backorders( 'no' );
+            $v->set_sku( 'MANSU-RACE-INDIVIDUAL-' . $label . '-' . wp_generate_uuid4() );
+            $v->save();
+            $variations[] = (int) $v->get_id();
+        }
+        $owner = $variations[0];
+        $other_variation_id = $variations[1];
         $ids = array( $owner, $owner );
     } else {
         $parent = new WC_Product_Variable();
@@ -42,6 +73,8 @@ if ( $stage === 'setup' ) {
         $parent->set_backorders( 'no' );
         $parent->save();
         $owner = (int) $parent->get_id();
+        $parent_id = $owner;
+        $other_variation_id = 0;
         $ids = array();
         foreach ( array( 'A', 'B' ) as $label ) {
             $v = new WC_Product_Variation();
@@ -55,7 +88,8 @@ if ( $stage === 'setup' ) {
         }
     }
     if ( file_put_contents( $fixture_path, wp_json_encode( array(
-        'kind' => $kind, 'ownerId' => $owner, 'productIds' => $ids,
+        'kind' => $kind, 'ownerId' => $owner, 'parentId' => $parent_id,
+        'otherVariationId' => $other_variation_id, 'productIds' => $ids,
     ) ), LOCK_EX ) === false ) {
         throw new RuntimeException( 'Could not save fresh synthetic stock-owner fixture.' );
     }
@@ -111,8 +145,8 @@ if ( $stage === 'worker' ) {
                 'cashierId' => '3c4e759e-cf64-4f8a-94bd-f978b737a985',
                 'shiftId' => '39fda408-7303-42c5-bbdf-e89ed1eb4c5b',
                 'saleType' => 'retail', 'items' => array( array(
-                    'productId' => (int) $fixture['ownerId'],
-                    'variationId' => $kind === 'shared' ? $product_id : 0,
+                    'productId' => (int) $fixture['parentId'],
+                    'variationId' => $kind !== 'simple' ? $product_id : 0,
                     'quantity' => 1, 'expectedUnitCents' => 10000,
                     'ownerId' => (int) $fixture['ownerId'], 'sku' => $product->get_sku(),
                 ) ),
@@ -158,5 +192,16 @@ if ( $stage === 'verify' ) {
         "SELECT COALESCE(SUM(stock_quantity),0) FROM {$wpdb->wc_reserved_stock} WHERE product_id=%d AND expires > UTC_TIMESTAMP()",
         $fixture['ownerId'] ) );
     if ( $count !== 1 ) { throw new RuntimeException( 'Duplicate MySQL stock owner hold: ' . $count ); }
+    if ( $kind === 'individual' ) {
+        $other = wc_get_product( (int) $fixture['otherVariationId'] );
+        $parent = wc_get_product( (int) $fixture['parentId'] );
+        if ( ! $other || ! $parent ||
+             (int) $other->get_stock_managed_by_id() !== (int) $other->get_id() ||
+             (int) $other->get_stock_quantity() !== 1 ||
+             (int) $parent->get_stock_quantity() !== 3 ||
+             (int) $reserve->get_reserved_stock( $other ) !== 0 ) {
+            throw new RuntimeException( 'Individual size reservation incorrectly claimed another size or parent stock.' );
+        }
+    }
     echo 'DISPOSABLE_RACE_VERIFY_OK' . PHP_EOL;
 }
