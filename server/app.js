@@ -26,6 +26,7 @@ import { planPhysicalRecounts } from './physical-recount-plan.js';
 import { PhysicalCountClaims } from './physical-count-claims.js';
 import { CountSupervisionEvidence } from './count-supervision-evidence.js';
 import { PrivateCountFileManifests } from './private-count-file-manifests.js';
+import { EvidenceCustodyReview } from './evidence-custody-review.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
@@ -107,6 +108,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const countClaims = new PhysicalCountClaims(db);
   const countSupervision = new CountSupervisionEvidence(db,countClaims);
   const countFiles = new PrivateCountFileManifests(db,countSupervision);
+  const custodyReview = new EvidenceCustodyReview(db,countFiles);
   const mappingEvidence = new OwnerMappingEvidence(db);
   let inStore;
   try { inStore = new InStoreService(db, config); }
@@ -533,6 +535,37 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
       // JSON metadata ONLY; no multipart parser, no file upload endpoint.
       const result=countFiles.submit(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body);
+      res.set('Cache-Control','no-store');
+      res.status(201).json(result);
+    });
+
+  // Phase 5.2: Owner-only custody assertions and independent review
+  // HANDOFF PREPARATION. Neither endpoint receives original document bytes.
+  app.get('/api/stock-safety/evidence-custody',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        page:z.coerce.number().int().min(1).max(10000).default(1),
+        pageSize:z.coerce.number().int().min(1).max(50).default(25),
+        status:z.enum([
+          'all','file_manifest_missing','custody_entry_needed',
+          'custody_declared_unverified','review_requested_unconfirmed',
+          'count_discrepancy_open','identity_hold','waiting_for_counts',
+        ]).default('all'),
+        search:z.string().trim().max(64).default(''),
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const result=custodyReview.list(inStore.snapshot(),await catalog.get(),options);
+      if(options.expectedRef&&options.expectedRef!==result.snapshotRef)
+        throw new AppError('Custody evidence changed. Restart the review from page one.',409,
+          'EVIDENCE_CUSTODY_SNAPSHOT_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(result);
+    });
+
+  app.post('/api/stock-safety/evidence-custody',
+    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
+      const result=custodyReview.submit(req.user,inStore.snapshot(),
         await catalog.get(true),req.body);
       res.set('Cache-Control','no-store');
       res.status(201).json(result);

@@ -401,6 +401,65 @@ try {
       ],
     })});
   });
+  // Owner custody assertions and review-handoff PREPARATION, no file delivery.
+  const custodyCalls=[];
+  const custodyEvents=[];
+  await page.route('**/api/stock-safety/evidence-custody*',async route=>{
+    const req=route.request();
+    if(req.method()==='POST'){
+      const body=req.postDataJSON();
+      custodyCalls.push({method:'POST',body});
+      custodyEvents.push({
+        id:900+custodyEvents.length,action:body.action,
+        locationCode:body.locationCode,reviewChannel:body.reviewChannel,
+        note:body.note,recordedByAccount:'synthetic-owner',
+        recordedAt:'2026-11-15T12:00:00.000Z',
+        needsRecheck:false,independentReviewConfirmed:false,
+      });
+      await route.fulfill({status:201,contentType:'application/json',body:JSON.stringify({
+        kind:'unverified-owner-custody-event',recorded:true,
+        replayed:false,eventId:custodyEvents.at(-1).id,
+        auditOnly:true,documentBytesStored:false,
+        independentReviewConfirmed:false,independentWitnessVerified:false,
+        ownerApproved:false,stockImportAuthorized:false,checkoutAuthorized:false,
+      })});
+      return;
+    }
+    const latest=custodyEvents.at(-1)||null;
+    custodyCalls.push({method:'GET'});
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'owner-unverified-evidence-custody',auditOnly:true,
+      evidenceVerified:true,snapshotRef:(latest?'c':'b').repeat(64),
+      manifestRef:'e'.repeat(64),sourceHash:'a'.repeat(64),
+      documentBytesStored:false,documentSignatureVerified:false,
+      independentWitnessVerified:false,independentReviewConfirmed:false,
+      ownerApproved:false,mappingApproved:false,sharedStockVerified:false,
+      stockImportAuthorized:false,checkoutAuthorized:false,
+      tally:{manifestMissing:1,custodyNotesCurrent:latest?1:0,
+        reviewsRequestedUnconfirmed:latest?.action==='independent_review_requested'?1:0,
+        countDiscrepanciesOpen:1,independentlyVerifiedOriginals:0},
+      page:1,pageSize:25,pages:1,total:2,hasMore:false,
+      items:[
+        {reportRow:1,sku:'CLAIM001',
+          firstClaimId:100,secondClaimId:101,
+          manifest:{
+            id:809,documentCode:'PRIVATE_COUNT_0001',
+            documentType:'count_sheet',fileSha256:mockManifest?.fileSha256||'f'.repeat(64),
+            fileBytes:mockManifest?.fileBytes||31,requiresRecheck:false,
+            signatureVerified:false,
+          },
+          status:'count_discrepancy_open',countDiscrepancyOpen:true,
+          latestCustodyEvent:latest,mayRecord:true,
+          independentReviewConfirmed:false,originalAuthenticityVerified:false,
+          inventoryAccepted:false,stockImportAuthorized:false},
+        {reportRow:2,sku:'CLAIM002',firstClaimId:102,secondClaimId:null,
+          manifest:null,status:'waiting_for_counts',
+          countDiscrepancyOpen:false,latestCustodyEvent:null,mayRecord:false,
+          independentReviewConfirmed:false,originalAuthenticityVerified:false,
+          inventoryAccepted:false,stockImportAuthorized:false},
+      ],
+    })});
+  });
   const paymentReviewCalls = [];
   await page.route('**/api/payments/reconciliation*', async route => {
     paymentReviewCalls.push(route.request().method());
@@ -748,6 +807,42 @@ try {
   await fileRegister.getByRole('button',{name:'Close'}).click();
   if(await fileRegister.getByRole('button',{name:/approve stock|import stock|start checkout/i}).count())
     throw Error('Private file hashing must not expose inventory approval.');
+  const custody=page.getByRole('region',{
+    name:'Owner custody and independent review preparation',
+  });
+  await custody.getByRole('button',{name:'Open custody register'}).click();
+  const custodyTable=custody.getByRole('region',{name:'Private evidence custody records'}).locator('table');
+  await custodyTable.locator('tbody tr').first().waitFor();
+  if(await custodyTable.locator('tbody tr').count()!==2)
+    throw Error('Custody register should show both synthetic source rows.');
+  await custody.getByRole('button',{name:'Record custody step'}).first().click();
+  await custody.getByRole('textbox',{name:'Secure storage reference code'})
+    .fill('SEALED_BOX_01');
+  await custody.getByRole('textbox',{name:'Owner custody preparation note'})
+    .fill('Original reportedly placed in a private sealed cabinet.');
+  await custody.getByRole('button',{name:'Save unverified custody entry'}).click();
+  await custody.getByText(/Owner custody declaration recorded/).waitFor();
+  if(custodyCalls.filter(x=>x.method==='POST').length!==1||
+    custodyCalls.find(x=>x.method==='POST').body.action!=='sealed_in_private_custody'||
+    custodyCalls.find(x=>x.method==='POST').body.manifestId!==809||
+    custodyCalls.find(x=>x.method==='POST').body.firstClaimId!==100||
+    custodyCalls.find(x=>x.method==='POST').body.secondClaimId!==101)
+    throw Error('Custody entry must be pinned to original file manifest and both counts.');
+  await custody.getByRole('button',{name:'Record custody step'}).first().click();
+  await custody.getByRole('combobox',{name:'Custody handling action'})
+    .selectOption('independent_review_requested');
+  await custody.getByRole('textbox',{name:'Owner custody preparation note'})
+    .fill('Independent document inspection requested; not delivered or verified.');
+  await custody.getByRole('button',{name:'Save unverified custody entry'}).click();
+  await custody.getByText(/Owner custody declaration recorded/).waitFor();
+  if(custodyCalls.filter(x=>x.method==='POST').length!==2||
+    custodyCalls.filter(x=>x.method==='POST')[1].body.action!=='independent_review_requested'||
+    custodyCalls.filter(x=>x.method==='POST')[1].body.reviewChannel!=='in_person'||
+    custodyCalls.filter(x=>x.method==='POST')[1].body.expectedLatestEventId!==900)
+    throw Error('Review request must link the prior owner custody event.');
+  if(await custody.getByRole('button',{name:/approve stock|certify witness|release stock|checkout/i}).count())
+    throw Error('Custody register must never offer stock approval or acceptance.');
+
   await page.locator('[data-nav="paymentReconciliation"]').click();
   await page.getByRole('heading', { name: 'Payment reconciliation' }).waitFor();
   await page.getByText(/This screen does not read the WooCommerce website order ledger/).waitFor();

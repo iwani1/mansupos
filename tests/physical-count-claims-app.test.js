@@ -212,6 +212,76 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   })).status,400);
   assert.equal((await req(manifestUrl+'?status=approved',ownerToken)).status,400);
   assert.equal((await req(manifestUrl+'?unexpected=1',ownerToken)).status,400);
+  // Phase 5.2: owner custody/reviewer handoff requests are local metadata,
+  // never witness acknowledgements or proof of original-file custody.
+  const custodyUrl='/stock-safety/evidence-custody';
+  assert.equal((await req(custodyUrl)).status,401);
+  assert.equal((await req(custodyUrl,one.data.token)).status,403);
+  assert.equal((await req(custodyUrl,two.data.token)).status,403);
+  const custodyStart=await req(custodyUrl+'?search='+encodeURIComponent(sku),ownerToken);
+  assert.equal(custodyStart.status,200);
+  assert.equal(custodyStart.data.kind,'owner-unverified-evidence-custody');
+  const custodyRow=custodyStart.data.items.find(x=>x.reportRow===row);
+  assert.ok(custodyRow);
+  assert.equal(custodyRow.countDiscrepancyOpen,true);
+  assert.equal(custodyRow.status,'count_discrepancy_open');
+  assert.equal(custodyRow.mayRecord,true);
+  assert.equal(custodyStart.data.independentReviewConfirmed,false);
+  const custodyInput={
+    reportRow:row,expectedRef:custodyStart.data.snapshotRef,
+    expectedLatestEventId:null,manifestId:custodyRow.manifest.id,
+    fileSha256:custodyRow.manifest.fileSha256,
+    firstClaimId:custodyRow.firstClaimId,secondClaimId:custodyRow.secondClaimId,
+    action:'sealed_in_private_custody',locationCode:'SEALED_BOX_01',
+    reviewChannel:'none',
+    note:'Original paper count sheet reportedly stored in a secure cabinet.',
+    requestId:randomUUID(),
+  };
+  assert.equal((await req(custodyUrl,one.data.token,'POST',custodyInput)).status,403);
+  assert.equal((await req(custodyUrl,two.data.token,'POST',custodyInput)).status,403);
+  assert.equal((await req(custodyUrl,null,'POST',custodyInput)).status,401);
+  assert.equal((await req(custodyUrl,ownerToken,'POST',{
+    ...custodyInput,approval:true,
+  })).status,400);
+  assert.equal((await req(custodyUrl,ownerToken,'POST',{
+    ...custodyInput,action:'independent_review_requested',
+    reviewChannel:'in_person',requestId:randomUUID(),
+  })).status,409,'An independent-review request requires a prior seal declaration');
+  const custodyFirst=await req(custodyUrl,ownerToken,'POST',custodyInput);
+  assert.equal(custodyFirst.status,201);
+  assert.equal(custodyFirst.data.recorded,true);
+  assert.equal(custodyFirst.data.documentBytesStored,false);
+  assert.equal(custodyFirst.data.independentReviewConfirmed,false);
+  assert.equal(custodyFirst.data.stockImportAuthorized,false);
+  assert.equal((await req(custodyUrl,ownerToken,'POST',custodyInput)).data.replayed,true);
+  const custodyNext=await req(custodyUrl+'?search='+encodeURIComponent(sku),ownerToken);
+  assert.equal(custodyNext.status,200);
+  const custodyCase=custodyNext.data.items.find(x=>x.reportRow===row);
+  assert.ok(custodyCase);
+  assert.equal(custodyCase.status,'count_discrepancy_open');
+  assert.equal(custodyCase.latestCustodyEvent.action,'sealed_in_private_custody');
+  assert.notEqual(custodyNext.data.snapshotRef,custodyStart.data.snapshotRef);
+  assert.equal((await req(custodyUrl+'?expectedRef='+custodyStart.data.snapshotRef,ownerToken)).status,409);
+  assert.equal((await req(custodyUrl,ownerToken,'POST',{
+    ...custodyInput,requestId:randomUUID(),
+  })).status,409);
+  const handoff=await req(custodyUrl,ownerToken,'POST',{
+    ...custodyInput,expectedRef:custodyNext.data.snapshotRef,
+    expectedLatestEventId:custodyCase.latestCustodyEvent.id,
+    action:'independent_review_requested',reviewChannel:'in_person',
+    note:'Request an independent inspection of the privately held original.',
+    requestId:randomUUID(),
+  });
+  assert.equal(handoff.status,201);
+  const afterHandoff=await req(custodyUrl+'?search='+encodeURIComponent(sku),ownerToken);
+  const handoffRow=afterHandoff.data.items.find(x=>x.reportRow===row);
+  assert.equal(handoffRow.status,'count_discrepancy_open');
+  assert.equal(handoffRow.latestCustodyEvent.action,'independent_review_requested');
+  assert.equal(handoffRow.latestCustodyEvent.independentReviewConfirmed,false);
+  assert.equal(afterHandoff.data.ownerApproved,false);
+  assert.equal(afterHandoff.data.stockImportAuthorized,false);
+  assert.equal((await req(custodyUrl+'?status=approved',ownerToken)).status,400);
+  assert.equal((await req(custodyUrl+'?unknown=1',ownerToken)).status,400);
   const review=await req('/stock-safety/count-claims-review?search='+encodeURIComponent(sku),ownerToken);
   assert.equal(review.status,200);
   assert.equal(review.data.items[0].firstUnits,7);
@@ -261,5 +331,6 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_owner_triage'").get().n,1);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_supervision_note'").get().n,1);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.private_count_file_manifest'").get().n,1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.private_evidence_custody'").get().n,2);
   assert.ok(log.length>=1&&log.every(entry=>entry==='Woo GET products'));
 });

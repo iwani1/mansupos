@@ -84,7 +84,7 @@ function publicManifest(x,row){
 }
 export class PrivateCountFileManifests{
   constructor(db,supervision){this.db=db;this.supervision=supervision;}
-  list(physical,website,query={},clock=Date.now()){
+  list(physical,website,query={},clock=Date.now(),collectRows=null){
     const {page=1,pageSize=25,status='all',search=''}=query;
     if(!Number.isSafeInteger(page)||page<1||page>10000||
        !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>50||
@@ -113,6 +113,7 @@ export class PrivateCountFileManifests{
         approved:false,stockImportAuthorized:false,
       };
     });
+    if(Array.isArray(collectRows))collectRows.push(...full);
     const totalManifests=full.filter(x=>x.latestManifest).length;
     const sharedDigestCounts=new Map();
     for(const row of full){
