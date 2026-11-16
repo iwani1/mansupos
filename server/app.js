@@ -33,6 +33,7 @@ import { InventoryEvidenceExceptionReview } from './inventory-evidence-exception
 import { buildInventoryVerificationReadiness } from './inventory-verification-readiness.js';
 import { InventoryReconciliationPackets } from './inventory-reconciliation-packets.js';
 import { InventoryAuditHandoff } from './inventory-audit-handoff.js';
+import { FullLaunchReadiness } from './full-launch-readiness.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
@@ -121,6 +122,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const mappingEvidence = new OwnerMappingEvidence(db);
   const reconciliationPackets = new InventoryReconciliationPackets(db,mappingEvidence,countClaims,evidenceExceptions,reviewerAccess);
   const auditHandoff = new InventoryAuditHandoff(mappingEvidence,countClaims,evidenceExceptions,reconciliationPackets);
+  const fullLaunchReadiness = new FullLaunchReadiness(auditHandoff);
   let inStore;
   try { inStore = new InStoreService(db, config); }
   catch (error) { db.close(); throw error; }
@@ -771,6 +773,21 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
       if(options.expectedRef&&result.sha256!==options.expectedRef)
         throw new AppError('Audit handoff evidence changed; repeat the Owner review.',409,
           'AUDIT_HANDOFF_SNAPSHOT_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(result);
+    });
+
+  // Four remaining tracks: read-only Owner inspection of synthetic safety
+  // scenarios and the STILL MISSING external proofs. No release/enable POST.
+  app.get('/api/stock-safety/full-launch-readiness',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const input=z.object({
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const result=fullLaunchReadiness.build(req.user,inStore.snapshot(),await catalog.get());
+      if(input.expectedRef&&input.expectedRef!==result.evidenceRef)
+        throw new AppError('Release readiness evidence changed. Refresh the full report.',409,
+          'FULL_LAUNCH_SNAPSHOT_CHANGED');
       res.set('Cache-Control','no-store');
       res.json(result);
     });
