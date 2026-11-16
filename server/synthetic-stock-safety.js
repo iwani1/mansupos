@@ -49,7 +49,9 @@ export class SyntheticStockCoordinator{
     if(!attempt)fail('SANDBOX_PAYMENT_UNKNOWN','Missing original attempt.');
     if(attempt.state==='paid')return {state:'paid',replayed:true};
     if(attempt.state!=='reserved'){
-      attempt.state='needs_review';
+      // A cancelled or rejected attempt owns NO held units. Mutating it to a
+      // stock-consuming state would fabricate a hold and violate conservation.
+      if(attempt.state==='uncertain_hold')attempt.state='needs_review';
       this.events.push({kind:'late_or_unexpected_payment',key,state:'needs_review'});
       this.verify();
       return {state:'needs_review',replayed:false};
