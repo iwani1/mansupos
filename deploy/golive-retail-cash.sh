@@ -60,7 +60,8 @@ if [ -f "$ENVF" ] && grep -q '^WOO_CONSUMER_KEY=ck_' "$ENVF"; then
 else
   install -m 0600 "$APP/.env.live-trading.example" "$ENVF"
   PILOT_URL=$(grep -s '^WOO_BASE_URL=' /etc/mansu-pos-live-pilot/pos.env | cut -d= -f2- || true)
-  read -rp "Store URL [${PILOT_URL:-https://www.mansutrendzgh.com}]: " v; setv WOO_BASE_URL "${v:-${PILOT_URL:-https://www.mansutrendzgh.com}}"
+  read -rp "Shop (WooCommerce) URL, NOT the POS address [${PILOT_URL:-https://www.mansutrendzgh.com}]: " v; v=${v:-${PILOT_URL:-https://www.mansutrendzgh.com}}
+  [[ $v =~ ^https://(www\.)?mansutrendzgh\.com/?$ ]] || fail "shop URL must be https://mansutrendzgh.com or https://www.mansutrendzgh.com (got: $v)"; setv WOO_BASE_URL "${v%/}"
   read -rp "NEW Read/Write WooCommerce consumer key (ck_...): " v; [[ $v == ck_* ]] || fail "key must start with ck_"; setv WOO_CONSUMER_KEY "$v"
   read -rsp "Consumer secret (cs_..., hidden): " v; echo; [[ $v == cs_* ]] || fail "secret must start with cs_"; setv WOO_CONSUMER_SECRET "$v"
   read -rp "Approval reference [owner-$(date +%F)-cash-retail]: " v; setv POS_OWNER_APPROVAL_REFERENCE "${v:-owner-$(date +%F)-cash-retail}"
