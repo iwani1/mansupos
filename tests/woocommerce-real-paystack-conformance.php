@@ -40,6 +40,20 @@ $paystack_assert( $gateway->saved_cards === true,
     'Saved-card gateway test must match the owner-reported live configuration.' );
 $paystack_assert( has_filter( 'pre_http_request', 'mansu_online_paystack_saved_token_precharge' ) === 1,
     'Pinned Paystack precharge HTTP filter was not registered in native Woo.' );
+// Nonsecret single-shot diagnostic for the native Paystack HTTP filter stack.
+add_filter( 'pre_http_request', static function ( $value, $args, $url ) {
+    static $shown = false;
+    if ( $shown || $url !== 'https://api.paystack.co/transaction/charge_authorization' ) {
+        return $value;
+    }
+    $shown = true;
+    $stack = array_map( static function ( $frame ) {
+        return ( $frame['class'] ?? '' ) . '::' . ( $frame['function'] ?? '' );
+    }, debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 24 ) );
+    WP_CLI::log( 'SYNTHETIC_PAYSTACK_ENTRY_TRACE ' . implode( ' > ', $stack ) );
+    WP_CLI::log( 'SYNTHETIC_PAYSTACK_ENTRY_METHOD ' . (string) ( $args['method'] ?? 'missing' ) );
+    return $value;
+}, 0, 3 );
 $paystack_mode = 'exact';
 $synthetic_http_calls = 0;
 $http_mock = static function ( $preempt, $args, $url ) use ( &$paystack_mode, &$synthetic_http_calls ) {
