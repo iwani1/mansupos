@@ -62,9 +62,44 @@ $mansu_ci_paystack_gate = static function () {
 add_action( 'woocommerce_api_tbz_wc_paystack_webhook', $mansu_ci_paystack_gate, -10 );
 add_action( 'woocommerce_api_wc_gateway_paystack', $mansu_ci_paystack_gate, -10 );
 
-// CI only: force the POS cash payment_complete and late website
-// payment_complete to run concurrently against the SAME stock owner.
-// Neither channel can "pass" this test by avoiding the other callback.
+// In the hardened bridge a signed late website webhook MUST be blocked
+// BEFORE calling upstream Paystack payment_complete(). Meet the POS cash
+// payment_complete() at the early signed-callback boundary instead. This
+// models a simultaneous real callback and genuine POS cash checkout without
+// requiring the unsafe website money/stock mutation to execute.
+add_action( 'woocommerce_api_tbz_wc_paystack_webhook', static function () {
+    $cross = get_option( 'mansu_ci_cross_payment', array() );
+    if ( ! is_array( $cross ) || ! isset( $cross['ref'], $cross['posId'], $cross['websiteId'] ) ) {
+        return;
+    }
+    $raw = file_get_contents( 'php://input' );
+    $event = json_decode( $raw );
+    if ( ! is_object( $event ) || ( $event->event ?? '' ) !== 'charge.success' ||
+         ( $event->data->reference ?? '' ) !== $cross['ref'] ) {
+        return;
+    }
+    $hmac = $_SERVER['HTTP_X_PAYSTACK_SIGNATURE'] ?? '';
+    if ( ! is_string( $hmac ) ||
+         ! hash_equals( hash_hmac( 'sha512', $raw, 'sk_test_synthetic_ci_no_real_account' ), $hmac ) ) {
+        throw new RuntimeException( 'Cross-channel synthetic webhook was not correctly signed.' );
+    }
+    $dir = WP_CONTENT_DIR . '/mansu-ci-cross-payment';
+    if ( ! is_dir( $dir ) ||
+         file_put_contents( $dir . '/website', (string) microtime( true ), LOCK_EX ) === false ) {
+        throw new RuntimeException( 'Cross-channel signed website callback marker failed.' );
+    }
+    $deadline = microtime( true ) + 28;
+    while ( ! is_file( $dir . '/pos' ) ) {
+        if ( microtime( true ) > $deadline ) {
+            throw new RuntimeException( 'Signed website webhook and POS payment never met at CI barrier.' );
+        }
+        usleep( 75000 );
+    }
+    usleep( 150000 );
+}, -5 );
+
+// CI only: force the POS cash payment_complete to overlap the signed
+// website webhook admission against the SAME shared stock owner.
 add_action( 'woocommerce_pre_payment_complete', static function ( $order_id ) {
     $cross = get_option( 'mansu_ci_cross_payment', array() );
     if ( ! is_array( $cross ) ||
