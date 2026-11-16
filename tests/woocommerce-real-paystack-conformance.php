@@ -107,7 +107,7 @@ $make_website_case = static function ( $created_via, $expired ) use ( $reserve, 
     return array( $order->get_id(), $product->get_id() );
 };
 $exercise = static function ( $via, $mode, $expired ) use (
-    &$paystack_mode, $make_website_case, $gateway, $paystack_assert
+    &$paystack_mode, &$synthetic_http_calls, $make_website_case, $gateway, $paystack_assert
 ) {
     $paystack_mode = $mode;
     list( $order_id, $product_id ) = $make_website_case( $via, $expired );
@@ -129,6 +129,14 @@ $exercise = static function ( $via, $mode, $expired ) use (
         $paystack_assert( $near === 1 &&
             mansu_online_paystack_original_hold_safe( wc_get_order( $order_id ) ) === false,
             'Paystack entry admitted a near-expiry hold inside its verification margin.' );
+        // This is the actual gateway 5.8.6 token method, not a copied
+        // reconstruction. An unsafe hold MUST block BEFORE its outbound
+        // Paystack charge_authorization request reaches the CI HTTP stub.
+        $before = $synthetic_http_calls;
+        $near_charge = $gateway->process_token_payment(
+            'synthetic_authorization###synthetic@example.invalid', $order_id );
+        $paystack_assert( $near_charge === false && $synthetic_http_calls === $before,
+            'Saved-card near-expiry charge reached Paystack despite precharge guard.' );
         $reset = $wpdb->update( $wpdb->wc_reserved_stock,
             array( 'expires' => gmdate( 'Y-m-d H:i:s', time() + 600 ) ),
             array( 'order_id' => $order_id ) );
@@ -136,11 +144,53 @@ $exercise = static function ( $via, $mode, $expired ) use (
             mansu_online_paystack_original_hold_safe( wc_get_order( $order_id ) ) === true,
             'Valid original hold did not recover after fixture expiry reset.' );
     }
-    // This direct gateway token path deliberately BYPASSES the WC-API entry
-    // guard to prove that stock/payment hooks STILL quarantine late success;
-    // an external gateway may return true while Woo rejects payment_complete().
-    // This mismatch remains a separate release blocker.
-    $reported_success = $gateway->process_token_payment( 'synthetic_authorization###synthetic@example.invalid', $order_id );
+    $verified = wc_get_order( $order_id );
+    $charge = array( 'reference' => (string) $verified->get_meta( '_paystack_txn_ref', true ),
+        'amount' => (int) round( (float) $verified->get_total() * 100 ),
+        'currency' => $verified->get_currency() );
+    if ( ! $expired ) {
+        $paystack_assert( mansu_online_paystack_token_charge_matches( $verified, $charge ),
+            'Valid Paystack token payload was not admitted under original Woo stock hold.' );
+        $wrong_amount = $charge;
+        $wrong_amount['amount'] += 100;
+        $wrong_currency = $charge;
+        $wrong_currency['currency'] = 'NGN';
+        $wrong_reference = $charge;
+        $wrong_reference['reference'] .= '_tampered';
+        $paystack_assert(
+            ! mansu_online_paystack_token_charge_matches( $verified, $wrong_amount ) &&
+            ! mansu_online_paystack_token_charge_matches( $verified, $wrong_currency ) &&
+            ! mansu_online_paystack_token_charge_matches( $verified, $wrong_reference ),
+            'Paystack token precharge allowed changed amount, currency or reference.' );
+    } else {
+        // Real website stock is already claimed by a competing POS purchase.
+        // An ordinary saved-card retry must fail with ZERO network charge
+        // attempts and no claim that external money was actually received.
+        $before = $synthetic_http_calls;
+        $blocked_charge = $gateway->process_token_payment(
+            'synthetic_authorization###synthetic@example.invalid', $order_id );
+        $blocked_order = wc_get_order( $order_id );
+        $paystack_assert( $blocked_charge === false &&
+            $synthetic_http_calls === $before &&
+            $blocked_order->has_status( 'pending' ) &&
+            $blocked_order->get_meta( '_mansu_website_stock_review', true ) !== 'required',
+            'Expired saved-card charge was sent to Paystack or marked externally paid.' );
+        // A separate fixture must STILL prove postcharge quarantine if an
+        // already-settled success bypassed the outbound admission boundary,
+        // e.g. gateway callbacks, code drift or payment settlement delay.
+        // This bypass is ONLY in disposable CI; the production filter stays.
+        $paystack_assert( remove_filter( 'pre_http_request',
+            'mansu_online_paystack_saved_token_precharge', 1 ),
+            'Disposable fixture could not isolate the postcharge recovery branch.' );
+    }
+    try {
+        $reported_success = $gateway->process_token_payment(
+            'synthetic_authorization###synthetic@example.invalid', $order_id );
+    } finally {
+        if ( $expired ) {
+            add_filter( 'pre_http_request', 'mansu_online_paystack_saved_token_precharge', 1, 3 );
+        }
+    }
     $order = wc_get_order( $order_id );
     $product = wc_get_product( $product_id );
     $line = current( $order->get_items( 'line_item' ) );
@@ -189,4 +239,5 @@ remove_filter( 'pre_http_request', $http_mock, 10 );
 
 echo 'DISPOSABLE_PAYSTACK_GATEWAY_PATHS_OK ' . $paystack_checks .
     ' assertions; REAL upstream Paystack v5.8.6 token-charge path, synthetic HTTP only.' . PHP_EOL;
-echo 'PAYSTACK_RELEASE_BLOCKED: gateway success acknowledgment can disagree with rejected Woo payment_complete; signed webhook, redirect, refunds, installed version and settlement still unverified.' . PHP_EOL;
+echo 'PAYSTACK_PRECHARGE_GUARD_OK: enabled saved cards block expired/near-expiry charge_authorization BEFORE network calls; amount/currency/reference checked.' . PHP_EOL;
+echo 'PAYSTACK_RELEASE_BLOCKED: intentionally bypassed postcharge settlement still demonstrates gateway success/failed Woo completion; redirects, refunds, installed PHP/HPOS and real settlement remain unverified.' . PHP_EOL;
