@@ -112,6 +112,24 @@ $exercise = static function ( $via, $mode, $expired ) use (
     $entry_safe = mansu_online_paystack_original_hold_safe( wc_get_order( $order_id ) );
     $paystack_assert( $entry_safe === ! $expired,
         'Paystack entry would admit an expired hold or reject a valid original hold.' );
+    if ( ! $expired ) {
+        // A still-present hold that expires during gateway verification is
+        // not sufficiently safe for admission. Force it near expiry, then
+        // restore its original duration without changing Woo stock counts.
+        global $wpdb;
+        $near = $wpdb->update( $wpdb->wc_reserved_stock,
+            array( 'expires' => gmdate( 'Y-m-d H:i:s', time() + 45 ) ),
+            array( 'order_id' => $order_id ) );
+        $paystack_assert( $near === 1 &&
+            mansu_online_paystack_original_hold_safe( wc_get_order( $order_id ) ) === false,
+            'Paystack entry admitted a near-expiry hold inside its verification margin.' );
+        $reset = $wpdb->update( $wpdb->wc_reserved_stock,
+            array( 'expires' => gmdate( 'Y-m-d H:i:s', time() + 600 ) ),
+            array( 'order_id' => $order_id ) );
+        $paystack_assert( $reset === 1 &&
+            mansu_online_paystack_original_hold_safe( wc_get_order( $order_id ) ) === true,
+            'Valid original hold did not recover after fixture expiry reset.' );
+    }
     // This direct gateway token path deliberately BYPASSES the WC-API entry
     // guard to prove that stock/payment hooks STILL quarantine late success;
     // an external gateway may return true while Woo rejects payment_complete().
