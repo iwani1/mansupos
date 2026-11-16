@@ -1014,6 +1014,51 @@ function mansu_online_paystack_saved_token_precharge( $preempt, $args, $url ) {
 add_filter( 'pre_http_request', 'mansu_online_paystack_saved_token_precharge', 1, 3 );
 
 /**
+ * The pinned Paystack saved-card gateway may return a success redirect even
+ * when WC_Order::payment_complete() failed. Classic Woo checkout applies
+ * woocommerce_payment_successful_result AFTER calling process_payment().
+ *
+ * Avoid falsely representing an unsettled/unfulfillable order as paid.
+ * Do NOT return a checkout failure, which would invite another charge.
+ * Leave the customer on the SAME order's receipt/review page, mark it
+ * on-hold for Owner reconciliation, and show a do-not-pay-again warning.
+ *
+ * This covers classic saved-card checkouts that entered our precharge guard.
+ * Store API and external callbacks have separate paths; this is not a proof
+ * that Paystack refunded, reversed or even settled a gateway transaction.
+ */
+function mansu_online_paystack_saved_card_checkout_result( $result, $order_id ) {
+    if ( ! mansu_online_enabled() || ! is_array( $result ) ||
+         ( $result['result'] ?? '' ) !== 'success' ||
+         ! mansu_online_paystack_request_lock_expected( (int) $order_id ) ) {
+        return $result;
+    }
+    $order = wc_get_order( (int) $order_id );
+    if ( ! mansu_online_website_order( $order ) ||
+         $order->get_payment_method() !== 'paystack' ) {
+        return $result;
+    }
+    $verified = $order->is_paid() && (bool) $order->get_date_paid() &&
+        $order->get_meta( '_mansu_website_stock_review', true ) !== 'required' &&
+        mansu_online_website_items_reduced( $order );
+    if ( $verified ) { return $result; }
+    // The remote charge may already have succeeded; never retry, delete the
+    // order, restore inventory, issue a refund or claim payment was declined.
+    mansu_online_website_review( $order, 'Saved-card gateway returned checkout success without verified Woo payment and stock reduction' );
+    if ( $order->has_status( 'pending' ) ) {
+        $order->update_status( 'on-hold', 'Saved-card payment requires manual settlement and stock reconciliation; do not fulfil.' );
+    }
+    wc_add_notice(
+        'We are checking your payment and order. Please do not pay again. Contact the store with your order number.',
+        'notice'
+    );
+    $result['redirect'] = $order->get_checkout_order_received_url();
+    return $result;
+}
+add_filter( 'woocommerce_payment_successful_result', 'mansu_online_paystack_saved_card_checkout_result', 20, 2 );
+
+
+/**
  * DRAFT ONLY: serialize the actual Paystack v5.8.6 WC-API entry points for
  * each website order, BEFORE upstream code fetches its order object.
  *
