@@ -213,6 +213,13 @@ foreach ( array( 'checkout', 'store-api' ) as $via ) {
         $order->get_meta( '_mansu_website_stock_review', true ) !== 'required' &&
         (int) $product->get_stock_quantity() === 0 && $reduced === 1,
         'Real Paystack valid payment did not complete and reduce its held stock exactly once.' );
+    // Classic checkout must not disturb a genuinely completed saved-card
+    // payment or change its normal successful redirect.
+    $original_success = array( 'result' => 'success', 'redirect' => 'https://example.invalid/normal-receipt' );
+    $after_success = mansu_online_paystack_saved_card_checkout_result( $original_success, $order->get_id() );
+    $paystack_assert( $after_success === $original_success &&
+        $order->get_meta( '_mansu_website_stock_review', true ) !== 'required',
+        'Saved-card completion guard changed a valid Woo paid checkout.' );
     // Paystack 5.8.6 can invoke process_token_payment again on a previous
     // order. Once Woo has completed the first payment, a saved-card retry must
     // never reach its external charge_authorization endpoint a second time.
@@ -233,6 +240,24 @@ $paystack_assert( $order->has_status( 'on-hold' ) && ! $order->get_date_paid() &
     $order->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
     (int) $product->get_stock_quantity() === 0 && $reduced === 0,
     'Real Paystack late token callback consumed POS-sold stock or escaped quarantine.' );
+// Simulate Paystack process_payment returning an ordinary success array after
+// the above native Woo payment_complete was rejected. The classic Woo checkout
+// filter must show manual review of THIS order, never a generic success URL
+// or a failure response that invites another card charge.
+mansu_online_paystack_request_lock_expected( $order->get_id(), true );
+$unverified_success = mansu_online_paystack_saved_card_checkout_result(
+    array( 'result' => 'success', 'redirect' => 'https://example.invalid/false-success' ),
+    $order->get_id()
+);
+$late = wc_get_order( $order->get_id() );
+$paystack_assert( $unverified_success['result'] === 'success' &&
+    $unverified_success['redirect'] === $late->get_checkout_order_received_url() &&
+    $unverified_success['redirect'] !== 'https://example.invalid/false-success' &&
+    $late->has_status( 'on-hold' ) &&
+    $late->get_meta( '_mansu_website_stock_review', true ) === 'required' &&
+    ! $late->get_date_paid() &&
+    (int) $product->get_stock_quantity() === 0,
+    'Classic saved-card false success was not redirected to same-order manual review.' );
 
 // A successful but underpaid Paystack transaction uses update_status(on-hold)
 // rather than payment_complete() or wc_reduce_stock_levels().
