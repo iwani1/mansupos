@@ -49,6 +49,8 @@ $GLOBALS['test_order'] = new WC_Order();
 function wc_get_order( $id ) { return (int) $id === 901 ? $GLOBALS['test_order'] : false; }
 class FakeTokenDB {
     public $wc_reserved_stock = 'wp_wc_reserved_stock';
+    public $posts = 'wp_posts';
+    public $prefix = 'wp_';
     public int $remaining = 600;
     public bool $missing = false;
     public bool $lock_available = true;
@@ -73,6 +75,12 @@ class FakeTokenDB {
         if ( str_contains( $sql, 'RELEASE_LOCK(' ) ) {
             $this->owned = false;
             return '1';
+        }
+        if ( str_contains( $sql, 'SELECT post_status FROM wp_posts WHERE id=' ) ) {
+            // The real gateway guard reads canonical status under the MySQL
+            // lock. This fixture models that read from its isolated order;
+            // never reaches a merchant DB or a real WordPress installation.
+            return 'wc-' . $GLOBALS['test_order']->status;
         }
         throw new RuntimeException( 'Unknown synthetic advisory lock query.' );
     }
