@@ -31,7 +31,8 @@ try {
   const gateFile = path.join(directory, 'synthetic-live-gates.php');
   fs.writeFileSync(gateFile, gateFixture.replace('/* @INSERT_BRIDGE_PLUGIN@ */', plugin), { mode: 0o600 });
   for (const scenario of ['valid', 'unaccepted', 'wrong-service', 'short-reference', 'wrong-host',
-    'site-mismatch', 'wrong-environment', 'no-tls']) {
+    'site-mismatch', 'wrong-environment', 'no-tls',
+    'missing-hold', 'short-hold', 'long-hold', 'string-hold']) {
     const check = spawnSync('php', [gateFile], {
       encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024,
       env: { ...process.env, MANSU_BRIDGE_GATE_CASE: scenario },
