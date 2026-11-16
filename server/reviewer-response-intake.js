@@ -127,7 +127,7 @@ export class ReviewerResponseIntake{
   constructor(db,custody){
     this.db=db;this.custody=custody;
   }
-  list(physical,website,query={},clock=Date.now()){
+  list(physical,website,query={},clock=Date.now(),collectRows=null){
     const {page=1,pageSize=25,status='all',search=''}=query;
     if(!Number.isSafeInteger(page)||page<1||page>10000||
        !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>50||
@@ -138,6 +138,7 @@ export class ReviewerResponseIntake{
     const latest=latestFor(readEvents(this.db),report.snapshotRef,physical?.manifestHash);
     const snapshotRef=revision(report,rows,latest,physical?.manifestHash);
     const all=rows.map(x=>item(x,latest.get(x.reportRow)));
+    if(Array.isArray(collectRows))collectRows.push(...all);
     const stats={
       awaitingReports:all.filter(x=>x.status==='awaiting_external_response').length,
       ownerReportedAcknowledgements:all.filter(x=>x.status==='acknowledgement_unverified').length,
