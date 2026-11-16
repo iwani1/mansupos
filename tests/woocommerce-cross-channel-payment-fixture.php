@@ -65,7 +65,7 @@ if ( $phase === 'cross-setup' ) {
         'test_public_key' => 'pk_test_synthetic_ci_no_real_account',
         'test_secret_key' => 'sk_test_synthetic_ci_no_real_account',
         'payment_page' => 'redirect', 'autocomplete_order' => 'no',
-        'saved_cards' => 'no',
+        'saved_cards' => 'yes', // Owner-reported live Paystack setting; disposable CI only.
     ) );
     if ( $kind === 'shared-parent' ) {
         $product = new WC_Product_Variable();
