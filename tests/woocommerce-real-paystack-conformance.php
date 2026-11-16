@@ -38,6 +38,8 @@ $gateway->secret_key = 'sk_test_disposable_fixture_not_a_real_key';
 $gateway->saved_cards = true;
 $paystack_assert( $gateway->saved_cards === true,
     'Saved-card gateway test must match the owner-reported live configuration.' );
+$paystack_assert( has_filter( 'pre_http_request', 'mansu_online_paystack_saved_token_precharge' ) === 1,
+    'Pinned Paystack precharge HTTP filter was not registered in native Woo.' );
 $paystack_mode = 'exact';
 $synthetic_http_calls = 0;
 $http_mock = static function ( $preempt, $args, $url ) use ( &$paystack_mode, &$synthetic_http_calls ) {
@@ -54,6 +56,15 @@ $http_mock = static function ( $preempt, $args, $url ) use ( &$paystack_mode, &$
     $payload = json_decode( $args['body'] ?? '', true );
     if ( ! is_array( $payload ) || ! isset( $payload['reference'], $payload['amount'] ) ) {
         throw new RuntimeException( 'Paystack test could not inspect outgoing synthetic token charge.' );
+    }
+    static $trace_dumped = false;
+    if ( ! $trace_dumped ) {
+        $trace_dumped = true;
+        $stack = array_map( static function ( $frame ) {
+            return ( $frame['class'] ?? '' ) . '::' . ( $frame['function'] ?? '' );
+        }, debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 22 ) );
+        error_log( 'SYNTHETIC_PAYSTACK_STACK_ONLY ' . implode( ' > ', $stack ) );
+        error_log( 'SYNTHETIC_PAYSTACK_POST_METHOD ' . (string) ( $args['method'] ?? 'missing' ) );
     }
     ++$synthetic_http_calls;
     $paid_cents = $paystack_mode === 'underpaid' ? $payload['amount'] - 100 : $payload['amount'];
