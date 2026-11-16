@@ -11,7 +11,21 @@ defined( 'ABSPATH' ) || exit;
 
 // Production activation is a distinct, opt-in release decision. This source
 // change does NOT approve a live installation or any production write.
-const MANSU_ONLINE_HOLD_MINUTES = 10; // Synthetic local fixture, not approved business policy.
+const MANSU_ONLINE_HOLD_MINUTES = 10; // Synthetic local fixture only. NEVER a production default.
+function mansu_online_hold_minutes() {
+    if ( function_exists( 'wp_get_environment_type' ) &&
+         wp_get_environment_type() === 'local' ) {
+        return MANSU_ONLINE_HOLD_MINUTES;
+    }
+    // Require a separately reviewed, explicit POS-cash reservation policy
+    // on the installed production website. A copied local fixture or an
+    // absent/string value cannot silently create real held stock.
+    return defined( 'MANSU_ONLINE_LIVE_HOLD_MINUTES' ) &&
+        is_int( MANSU_ONLINE_LIVE_HOLD_MINUTES ) &&
+        MANSU_ONLINE_LIVE_HOLD_MINUTES >= 5 &&
+        MANSU_ONLINE_LIVE_HOLD_MINUTES <= 60 ?
+        MANSU_ONLINE_LIVE_HOLD_MINUTES : 0;
+}
 const MANSU_ONLINE_CASH_MARGIN_SECONDS = 90;
 const MANSU_ONLINE_PAYSTACK_ENTRY_MARGIN_SECONDS = 90; // Safety margin for upstream gateway verification; still recheck before payment completion.
 const MANSU_ONLINE_PINNED_WOO = '11.0.1'; // Inspected source, NOT installed-site compatibility evidence.
@@ -33,7 +47,8 @@ function mansu_online_enabled() {
     }
     // Separate release decision: even a copied ENABLED=true does not authorise
     // a production site unless service, host, TLS, reference and UUIDs agree.
-    return $environment === 'production' && MANSU_ONLINE_BRIDGE_SERVICE === 'live-trading' &&
+    return $environment === 'production' && mansu_online_hold_minutes() > 0 &&
+        MANSU_ONLINE_BRIDGE_SERVICE === 'live-trading' &&
         defined( 'MANSU_ONLINE_BRIDGE_LIVE_ACCEPTED' ) && MANSU_ONLINE_BRIDGE_LIVE_ACCEPTED === true &&
         defined( 'MANSU_ONLINE_BRIDGE_LIVE_ACCEPTANCE_REFERENCE' ) &&
         is_string( MANSU_ONLINE_BRIDGE_LIVE_ACCEPTANCE_REFERENCE ) &&
@@ -253,7 +268,7 @@ function mansu_online_holds( $order_id, $items ) {
         $id = (int) $hold['product_id'];
         $remaining = (int) $hold['remaining'];
         if ( ! isset( $expected[ $id ] ) || (int) $hold['stock_quantity'] !== $expected[ $id ] ||
-             $remaining < 1 || $remaining > MANSU_ONLINE_HOLD_MINUTES * 60 + 5 ) {
+             $remaining < 1 || $remaining > mansu_online_hold_minutes() * 60 + 5 ) {
             return array( false, null, 0 );
         }
         $min = min( $min, $remaining );
@@ -502,10 +517,10 @@ function mansu_online_attempt( $request ) {
         // conditionally inserts a same-order hold. It may be filtered: read
         // back *every* owner/quantity/expiry before claiming success.
         $reserve = new \Automattic\WooCommerce\Checkout\Helpers\ReserveStock();
-        $reserve->reserve_stock_for_order( $order, MANSU_ONLINE_HOLD_MINUTES );
+        $reserve->reserve_stock_for_order( $order, mansu_online_hold_minutes() );
         list( $valid ) = mansu_online_holds( $order->get_id(), $input['items'] );
         if ( ! $valid ) { throw new RuntimeException( 'Core Woo hold could not be verified.' ); }
-        $job = as_schedule_single_action( time() + MANSU_ONLINE_HOLD_MINUTES * 60, 'mansu_online_expire',
+        $job = as_schedule_single_action( time() + mansu_online_hold_minutes() * 60, 'mansu_online_expire',
             array( MANSU_ONLINE_BRIDGE_SERVICE, $key ), 'mansu-online' );
         if ( ! $job || mansu_online_update( $key, array( 'state' => 'reserved' ), 'created' ) !== 1 ) {
             throw new RuntimeException( 'Hold expiry scheduling or state could not be saved.' );
