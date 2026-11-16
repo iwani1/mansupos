@@ -31,6 +31,7 @@ import { ReviewerResponseIntake } from './reviewer-response-intake.js';
 import { IndependentReviewerAccess } from './independent-reviewer-access.js';
 import { InventoryEvidenceExceptionReview } from './inventory-evidence-exceptions.js';
 import { buildInventoryVerificationReadiness } from './inventory-verification-readiness.js';
+import { InventoryReconciliationPackets } from './inventory-reconciliation-packets.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
@@ -117,6 +118,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const reviewerAccess = new IndependentReviewerAccess(db,reviewerIntake);
   const evidenceExceptions = new InventoryEvidenceExceptionReview(db,reviewerIntake,reviewerAccess);
   const mappingEvidence = new OwnerMappingEvidence(db);
+  const reconciliationPackets = new InventoryReconciliationPackets(db,mappingEvidence,countClaims,evidenceExceptions,reviewerAccess);
   let inStore;
   try { inStore = new InStoreService(db, config); }
   catch (error) { db.close(); throw error; }
@@ -170,8 +172,9 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     if (req.user.role === 'reviewer') {
       const permitted = (req.method === 'POST' &&
         ['/api/auth/password','/api/auth/logout','/api/reviewer/acknowledgements',
-          '/api/reviewer/handoff-receipt'].includes(req.path)) ||
-        (req.method === 'GET' && req.path === '/api/reviewer/cases');
+          '/api/reviewer/handoff-receipt','/api/reviewer/reconciliation-packets/response'].includes(req.path)) ||
+        (req.method === 'GET' && ['/api/reviewer/cases',
+          '/api/reviewer/reconciliation-packets'].includes(req.path));
       if (!permitted) return next(new AppError('Reviewer accounts cannot access staff, catalogue, customers, payments or stock.',403,'REVIEWER_PORTAL_ONLY'));
     }
     if (req.user.mustChangePassword && !['/api/auth/password', '/api/auth/logout', '/api/session'].includes(req.path)) {
@@ -712,6 +715,47 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
           'INVENTORY_READINESS_SNAPSHOT_CHANGED');
       res.set('Cache-Control','no-store');
       res.json(result);
+    });
+
+  // Phase 5.8: Owner provisional reconciliation plans and dedicated reviewer
+  // account objections only. Neither role may accept, sign off or release stock.
+  app.get('/api/stock-safety/reconciliation-packets',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        page:z.coerce.number().int().min(1).max(10000).default(1),
+        pageSize:z.coerce.number().int().min(1).max(50).default(25),
+        search:z.string().trim().max(64).default(''),
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const {expectedRef,...filters}=options;
+      const report=reconciliationPackets.listOwner(req.user,inStore.snapshot(),
+        await catalog.get(),filters);
+      if(expectedRef&&expectedRef!==report.snapshotRef)
+        throw new AppError('Reconciliation packet evidence changed. Refresh the Owner register.',409,
+          'RECONCILIATION_PACKETS_SNAPSHOT_STALE');
+      res.set('Cache-Control','no-store');
+      res.json(report);
+    });
+  app.post('/api/stock-safety/reconciliation-packets',
+    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
+      const result=reconciliationPackets.propose(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body);
+      res.set('Cache-Control','no-store');
+      res.status(201).json(result);
+    });
+  app.get('/api/reviewer/reconciliation-packets',
+    auth,role('reviewer'),countPilot,async(req,res)=>{
+      const result=reconciliationPackets.listReviewer(req.user,inStore.snapshot(),
+        await catalog.get());
+      res.set('Cache-Control','no-store');
+      res.json(result);
+    });
+  app.post('/api/reviewer/reconciliation-packets/response',
+    auth,role('reviewer'),countPilot,sensitiveLimit,async(req,res)=>{
+      const result=reconciliationPackets.respond(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body);
+      res.set('Cache-Control','no-store');
+      res.status(201).json(result);
     });
 
   // Separately gated live trading service only. The read-only pilot, demo and
