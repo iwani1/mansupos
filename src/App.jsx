@@ -24,6 +24,7 @@ import ReviewerResponseIntake from './ReviewerResponseIntake.jsx';
 import ReviewerAccessPanel from './ReviewerAccessPanel.jsx';
 import InventoryEvidenceExceptions from './InventoryEvidenceExceptions.jsx';
 import InventoryVerificationReadiness from './InventoryVerificationReadiness.jsx';
+import ProvisionalReconciliationPanel from './ProvisionalReconciliationPanel.jsx';
 import IndependentReviewerPortal from './IndependentReviewerPortal.jsx';
 import { Spinner, Toast, Notice, Modal } from './components.jsx';
 
@@ -194,6 +195,7 @@ export default function App() {
         {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<ReviewerAccessPanel/>}
         {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<InventoryEvidenceExceptions/>}
         {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<InventoryVerificationReadiness/>}
+        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<ProvisionalReconciliationPanel/>}
         {page==='weeklyScorecard'&&user.role!=='cashier'&&<WeeklyScorecard user={user}/>}
         {page==='instore'&&config.mode==='live'&&<InStore config={config} user={user} shift={shift} onOpenShift={()=>navigate('shifts')} notify={notify}/>}
         {page!=='physicalCounts'&&page!=='instore'&&page!=='operations'&&page!=='weeklyScorecard'&&(!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>
