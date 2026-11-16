@@ -176,7 +176,7 @@ function matchGrant(ctx,grant){
     ctx.report.custodyRef===grant.custodyRef&&
     isSameCase(ctx.rows.find(x=>x.reportRow===grant.reportRow),grant);
 }
-function snapshot(ctx,grant,revoked,ack,handoff,clock=Date.now()){
+function snapshot(ctx,grant,revoked,ack,handoff){
   const row=ctx.rows.find(x=>x.reportRow===grant.reportRow);
   const current=!revoked&&matchGrant(ctx,grant);
   return {
@@ -313,7 +313,7 @@ export class IndependentReviewerAccess{
       assignments:grants(this.db).map(g=>({
         reviewerId:g.reviewerId,
         ...snapshot(ctx,g,revoked.has(g.id),latestAcknowledgement(ack,g.id),
-          handoffStatus(g,history,received,clock,!revoked.has(g.id)&&matchGrant(ctx,g)),clock),
+          handoffStatus(g,history,received,clock,!revoked.has(g.id)&&matchGrant(ctx,g))),
       })),
       ...locked,
       notice:'Account-authenticated review of assigned metadata only. No document bytes, count quantities, customer data, prices or trading rights.',
@@ -331,7 +331,7 @@ export class IndependentReviewerAccess{
       snapshotRef:ctx.report.snapshotRef,
       cases:grants(this.db).filter(g=>g.reviewerId===user.id).map(g=>
         snapshot(ctx,g,revoked.has(g.id),latestAcknowledgement(ack,g.id),
-          handoffStatus(g,history,received,clock,!revoked.has(g.id)&&matchGrant(ctx,g)),clock)),
+          handoffStatus(g,history,received,clock,!revoked.has(g.id)&&matchGrant(ctx,g)))),
       ...locked,
       notice:'Your login only authenticates this POS account. No original file is delivered by MansuPOS. Acknowledging this request does not certify documents or physical counts.',
     };
