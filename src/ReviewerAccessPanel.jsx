@@ -9,6 +9,9 @@ export default function ReviewerAccessPanel(){
   const [temporary,setTemporary]=useState(null);
   const [account,setAccount]=useState('');
   const [caseRow,setCaseRow]=useState('');
+  const [handoffSecret,setHandoffSecret]=useState(null);
+  const [identityMethod,setIdentityMethod]=useState('owner_reports_in_person_check');
+  const [transferChannel,setTransferChannel]=useState('in_person');
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
   const [busy,setBusy]=useState(false);
@@ -60,6 +63,23 @@ export default function ReviewerAccessPanel(){
       setNotice('Case metadata assigned. The reviewer will need to sign in and change their temporary password.');
     });
   }
+  function issueHandoff(grantId){
+    setHandoffSecret(null);
+    action(async()=>{
+      const result=await api('/stock-safety/reviewer-access/handoff',{
+        method:'POST',body:{
+          grantId,expectedRef:data.snapshotRef,
+          identityCheckMethod:identityMethod,transferChannel,
+          requestId:crypto.randomUUID(),
+        },
+      });
+      if(result?.kind!=='reviewer-handoff-challenge'||!result.challenge||
+         result.stockImportAuthorized!==false||result.checkoutAuthorized!==false)
+        throw new Error('The one-time challenge could not be confirmed.');
+      setHandoffSecret({grantId,challenge:result.challenge,expiresAt:result.expiresAt});
+      setNotice('Challenge created. Share the secret out of band with the intended reviewer. No document was transferred by the POS.');
+    });
+  }
   function revoke(id){
     action(async()=>{
       const result=await api('/stock-safety/reviewer-access/revoke',{method:'POST',body:{
@@ -72,15 +92,17 @@ export default function ReviewerAccessPanel(){
   return <section className="surface records-surface" role="region"
     aria-label="Independent reviewer account and case access">
     <header>
-      <span className="eyebrow">Physical count evidence · Phase 5.4</span>
+      <span className="eyebrow">Physical count evidence · Phase 5.5</span>
       <h3>Independent reviewer access — restricted account</h3>
-      <p>Create a reviewer-only login and assign individual custody requests.
-        No sales, customer, payment or stock permissions are granted.</p>
+      <p>Create reviewer-only logins, assign individual custody requests and
+        issue one-time out-of-band handoff challenges. No sales, customer,
+        payment or stock permissions are granted.</p>
     </header>
     <div className="notice notice-warning" style={{padding:16}} role="note">
-      <strong>Login is not identity verification.</strong> Check the reviewer independently,
-      provide any original document through a separately controlled channel,
-      and keep conflicting counts OPEN. No response authorizes stock import or checkout.
+      <strong>Identity and handoff are not independently verified.</strong> Your
+      selected identity-check method is an Owner declaration only. The one-time
+      challenge proves possession of a secret, not original-file delivery or
+      independent witnessing. Keep conflicting counts OPEN; no response approves inventory.
     </div>
     {error&&<p role="alert" className="field-hint">{error}</p>}
     {notice&&<p role="status" className="field-hint">{notice}</p>}
@@ -118,6 +140,41 @@ export default function ReviewerAccessPanel(){
       <p className="field-hint">Deliver privately; do not put passwords in a customer or staff group. Reviewer must change it on first sign-in.</p>
       <button className="button secondary" type="button" onClick={()=>setTemporary(null)}>I have safely stored it · clear display</button>
     </div>}
+    <div className="surface" style={{padding:16,marginTop:16}}>
+      <h4>3. Prepare an out-of-band handoff challenge</h4>
+      <p className="field-hint">Before issuing, check the intended reviewer independently.
+        Do not enter a person’s name, ID document, phone number or address.
+        The chosen method is only an Owner-reported declaration.</p>
+      <div style={{display:'flex',flexWrap:'wrap',gap:12}}>
+        <label>Owner-reported identity check
+          <select className="input" value={identityMethod} onChange={e=>setIdentityMethod(e.target.value)}>
+            <option value="owner_reports_in_person_check">In-person check reported</option>
+            <option value="owner_reports_known_contact_callback">Known-contact callback reported</option>
+            <option value="owner_reports_organization_callback">Organization callback reported</option>
+          </select>
+        </label>
+        <label>Planned external transfer method
+          <select className="input" value={transferChannel} onChange={e=>setTransferChannel(e.target.value)}>
+            <option value="in_person">In person</option>
+            <option value="secured_external_channel">Secured external channel</option>
+            <option value="sealed_paper_copy">Sealed paper copy</option>
+          </select>
+        </label>
+      </div>
+      <p className="field-hint">A challenge expires after 24 hours. Share the code
+        privately and separately from any physical document; MansuPOS itself
+        does not send, upload or store documents.</p>
+    </div>
+    {handoffSecret&&<div className="surface" role="status" style={{padding:16,marginTop:16}}>
+      <h4>One-time challenge for case #{handoffSecret.grantId}</h4>
+      <p><code style={{overflowWrap:'anywhere'}}>{handoffSecret.challenge}</code></p>
+      <p>Expires: {handoffSecret.expiresAt}</p>
+      <p className="field-hint">Shown once. A reloaded page cannot retrieve this secret.
+        Never paste it into a public post or shared business chat.</p>
+      <button type="button" className="button secondary" onClick={()=>setHandoffSecret(null)}>
+        Clear challenge display
+      </button>
+    </div>}
     <div style={{marginTop:24}}>
       <h4>Reviewer account assignments</h4>
       {!data?.assignments.length?<p className="field-hint">No reviewer case has been assigned yet.</p>:
@@ -129,6 +186,13 @@ export default function ReviewerAccessPanel(){
               Count disagreement: {x.countDiscrepancyOpen===true?'OPEN':'Not verified / unavailable'}</p>
             {x.latestAcknowledgement&&<p className="field-hint">Account response: {x.latestAcknowledgement.outcome.replaceAll('_',' ')}
               {' · '}{x.latestAcknowledgement.recordedAt}</p>}
+            <p className="field-hint">Handoff: {x.handoff?.status?.replaceAll('_',' ')||'not issued'}.
+              {x.handoff?.receipt&&<> Account receipt: {x.handoff.receipt.observation.replaceAll('_',' ')}
+                {' · '}Challenge possession reported; human identity and original authenticity remain unverified.</>}</p>
+            {x.status==='assigned_metadata_only'&&
+              ['not_issued','expired'].includes(x.handoff?.status)&&
+              <button type="button" className="button secondary" disabled={busy}
+                onClick={()=>issueHandoff(x.grantId)}>Issue one-time handoff challenge</button>}
             {x.status!=='revoked'&&<button type="button" className="button secondary"
               disabled={busy} onClick={()=>revoke(x.grantId)}>Revoke assignment</button>}
           </div>)}
