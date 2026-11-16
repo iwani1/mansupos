@@ -961,7 +961,7 @@ function mansu_online_paystack_pre_token_charge( $preempt, $args, $url ) {
     // Reload canonical status through the lock-owning connection. A second
     // worker must not charge based on a cached pending WC_Order snapshot.
     $hpos = class_exists( '\\Automattic\\WooCommerce\\Utilities\\OrderUtil' ) &&
-        \\Automattic\\WooCommerce\\Utilities\\OrderUtil::custom_orders_table_usage_is_enabled();
+        \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
     $table = $hpos ? $wpdb->prefix . 'wc_orders' : $wpdb->posts;
     $column = $hpos ? 'status' : 'post_status';
     $status = $wpdb->get_var( $wpdb->prepare(
