@@ -697,6 +697,13 @@ function mansu_online_pay( $request ) {
         }
         return mansu_online_order_view( mansu_online_row( $key ) );
     } catch ( Throwable $error ) {
+        // Disposable-only troubleshooting: no customer or merchant endpoint
+        // has these constants. Do not persist raw exception detail in live logs.
+        if ( defined( 'MANSU_CI_DISPOSABLE_WOO' ) && MANSU_CI_DISPOSABLE_WOO === true &&
+             function_exists( 'wp_get_environment_type' ) && wp_get_environment_type() === 'local' &&
+             class_exists( 'WP_CLI' ) ) {
+            WP_CLI::log( 'DISPOSABLE_POS_PAY_CAUGHT ' . $error->getMessage() );
+        }
         // Never re-send payment_complete on retry. A read-only status may later
         // recover verified paid evidence; otherwise a human reviews the money.
         return mansu_online_error( 'mansu_payment_uncertain', 'Woo payment or stock reduction is uncertain. Review the original attempt.', 503 );
