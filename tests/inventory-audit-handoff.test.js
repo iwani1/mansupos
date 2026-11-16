@@ -50,6 +50,7 @@ function fixture(){
   }};
   let compromised=false;
   let extra=false;
+  let duplicatePacket=false;
   const packets={
     listOwner(user,p,w,_opts,clock,rows){
       const prepared=[];
@@ -68,7 +69,7 @@ function fixture(){
             'requires_independent_recount',note:'PRIVATE_REVIEWER_NOTE'},
         }:null,
       }));
-      if(extra&&compromised)items.push({...items[0]});
+      if(duplicatePacket)items.push({...items[0]});
       rows.push(...items);
       return {auditOnly:true,provisionalOnly:true,
         stockImportAuthorized:false,readinessRef:report.readinessRef,
@@ -78,7 +79,7 @@ function fixture(){
   const svc=new InventoryAuditHandoff(mapping,counts,exceptions,packets);
   const build=(role=owner)=>svc.build(role,physical,website,NOW);
   return {build,exRows,changeFinding:()=>{extra=true;},breakIdentity:()=>{compromised=true;},
-    duplicate:()=>{extra=true;compromised=true;},
+    duplicate:()=>{duplicatePacket=true;},
     invalidate:()=>{countRows[0].sku='INCORRECT_COUNT_SKU';},
   };
 }
