@@ -619,7 +619,8 @@ test('PHP bridge parses and keeps activation, service auth and reservation hooks
   assert.ok(program.children.length > 20);
   for (const token of ["$environment === 'local'", 'MANSU_ONLINE_BRIDGE_LIVE_ACCEPTED', 'MANSU_ONLINE_BRIDGE_SITE_HOST',
     "current_user_can( 'mansu_online_bridge' )",
-    'hash_hmac( ', 'reserve_stock_for_order( $order, MANSU_ONLINE_HOLD_MINUTES )',
+    'hash_hmac( ', 'reserve_stock_for_order( $order, mansu_online_hold_minutes() )',
+    'MANSU_ONLINE_LIVE_HOLD_MINUTES', 'UTC_TIMESTAMP()',
     "'mansu_online_expire'", 'wc_release_stock_for_order( $order )']) assert.ok(source.includes(token), token);
   assert.doesNotMatch(source, /UPDATE\s+(?:\$wpdb->postmeta|wp_postmeta|.*_stock\s*=)/i,
     'the bridge never directly updates Woo inventory tables');
