@@ -21,6 +21,8 @@ import CountSupervisionEvidence from './CountSupervisionEvidence.jsx';
 import PrivateCountFileRegister from './PrivateCountFileRegister.jsx';
 import CustodyReview from './CustodyReview.jsx';
 import ReviewerResponseIntake from './ReviewerResponseIntake.jsx';
+import ReviewerAccessPanel from './ReviewerAccessPanel.jsx';
+import IndependentReviewerPortal from './IndependentReviewerPortal.jsx';
 import { Spinner, Toast, Notice, Modal } from './components.jsx';
 
 const navigation = [
@@ -88,7 +90,7 @@ export default function App() {
     setSession(data);return data;
   },[]);
   useEffect(()=>{if(initialized.current)return;initialized.current=true;loadSession().catch(e=>setCatalogError(e.message));},[loadSession]);
-  const userId=session?.user?.id;const mode=session?.config?.mode;const mustChangePassword=session?.user?.mustChangePassword;
+  const userId=session?.user?.id;const mode=session?.config?.mode;const mustChangePassword=session?.user?.mustChangePassword;const isReviewer=session?.user?.role==='reviewer';
   useEffect(()=>{
     function onCommandKey(event) {
       if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'&&userId&&!mustChangePassword&&!pending&&!receipt&&!help&&!passwordOpen) {
@@ -99,7 +101,7 @@ export default function App() {
     return()=>window.removeEventListener('keydown',onCommandKey);
   },[userId,mustChangePassword,pending,receipt,help,passwordOpen]);
   const refresh=useCallback(async(force=false)=>{
-    if(!userId)return;
+    if(!userId||isReviewer)return;
     setRefreshing(true);
     try{const [c,s,sh]=await Promise.allSettled([api(`/catalog${force?'?refresh=1':''}`),api('/sales'),api('/shifts/current')]);
       if(c.status==='fulfilled')setCatalog(c.value);
@@ -111,13 +113,13 @@ export default function App() {
       // and operational reads have actually succeeded on this device.
       if(c.status==='fulfilled'&&Array.isArray(c.value?.products)&&!c.value.stale&&!c.value.error&&s.status==='fulfilled'&&sh.status==='fulfilled'&&navigator.onLine!==false)setConnectionRecheck(false);
     }finally{setRefreshing(false);}
-  },[userId]);
+  },[userId,isReviewer]);
   useEffect(()=>{if(!offline&&connectionRecheck&&userId&&!mustChangePassword)refresh(true);},[offline,connectionRecheck,userId,mustChangePassword,refresh]);
   const loadMoreSales=useCallback(async()=>{if(!salesCursor||salesLoadingMore)return;setSalesLoadingMore(true);try{const page=await api(`/sales?cursor=${encodeURIComponent(salesCursor)}`);setSales(previous=>{const seen=new Set(previous.map(s=>s.id));return [...previous,...page.sales.filter(s=>!seen.has(s.id))];});setSalesCursor(page.nextCursor||'');setSalesHasMore(Boolean(page.hasMore));}catch(e){notify(e.message,'error');}finally{setSalesLoadingMore(false);}},[salesCursor,salesLoadingMore,notify]);
-  useEffect(()=>{if(userId&&!mustChangePassword){refresh();const key=`mansu-held-${mode}-${userId}`;heldKey.current=key;try{setSavedCarts(JSON.parse(localStorage.getItem(key)||'[]'));}catch{setSavedCarts([]);}}},[userId,mode,mustChangePassword,refresh]);
+  useEffect(()=>{if(userId&&!mustChangePassword&&!isReviewer){refresh();const key=`mansu-held-${mode}-${userId}`;heldKey.current=key;try{setSavedCarts(JSON.parse(localStorage.getItem(key)||'[]'));}catch{setSavedCarts([]);}}},[userId,mode,mustChangePassword,isReviewer,refresh]);
   useEffect(()=>{const expired=()=>{setSessionToken('');setSession(s=>s?{...s,user:null}:s);setCatalog(null);setSales([]);setSalesCursor('');setSalesHasMore(false);setSavedCarts([]);setShift(null);heldKey.current='';};window.addEventListener('mansu:session-expired',expired);return()=>window.removeEventListener('mansu:session-expired',expired);},[]);
   useEffect(()=>{if(heldKey.current)localStorage.setItem(heldKey.current,JSON.stringify(savedCarts));},[savedCarts]);
-  useEffect(()=>{if(mode==='demo'||!userId)return;const timer=setInterval(()=>{if(document.visibilityState==='visible'&&!pending&&!receipt)refresh();},60000);return()=>clearInterval(timer);},[mode,userId,refresh,pending,receipt]);
+  useEffect(()=>{if(mode==='demo'||!userId||isReviewer)return;const timer=setInterval(()=>{if(document.visibilityState==='visible'&&!pending&&!receipt)refresh();},60000);return()=>clearInterval(timer);},[mode,userId,isReviewer,refresh,pending,receipt]);
   // A resizable installed window can cross the drawer breakpoint while the
   // menu is open. Release the focus trap and restore the main workspace.
   useEffect(()=>{
@@ -161,6 +163,7 @@ export default function App() {
   if(!user)return <div className="login-page"><section className="login-story"><div className="login-brand"><div className="brand-mark">M<span>·</span></div><span>MANSUTRENDZGH<small>RETAIL STUDIO · GHANA</small></span></div><div className="login-editorial"><span className="eyebrow">In-store workspace</span><h1>Your shop.<br/>Your people.<br/><em>One clear workspace.</em></h1><p>Retail, wholesale, stock and recorded POS transactions, organised in one place.</p></div><span className="login-story-footer"><ShieldCheck size={16}/>Designed for the way your boutique sells.</span></section><div className="login-form-wrap"><form onSubmit={signIn} className="login-form"><span className="eyebrow">Your workspace</span><h2>{config.liveReadOnly?'View live products.':'Open your register.'}</h2><p>{config.mode==='demo'?'Safe practice workspace. No real payments or live store changes.':config.liveReadOnly?'Live store catalogue · checkout locked.':`Sign in to your ${config.mode} workspace.`}</p>{config.liveReadOnly&&<Notice tone="warning">This workspace reads live product and stock data but cannot create orders or record payments. Do not collect money or release goods through this POS.</Notice>}{config.mode!=='demo'&&!config.configured&&<Notice>Owner setup required. Configure credentials and the first owner account using docs/SETUP.md.</Notice>}{loginError&&<Notice tone="error">{loginError}</Notice>}{config.mode==='demo'?<button type="button" className="button primary" onClick={openDemo} disabled={loginBusy}>{loginBusy?<LoaderCircle className="spin" size={18}/>:<ArrowRight size={18}/>} {loginBusy?'Opening demo…':'Open demo workspace'}</button>:<><label>Username<input className="input" autoComplete="username" required value={login.username} onChange={e=>setLogin({...login,username:e.target.value})}/></label><label>Password<input className="input" type="password" autoComplete="current-password" required value={login.password} onChange={e=>setLogin({...login,password:e.target.value})}/></label><button className="button primary" disabled={loginBusy}>{loginBusy?<LoaderCircle className="spin" size={18}/>:<ArrowRight size={18}/>} {loginBusy?'Signing in…':'Sign in'}</button></>}{installPrompt&&!installed&&<button type="button" className="button secondary" onClick={installApp}><Download size={17}/>Install app</button>}<small>{config.mode==='demo'?<><ShieldCheck size={13}/>No username or password. Enters as Demo Owner.</>:<><LockKeyhole size={13}/>Named accounts. Secure, eight-hour sessions.</>}</small></form></div></div>;
   const allowed=navigation.filter(n=>(!n.liveOnly||config.mode==='live')&&(!n.roles||n.roles.includes(user.role)));
   if(user.mustChangePassword)return <div className="boot-screen"><div className="brand-mark">M<span>·</span></div><h1>Set your password</h1><p className="muted">This is a temporary password. Choose a new one before using the register.</p><form className="login-form force-password" onSubmit={async e=>{e.preventDefault();setPasswordBusy(true);try{const result=await api('/auth/password',{method:'POST',body:passwordForm});setSession(s=>({...s,user:result.user}));setPasswordForm({currentPassword:'',newPassword:''});notify('Password updated. You can now use the POS.');}catch(err){notify(err.message,'error');}finally{setPasswordBusy(false);}}}><label>Temporary password<input className="input" type="password" autoComplete="current-password" required value={passwordForm.currentPassword} onChange={e=>setPasswordForm({...passwordForm,currentPassword:e.target.value})}/></label><label>New password<input className="input" type="password" autoComplete="new-password" required minLength={12} maxLength={256} value={passwordForm.newPassword} onChange={e=>setPasswordForm({...passwordForm,newPassword:e.target.value})}/></label><button className="button primary" disabled={passwordBusy}>{passwordBusy?'Saving…':'Set password'}</button></form><Toast toast={toast} onClose={closeToast}/></div>;
+  if(user.role==='reviewer')return <IndependentReviewerPortal user={user} logout={logout}/>;
   const currentNav=navigation.find(n=>n.id===page);
   const catalogueIncomplete=!isDemo&&catalog?.complete===false;
   const badgeTone=page==='instore'?'amber':isDemo?'amber':catalogError||catalog?.stale||catalog?.error||catalogueIncomplete?'red':!catalog||!config.configured||!config.writesEnabled?'amber':'green';
@@ -186,6 +189,7 @@ export default function App() {
         {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<PrivateCountFileRegister/>}
         {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<CustodyReview/>}
         {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<ReviewerResponseIntake/>}
+        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<ReviewerAccessPanel/>}
         {page==='weeklyScorecard'&&user.role!=='cashier'&&<WeeklyScorecard user={user}/>}
         {page==='instore'&&config.mode==='live'&&<InStore config={config} user={user} shift={shift} onOpenShift={()=>navigate('shifts')} notify={notify}/>}
         {page!=='physicalCounts'&&page!=='instore'&&page!=='operations'&&page!=='weeklyScorecard'&&(!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>
