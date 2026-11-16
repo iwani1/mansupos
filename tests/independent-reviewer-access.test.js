@@ -195,6 +195,102 @@ test('Phase 5.4 reviewer account is case-scoped, denies other POS APIs and never
   assert.equal(assigned.data.checkoutAuthorized,false);
   assert.doesNotMatch(JSON.stringify(assigned.data),
     /Synthetic private item|priceCents|firstUnits|secondUnits|cashier_name|customerEmail/);
+  // Phase 5.5: Owner sends no document through the POS. A single-use,
+  // 256-bit out-of-band challenge can be confirmed by the assigned account.
+  // Human identity, physical witnessing, original provenance and trading
+  // approval remain explicitly UNVERIFIED.
+  const handoffUrl=accountUrl+'/handoff';
+  const receiptUrl='/reviewer/handoff-receipt';
+  const handoffBody={
+    grantId:grant.data.grantId,expectedRef:assigned.data.snapshotRef,
+    identityCheckMethod:'owner_reports_in_person_check',
+    transferChannel:'in_person',requestId:randomUUID(),
+  };
+  assert.equal((await req(handoffUrl,reviewer,'POST',handoffBody)).status,403);
+  assert.equal((await req(handoffUrl,counter1,'POST',handoffBody)).status,403);
+  assert.equal((await req(handoffUrl,null,'POST',handoffBody)).status,401);
+  assert.equal((await req(handoffUrl,owner,'POST',{
+    ...handoffBody,confirmedHumanIdentity:true,
+  })).status,400);
+  assert.equal((await req(handoffUrl,owner,'POST',{
+    ...handoffBody,expectedRef:'0'.repeat(64),
+  })).status,409);
+  const issued=await req(handoffUrl,owner,'POST',handoffBody);
+  assert.equal(issued.status,201);
+  assert.equal(issued.data.kind,'reviewer-handoff-challenge');
+  assert.match(issued.data.challenge,/^[a-f0-9]{64}$/);
+  assert.equal(issued.data.reviewerHumanIdentityVerified,false);
+  assert.equal(issued.data.originalFileDeliveredByPOS,false);
+  assert.equal(issued.data.stockImportAuthorized,false);
+  const replayIssue=await req(handoffUrl,owner,'POST',handoffBody);
+  assert.equal(replayIssue.status,201);
+  assert.equal(replayIssue.data.replayed,true);
+  assert.equal(replayIssue.data.challenge,null);
+  assert.equal((await req(handoffUrl,owner,'POST',{
+    ...handoffBody,requestId:randomUUID(),
+  })).status,409);
+  const assignedWithChallenge=await req('/reviewer/cases',reviewer);
+  assert.equal(assignedWithChallenge.status,200);
+  const challengeCase=assignedWithChallenge.data.cases[0];
+  assert.equal(challengeCase.handoff.id,issued.data.handoffId);
+  assert.equal(challengeCase.handoff.status,'awaiting_challenge');
+  assert.equal(challengeCase.handoff.humanIdentityVerified,false);
+  assert.doesNotMatch(JSON.stringify(assignedWithChallenge.data),
+    new RegExp(issued.data.challenge));
+  assert.doesNotMatch(JSON.stringify(assignedWithChallenge.data),/secretDigest/);
+  const receiptBody={
+    handoffId:issued.data.handoffId,
+    expectedRef:assignedWithChallenge.data.snapshotRef,
+    challenge:issued.data.challenge,
+    observation:'fingerprint_match_reported',
+    observedFileSha256:'b'.repeat(64),
+    note:'I compared the local file digest; originality and count accuracy remain unchecked.',
+    requestId:randomUUID(),
+  };
+  assert.equal((await req(receiptUrl,owner,'POST',receiptBody)).status,403);
+  assert.equal((await req(receiptUrl,counter1,'POST',receiptBody)).status,403);
+  assert.equal((await req(receiptUrl,reviewer,'POST',{
+    ...receiptBody,challenge:'0'.repeat(64),
+  })).status,403);
+  assert.equal((await req(receiptUrl,reviewer,'POST',{
+    ...receiptBody,humanIdentityVerified:true,
+  })).status,400);
+  assert.equal((await req(receiptUrl,reviewer,'POST',{
+    ...receiptBody,observation:'fingerprint_mismatch_reported',
+  })).status,400);
+  const received=await req(receiptUrl,reviewer,'POST',receiptBody);
+  assert.equal(received.status,201);
+  assert.equal(received.data.kind,'reviewer-handoff-account-receipt');
+  assert.equal(received.data.challengePossessionConfirmed,true);
+  assert.equal(received.data.originalFileDeliveredByPOS,false);
+  assert.equal(received.data.humanIdentityVerified,false);
+  assert.equal(received.data.checkoutAuthorized,false);
+  const replayReceipt=await req(receiptUrl,reviewer,'POST',receiptBody);
+  assert.equal(replayReceipt.data.replayed,true);
+  assert.equal(replayReceipt.data.eventId,received.data.eventId);
+  assert.equal((await req(receiptUrl,reviewer,'POST',{
+    ...receiptBody,requestId:randomUUID(),
+  })).status,409);
+  assert.equal((await req(receiptUrl,reviewer,'POST',{
+    ...receiptBody,note:'Modified note but same request identifier.',
+  })).status,409);
+  assert.equal((await req(handoffUrl,owner,'POST',{
+    ...handoffBody,requestId:randomUUID(),
+  })).status,409);
+  const ownerAfterHandoff=await req(accountUrl,owner);
+  const ownerHandoff=ownerAfterHandoff.data.assignments.find(x=>x.grantId===grant.data.grantId);
+  assert.equal(ownerHandoff.handoff.status,'account_receipt_recorded');
+  assert.equal(ownerHandoff.handoff.receipt.observation,'fingerprint_match_reported');
+  assert.equal(ownerHandoff.handoff.receipt.humanIdentityVerified,false);
+  assert.equal(ownerAfterHandoff.data.independentReviewConfirmed,false);
+  assert.equal(ownerAfterHandoff.data.stockImportAuthorized,false);
+  assert.equal(ownerAfterHandoff.data.checkoutAuthorized,false);
+  const auditHandoff=db.prepare("SELECT subject FROM audit WHERE action='inventory.reviewer_handoff_issued'").get();
+  assert.ok(auditHandoff);
+  assert.equal(auditHandoff.subject.includes(issued.data.challenge),false,
+    'The one-time challenge must never be stored in the journal.');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.reviewer_handoff_issued'").get().n,1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.reviewer_handoff_receipt'").get().n,1);
   const ackBody={
     grantId:grant.data.grantId,expectedRef:assigned.data.snapshotRef,
     outcome:'evidence_issue_reported',issueCode:'count_numbers_conflict',
