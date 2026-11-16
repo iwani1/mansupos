@@ -172,7 +172,7 @@ if ( $phase === 'cross-pos-pay' ) {
     $outcome = mansu_online_pay( $request );
     $check( ! is_wp_error( $outcome ) && $outcome['paymentVerified'] === true,
         'POS payment failed after simultaneously competing web callback: ' .
-        ( is_wp_error( $outcome ) ? $outcome->get_error_code() : wp_json_encode( $outcome ) ) );
+        ( is_wp_error( $outcome ) ? $outcome->get_error_code() . ': ' . $outcome->get_error_message() : wp_json_encode( $outcome ) ) );
     echo 'DISPOSABLE_CROSS_POS_PAID_OK ' . $assertions . ' assertions' . PHP_EOL;
     return;
 }
