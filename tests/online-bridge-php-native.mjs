@@ -42,6 +42,23 @@ try {
     }
   }
   console.log('Eight synthetic WordPress live-activation gates passed; this does NOT approve production installation.');
+  const prechargeFixture = fs.readFileSync('tests/fixtures/paystack-token-precharge-flow.php', 'utf8');
+  if (prechargeFixture.split(marker).length !== 2) {
+    throw new Error('The isolated Paystack precharge test insertion marker is missing or repeated.');
+  }
+  const prechargeFile = path.join(directory, 'synthetic-paystack-precharge.php');
+  fs.writeFileSync(prechargeFile, prechargeFixture.replace(marker, plugin), { mode: 0o600 });
+  const prechargeResult = spawnSync('php', [prechargeFile], {
+    encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024,
+  });
+  if (prechargeResult.stdout) process.stdout.write(prechargeResult.stdout);
+  if (prechargeResult.stderr) process.stderr.write(prechargeResult.stderr);
+  if (prechargeResult.error) throw prechargeResult.error;
+  const prechargeMatch = /PAYSTACK_TOKEN_PRECHARGE_SYNTHETIC_OK ([0-9]+) isolated checks/.exec(prechargeResult.stdout || '');
+  if (prechargeResult.status !== 0 || !prechargeMatch || Number(prechargeMatch[1]) < 15) {
+    throw new Error('Synthetic saved-card precharge checks failed. This is NOT real Paystack settlement testing.');
+  }
+  console.log('Saved-card precharge PHP stub passed; actual Paystack and installed-site acceptance remain required.');
 } finally {
   fs.rmSync(directory, { recursive: true, force: true });
 }
