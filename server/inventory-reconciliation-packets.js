@@ -298,7 +298,8 @@ export class InventoryReconciliationPackets{
       packet.rowEvidenceRef===row.evidenceRef&&
       packet.reviewerRef===ctx.assigned.snapshotRef&&
       packet.sourceHash===ctx.readiness.report.sourceHash&&
-      latestPacket(history,packet.grantId)?.id===packet.id;
+      latestPacket(history,packet.grantId)?.id===packet.id&&
+      history.filter(p=>p.reportRow===packet.reportRow).at(-1)?.id===packet.id;
   }
   listReviewer(user,physical,website,clock=Date.now()){
     const ctx=this.reviewerContext(user,physical,website,clock);
