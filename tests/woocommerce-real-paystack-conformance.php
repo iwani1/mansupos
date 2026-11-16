@@ -213,6 +213,17 @@ foreach ( array( 'checkout', 'store-api' ) as $via ) {
         $order->get_meta( '_mansu_website_stock_review', true ) !== 'required' &&
         (int) $product->get_stock_quantity() === 0 && $reduced === 1,
         'Real Paystack valid payment did not complete and reduce its held stock exactly once.' );
+    // Paystack 5.8.6 can invoke process_token_payment again on a previous
+    // order. Once Woo has completed the first payment, a saved-card retry must
+    // never reach its external charge_authorization endpoint a second time.
+    $calls_before_retry = $synthetic_http_calls;
+    $repeat = $gateway->process_token_payment(
+        'synthetic_authorization###synthetic@example.invalid', $order->get_id() );
+    $repeat_order = wc_get_order( $order->get_id() );
+    $paystack_assert( ! $repeat && $synthetic_http_calls === $calls_before_retry &&
+        $repeat_order->is_paid() &&
+        (int) wc_get_product( $product->get_id() )->get_stock_quantity() === 0,
+        'Already-paid saved-card retry caused a second gateway charge or changed stock.' );
 }
 
 // Paystack may return true even when Woo rejects a late payment_complete().
