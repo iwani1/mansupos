@@ -13,6 +13,7 @@ defined( 'ABSPATH' ) || exit;
 // change does NOT approve a live installation or any production write.
 const MANSU_ONLINE_HOLD_MINUTES = 10; // Synthetic local fixture, not approved business policy.
 const MANSU_ONLINE_CASH_MARGIN_SECONDS = 90;
+const MANSU_ONLINE_PAYSTACK_ENTRY_MARGIN_SECONDS = 90; // Safety margin for upstream gateway verification; still recheck before payment completion.
 const MANSU_ONLINE_PINNED_WOO = '11.0.1'; // Inspected source, NOT installed-site compatibility evidence.
 
 function mansu_online_uuid( $value ) {
@@ -906,7 +907,7 @@ function mansu_online_website_status_review( $order_id, $from, $to, $order ) {
 // Reserve a short margin for the gateway's network verification; the later
 // payment_complete() hook MUST still re-check the hold and stock atomically.
 function mansu_online_paystack_original_hold_safe( $order ) {
-    return mansu_online_website_hold_safe( $order, MANSU_ONLINE_CASH_MARGIN_SECONDS );
+    return mansu_online_website_hold_safe( $order, MANSU_ONLINE_PAYSTACK_ENTRY_MARGIN_SECONDS );
 }
 /**
  * DRAFT ONLY: serialize the actual Paystack v5.8.6 WC-API entry points for
