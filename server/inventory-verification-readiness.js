@@ -133,7 +133,7 @@ function assess(dossier,exception){
 }
 export function buildInventoryVerificationReadiness(
   physical,website,mappingEvidence,countClaims,exceptions,user,
-  options={},clock=Date.now()
+  options={},clock=Date.now(),collectRows=null
 ){
   ownerOnly(user);
   const {page=1,pageSize=25,focus='all',search=''}=options;
@@ -167,6 +167,7 @@ export function buildInventoryVerificationReadiness(
         409,'INVENTORY_READINESS_ROW_MISMATCH');
     return assess(row,exception);
   });
+  if(Array.isArray(collectRows))collectRows.push(...assessed);
   const readinessRef=hash({
     version:1,physicalHash:physical.manifestHash,
     dossierRef:dossier.dossierRef,exceptionRef:exceptionReport.snapshotRef,
