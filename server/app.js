@@ -27,6 +27,7 @@ import { PhysicalCountClaims } from './physical-count-claims.js';
 import { CountSupervisionEvidence } from './count-supervision-evidence.js';
 import { PrivateCountFileManifests } from './private-count-file-manifests.js';
 import { EvidenceCustodyReview } from './evidence-custody-review.js';
+import { ReviewerResponseIntake } from './reviewer-response-intake.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
@@ -109,6 +110,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const countSupervision = new CountSupervisionEvidence(db,countClaims);
   const countFiles = new PrivateCountFileManifests(db,countSupervision);
   const custodyReview = new EvidenceCustodyReview(db,countFiles);
+  const reviewerIntake = new ReviewerResponseIntake(db,custodyReview);
   const mappingEvidence = new OwnerMappingEvidence(db);
   let inStore;
   try { inStore = new InStoreService(db, config); }
@@ -569,6 +571,37 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
         await catalog.get(true),req.body);
       res.set('Cache-Control','no-store');
       res.status(201).json(result);
+    });
+
+  // Phase 5.3: OWNER-REPORTED external reviewer messages only, not
+  // authenticated external reviewer acknowledgement or witness verification.
+  app.get('/api/stock-safety/reviewer-responses',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        page:z.coerce.number().int().min(1).max(10000).default(1),
+        pageSize:z.coerce.number().int().min(1).max(50).default(25),
+        status:z.enum([
+          'all','request_missing','awaiting_external_response',
+          'acknowledgement_unverified','reported_discrepancy_open',
+          'review_unavailable','custody_or_source_hold',
+        ]).default('all'),
+        search:z.string().trim().max(64).default(''),
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const report=reviewerIntake.list(inStore.snapshot(),await catalog.get(),options);
+      if(options.expectedRef&&options.expectedRef!==report.snapshotRef)
+        throw new AppError('Reviewer intake evidence changed. Restart on page one.',409,
+          'REVIEWER_INTAKE_SNAPSHOT_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(report);
+    });
+
+  app.post('/api/stock-safety/reviewer-responses',
+    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
+      const report=reviewerIntake.submit(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body);
+      res.set('Cache-Control','no-store');
+      res.status(201).json(report);
     });
 
   // Separately gated live trading service only. The read-only pilot, demo and

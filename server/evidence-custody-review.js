@@ -129,7 +129,7 @@ function selectRow(row,event){
 }
 export class EvidenceCustodyReview{
   constructor(db,fileManifests){this.db=db;this.fileManifests=fileManifests;}
-  list(physical,website,query={},clock=Date.now()){
+  list(physical,website,query={},clock=Date.now(),collectRows=null){
     const {page=1,pageSize=25,search='',status='all'}=query;
     if(!Number.isSafeInteger(page)||page<1||page>10000||
        !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>50||
@@ -141,6 +141,7 @@ export class EvidenceCustodyReview{
     const latest=newest(readEvents(this.db),report.snapshotRef,physical?.manifestHash);
     const ref=snapshotRef(report,rows,latest,physical?.manifestHash);
     const all=rows.map(row=>selectRow(row,latest.get(row.reportRow)));
+    if(Array.isArray(collectRows))collectRows.push(...all);
     const tally={
       manifestMissing:all.filter(row=>!row.manifest).length,
       custodyNotesCurrent:all.filter(row=>row.latestCustodyEvent&&!row.latestCustodyEvent.needsRecheck).length,

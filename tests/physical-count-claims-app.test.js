@@ -282,6 +282,80 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal(afterHandoff.data.stockImportAuthorized,false);
   assert.equal((await req(custodyUrl+'?status=approved',ownerToken)).status,400);
   assert.equal((await req(custodyUrl+'?unknown=1',ownerToken)).status,400);
+  // Phase 5.3: Owner-reported external response only. A reviewer has not
+  // authenticated in the POS; reported receipt never resolves count disputes.
+  const responseUrl='/stock-safety/reviewer-responses';
+  assert.equal((await req(responseUrl)).status,401);
+  assert.equal((await req(responseUrl,one.data.token)).status,403);
+  assert.equal((await req(responseUrl,two.data.token)).status,403);
+  const reportedBefore=await req(responseUrl+'?search='+encodeURIComponent(sku),ownerToken);
+  assert.equal(reportedBefore.status,200);
+  assert.equal(reportedBefore.data.kind,'owner-reported-external-reviewer-intake');
+  const responseRow=reportedBefore.data.items.find(x=>x.reportRow===row);
+  assert.ok(responseRow);
+  assert.equal(responseRow.status,'awaiting_external_response');
+  assert.equal(responseRow.mayReport,true);
+  assert.equal(reportedBefore.data.externalReviewerLoginAvailable,false);
+  assert.equal(reportedBefore.data.reviewerIdentityVerified,false);
+  const responseBody={
+    reportRow:row,expectedRef:reportedBefore.data.snapshotRef,
+    expectedLatestResponseId:null,
+    custodyRequestId:responseRow.custodyRequestId,
+    manifestId:responseRow.manifestId,fileSha256:responseRow.fileSha256,
+    firstClaimId:responseRow.firstClaimId,
+    secondClaimId:responseRow.secondClaimId,
+    reviewerCode:'EXT_REVIEWER_001',
+    outcome:'discrepancy_reported',issueCode:'signature_missing',
+    note:'Owner reports an unsigned external document; verify with another person.',
+    requestId:randomUUID(),
+  };
+  assert.equal((await req(responseUrl,one.data.token,'POST',responseBody)).status,403);
+  assert.equal((await req(responseUrl,two.data.token,'POST',responseBody)).status,403);
+  assert.equal((await req(responseUrl,null,'POST',responseBody)).status,401);
+  assert.equal((await req(responseUrl,ownerToken,'POST',{
+    ...responseBody,approve:true,
+  })).status,400);
+  assert.equal((await req(responseUrl,ownerToken,'POST',{
+    ...responseBody,reviewerCode:'owner',requestId:randomUUID(),
+  })).status,409);
+  const reported=await req(responseUrl,ownerToken,'POST',responseBody);
+  assert.equal(reported.status,201);
+  assert.equal(reported.data.recorded,true);
+  assert.equal(reported.data.reviewerIdentityVerified,false);
+  assert.equal(reported.data.independentReviewConfirmed,false);
+  assert.equal(reported.data.stockImportAuthorized,false);
+  assert.equal((await req(responseUrl,ownerToken,'POST',responseBody)).data.replayed,true);
+  const reportedNext=await req(responseUrl+'?search='+encodeURIComponent(sku),ownerToken);
+  const responseCase=reportedNext.data.items.find(x=>x.reportRow===row);
+  assert.ok(responseCase);
+  assert.equal(responseCase.status,'reported_discrepancy_open');
+  assert.equal(responseCase.countDiscrepancyOpen,true);
+  assert.equal(responseCase.latestResponse.issueCode,'signature_missing');
+  assert.equal(responseCase.latestResponse.acknowledgedByReviewerAccount,false);
+  assert.notEqual(reportedNext.data.snapshotRef,reportedBefore.data.snapshotRef);
+  assert.equal((await req(responseUrl+'?expectedRef='+reportedBefore.data.snapshotRef,ownerToken)).status,409);
+  assert.equal((await req(responseUrl,ownerToken,'POST',{
+    ...responseBody,requestId:randomUUID(),
+  })).status,409);
+  const receivedReport=await req(responseUrl,ownerToken,'POST',{
+    ...responseBody,expectedRef:reportedNext.data.snapshotRef,
+    expectedLatestResponseId:responseCase.latestResponse.id,
+    outcome:'acknowledgement_reported',issueCode:null,
+    note:'Owner says a reply was received but no independent login or signature was checked.',
+    requestId:randomUUID(),
+  });
+  assert.equal(receivedReport.status,201);
+  const afterResponse=await req(responseUrl+'?search='+encodeURIComponent(sku),ownerToken);
+  const acknowledged=afterResponse.data.items.find(x=>x.reportRow===row);
+  assert.ok(acknowledged);
+  assert.equal(acknowledged.status,'acknowledgement_unverified');
+  assert.equal(acknowledged.countDiscrepancyOpen,true);
+  assert.equal(afterResponse.data.reviewerIdentityVerified,false);
+  assert.equal(afterResponse.data.independentReviewConfirmed,false);
+  assert.equal(afterResponse.data.ownerApproved,false);
+  assert.equal(afterResponse.data.checkoutAuthorized,false);
+  assert.equal((await req(responseUrl+'?status=approved',ownerToken)).status,400);
+  assert.equal((await req(responseUrl+'?unknown=1',ownerToken)).status,400);
   const review=await req('/stock-safety/count-claims-review?search='+encodeURIComponent(sku),ownerToken);
   assert.equal(review.status,200);
   assert.equal(review.data.items[0].firstUnits,7);
@@ -332,5 +406,6 @@ test('count-claim API: auth, blind independent staff entries, owner-only review 
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.count_supervision_note'").get().n,1);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.private_count_file_manifest'").get().n,1);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.private_evidence_custody'").get().n,2);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.external_reviewer_response_claim'").get().n,2);
   assert.ok(log.length>=1&&log.every(entry=>entry==='Woo GET products'));
 });

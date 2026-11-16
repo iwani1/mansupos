@@ -460,6 +460,72 @@ try {
       ],
     })});
   });
+  // Phase 5.3: owner-reported EXTERNAL review response, not authenticated.
+  const reviewerCalls=[];
+  const claimedResponses=[];
+  await page.route('**/api/stock-safety/reviewer-responses*',async route=>{
+    const req=route.request();
+    if(req.method()==='POST'){
+      const body=req.postDataJSON();
+      reviewerCalls.push({method:'POST',body});
+      claimedResponses.push({
+        id:1000+claimedResponses.length,
+        reviewerCode:body.reviewerCode,
+        outcome:body.outcome,issueCode:body.issueCode,note:body.note,
+        recordedByOwner:'synthetic-owner',
+        recordedAt:'2026-11-15T12:00:00.000Z',
+        requiresRecheck:false,independentlyAuthenticated:false,
+        acknowledgedByReviewerAccount:false,
+      });
+      await route.fulfill({status:201,contentType:'application/json',body:JSON.stringify({
+        kind:'unverified-owner-reported-reviewer-response',
+        recorded:true,replayed:false,eventId:claimedResponses.at(-1).id,
+        auditOnly:true,reviewerIdentityVerified:false,
+        independentReviewConfirmed:false,ownerApproved:false,
+        stockImportAuthorized:false,checkoutAuthorized:false,
+      })});
+      return;
+    }
+    reviewerCalls.push({method:'GET'});
+    const response=claimedResponses.at(-1)||null;
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      kind:'owner-reported-external-reviewer-intake',auditOnly:true,
+      evidenceVerified:true,snapshotRef:(response?'e':'d').repeat(64),
+      custodyRef:'c'.repeat(64),sourceHash:'a'.repeat(64),
+      externalReviewerLoginAvailable:false,reviewerIdentityVerified:false,
+      independentReviewConfirmed:false,documentSignatureVerified:false,
+      independentWitnessVerified:false,ownerApproved:false,
+      mappingApproved:false,sharedStockVerified:false,
+      stockImportAuthorized:false,checkoutAuthorized:false,
+      stats:{awaitingReports:response?0:1,
+        ownerReportedAcknowledgements:response?.outcome==='acknowledgement_reported'?1:0,
+        reportedDiscrepancies:response?.outcome==='discrepancy_reported'?1:0,
+        openStaffCountDiscrepancies:1,independentlyAuthenticatedReviewers:0},
+      page:1,pageSize:25,pages:1,total:2,hasMore:false,
+      items:[
+        {reportRow:1,sku:'CLAIM001',
+          custodyRequestId:901,manifestId:809,
+          fileSha256:mockManifest?.fileSha256||'f'.repeat(64),
+          firstClaimId:100,secondClaimId:101,
+          countDiscrepancyOpen:true,
+          latestResponse:response,
+          status:response?
+            (response.outcome==='discrepancy_reported'?'reported_discrepancy_open':
+              response.outcome==='acknowledgement_reported'?'acknowledgement_unverified':
+                'review_unavailable'):'awaiting_external_response',
+          mayReport:true,independentReviewConfirmed:false,
+          documentAuthenticityVerified:false,countsVerified:false,
+          stockImportAuthorized:false,checkoutAuthorized:false},
+        {reportRow:2,sku:'CLAIM002',
+          custodyRequestId:null,manifestId:null,fileSha256:null,
+          firstClaimId:102,secondClaimId:null,
+          countDiscrepancyOpen:false,latestResponse:null,
+          status:'custody_or_source_hold',mayReport:false,
+          independentReviewConfirmed:false,stockImportAuthorized:false,
+          checkoutAuthorized:false},
+      ],
+    })});
+  });
   const paymentReviewCalls = [];
   await page.route('**/api/payments/reconciliation*', async route => {
     paymentReviewCalls.push(route.request().method());
@@ -842,6 +908,47 @@ try {
     throw Error('Review request must link the prior owner custody event.');
   if(await custody.getByRole('button',{name:/approve stock|certify witness|release stock|checkout/i}).count())
     throw Error('Custody register must never offer stock approval or acceptance.');
+
+  const reviewer=page.getByRole('region',{name:'External reviewer response intake'});
+  await reviewer.getByRole('button',{name:'Open reviewer response register'}).click();
+  const reviewerTable=reviewer.getByRole('region',{name:'Reported reviewer response rows'}).locator('table');
+  await reviewerTable.locator('tbody tr').first().waitFor();
+  if(await reviewerTable.locator('tbody tr').count()!==2)
+    throw Error('Owner reviewer intake should show requested and held rows.');
+  await reviewer.getByRole('button',{name:'Record reported response'}).first().click();
+  await reviewer.getByRole('textbox',{name:'Anonymous reviewer reference'})
+    .fill('EXT_REVIEWER_01');
+  await reviewer.getByRole('combobox',{name:'Reported reviewer outcome'})
+    .selectOption('discrepancy_reported');
+  await reviewer.getByRole('combobox',{name:'Reported evidence discrepancy'})
+    .selectOption('signature_missing');
+  await reviewer.getByRole('textbox',{name:'Owner-reported reviewer note'})
+    .fill('Owner reports a missing signed document; independent verification still required.');
+  await reviewer.getByRole('button',{name:'Save unverified owner report'}).click();
+  await reviewer.getByText(/Owner report recorded/).waitFor();
+  const firstReport=reviewerCalls.filter(x=>x.method==='POST')[0]?.body;
+  if(!firstReport||firstReport.expectedRef!=='d'.repeat(64)||
+    firstReport.custodyRequestId!==901||firstReport.manifestId!==809||
+    firstReport.firstClaimId!==100||firstReport.secondClaimId!==101||
+    firstReport.outcome!=='discrepancy_reported'||
+    firstReport.issueCode!=='signature_missing'||firstReport.approved)
+    throw Error('Owner-reported discrepancy must be bound to existing review request and count claim IDs.');
+  await reviewer.getByRole('button',{name:'Record reported response'}).first().click();
+  await reviewer.getByRole('combobox',{name:'Reported reviewer outcome'})
+    .selectOption('acknowledgement_reported');
+  await reviewer.getByRole('textbox',{name:'Owner-reported reviewer note'})
+    .fill('Owner claims a reply arrived but no reviewer has logged into MansuPOS.');
+  await reviewer.getByRole('button',{name:'Save unverified owner report'}).click();
+  await reviewer.getByText(/Owner report recorded/).waitFor();
+  const allReported=reviewerCalls.filter(x=>x.method==='POST');
+  if(allReported.length!==2||
+    allReported[1].body.expectedLatestResponseId!==1000||
+    allReported[1].body.outcome!=='acknowledgement_reported'||
+    allReported[1].body.issueCode!==null)
+    throw Error('Reported receipt must be appended without claiming independent verification.');
+  await reviewer.getByText(/Conflicting staff counts — OPEN/).waitFor();
+  if(await reviewer.getByRole('button',{name:/approve|certify|import stock|checkout/i}).count())
+    throw Error('Reviewer response claims may not authorize checkout or inventory.');
 
   await page.locator('[data-nav="paymentReconciliation"]').click();
   await page.getByRole('heading', { name: 'Payment reconciliation' }).waitFor();
