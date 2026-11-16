@@ -361,6 +361,29 @@ test('Phase 5.4 reviewer account is case-scoped, denies other POS APIs and never
   assert.ok(heldReadiness.criteria.every(x=>x.independentlyVerified===false));
   assert.equal((await req(readinessUrl+'?focus=approved',owner)).status,400);
   assert.equal((await req(readinessUrl+'?expectedRef='+('0'.repeat(64)),owner)).status,409);
+  // Phase 5.8: reviewer may inspect case metadata only; cannot access
+  // Owner provisional units or use Owner proposal endpoints.
+  const packetUrl='/stock-safety/reconciliation-packets';
+  assert.equal((await req(packetUrl,counter1)).status,403);
+  assert.equal((await req(packetUrl,reviewer)).status,403);
+  assert.equal((await req(packetUrl)).status,401);
+  assert.equal((await req(packetUrl,reviewer,'POST',{})).status,403);
+  const packetOwner=await req(packetUrl+'?search='+encodeURIComponent(source.sku),owner);
+  assert.equal(packetOwner.status,200);
+  assert.equal(packetOwner.data.kind,'owner-provisional-reconciliation-register');
+  assert.equal(packetOwner.data.stockImportAuthorized,false);
+  assert.equal(packetOwner.data.checkoutAuthorized,false);
+  assert.equal(packetOwner.data.summary.approvedReconciliations,0);
+  assert.equal(packetOwner.data.items.find(x=>x.reportRow===row.reportRow)?.countDiscrepancyOpen,true);
+  assert.equal((await req(packetUrl+'?expectedRef='+('0'.repeat(64)),owner)).status,409);
+  assert.equal((await req('/reviewer/reconciliation-packets',owner)).status,403);
+  assert.equal((await req('/reviewer/reconciliation-packets/response',owner,'POST',{})).status,403);
+  const reviewerPackets=await req('/reviewer/reconciliation-packets',reviewer);
+  assert.equal(reviewerPackets.status,200);
+  assert.equal(reviewerPackets.data.kind,'reviewer-provisional-reconciliation-metadata');
+  assert.equal(reviewerPackets.data.reconciliationApproved,false);
+  assert.equal(reviewerPackets.data.checkoutAuthorized,false);
+  assert.deepEqual(reviewerPackets.data.items,[]);
   const ownerCounts=await req('/stock-safety/count-claims-review?search='+encodeURIComponent(source.sku),owner);
   assert.equal(ownerCounts.data.items[0].stage,'discrepant_claims');
   assert.equal(ownerCounts.data.checkoutAuthorized,false);
