@@ -21,13 +21,13 @@ function setup(){
   db.exec(`CREATE TABLE audit(id INTEGER PRIMARY KEY AUTOINCREMENT,
     actor TEXT NOT NULL,action TEXT NOT NULL,
     subject TEXT NOT NULL,created_at TEXT NOT NULL);
-    CREATE TABLE users(id TEXT PRIMARY KEY,role TEXT NOT NULL,active INTEGER NOT NULL);
+    CREATE TABLE users(id TEXT PRIMARY KEY,username TEXT NOT NULL,role TEXT NOT NULL,active INTEGER NOT NULL);
     CREATE TRIGGER audit_no_update BEFORE UPDATE ON audit
     BEGIN SELECT RAISE(ABORT,'immutable'); END;
     CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit
     BEGIN SELECT RAISE(ABORT,'immutable'); END;`);
-  db.prepare('INSERT INTO users(id,role,active) VALUES (?,?,1)')
-    .run(reviewerId,'reviewer');
+  db.prepare('INSERT INTO users(id,username,role,active) VALUES (?,?,?,1)')
+    .run(reviewerId,'review.synthetic','reviewer');
   let fileSha256=HASH;
   const intake={
     list(_physical,_website,_query,_clock,collectRows){
