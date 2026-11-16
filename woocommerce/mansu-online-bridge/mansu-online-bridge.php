@@ -993,6 +993,18 @@ function mansu_online_paystack_saved_token_precharge( $preempt, $args, $url ) {
     if ( ! mansu_online_paystack_request_lock_retained( $order_id ) ) {
         return $blocked();
     }
+    // The original WC_Order may be cached inside this request while a
+    // concurrent webhook has already completed it. Check the canonical order
+    // status through the SAME database connection that owns the MySQL lock,
+    // even if wc_get_order() would return a stale pending object.
+    $hpos = class_exists( '\\Automattic\\WooCommerce\\Utilities\\OrderUtil' ) &&
+        \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
+    $table = $hpos ? $wpdb->prefix . 'wc_orders' : $wpdb->posts;
+    $column = $hpos ? 'status' : 'post_status';
+    $status = $wpdb->get_var( $wpdb->prepare(
+        "SELECT {$column} FROM {$table} WHERE id=%d", $order_id
+    ) );
+    if ( $status !== 'wc-pending' ) { return $blocked(); }
     $order = wc_get_order( $order_id );
     if ( ! mansu_online_paystack_token_charge_matches( $order, $payload ) ) {
         return $blocked();
