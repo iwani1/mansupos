@@ -910,6 +910,98 @@ function mansu_online_paystack_original_hold_safe( $order ) {
     return mansu_online_website_hold_safe( $order, MANSU_ONLINE_PAYSTACK_ENTRY_MARGIN_SECONDS );
 }
 /**
+ * Pinned Paystack 5.8.6 saved-card precharge guard. Its process_token_payment()
+ * writes _paystack_txn_ref and then calls wp_remote_post() for
+ * /transaction/charge_authorization BEFORE Woo payment_complete(). No Woo
+ * payment or postcharge hook can undo that external money movement.
+ *
+ * This runs at the last WordPress-managed outbound boundary and rejects a
+ * missing, expiring or mismatched original website stock reservation BEFORE
+ * Paystack receives the charge request. A 90-second minimum covers Paystack's
+ * 60-second HTTP timeout plus a conservative response/processing margin.
+ * Final postcharge stock/payment guards remain mandatory: network timeouts,
+ * late webhooks and other gateway entry points can still require reconciliation.
+ */
+function mansu_online_paystack_token_charge_matches( $order, $payload ) {
+    if ( ! mansu_online_website_order( $order ) || ! $order->has_status( 'pending' ) ||
+         $order->get_date_paid() || $order->get_payment_method() !== 'paystack' ||
+         ! is_array( $payload ) || ! isset( $payload['reference'], $payload['amount'], $payload['currency'] ) ||
+         ! is_string( $payload['reference'] ) || ! is_int( $payload['amount'] ) ||
+         ! is_string( $payload['currency'] ) ) {
+        return false;
+    }
+    $ref = (string) $order->get_meta( '_paystack_txn_ref', true );
+    $expected_amount = (int) round( (float) $order->get_total() * 100 );
+    return $ref !== '' && hash_equals( $ref, $payload['reference'] ) &&
+        $expected_amount > 0 && $expected_amount === $payload['amount'] &&
+        $payload['currency'] === $order->get_currency() &&
+        ! mansu_online_website_items_reduced( $order ) &&
+        mansu_online_paystack_original_hold_safe( $order );
+}
+function mansu_online_paystack_saved_token_precharge( $preempt, $args, $url ) {
+    if ( ! mansu_online_enabled() ||
+         $url !== 'https://api.paystack.co/transaction/charge_authorization' ||
+         $preempt !== false ) {
+        return $preempt;
+    }
+    // Scope to the exact Paystack gateway method. Other integrations can
+    // legitimately call the same Paystack API (e.g. recurring subscriptions),
+    // and must not be silently treated as Woo saved-card orders.
+    $from_gateway = false;
+    foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 16 ) as $frame ) {
+        if ( ( $frame['class'] ?? '' ) === 'WC_Gateway_Paystack' &&
+             ( $frame['function'] ?? '' ) === 'process_token_payment' ) {
+            $from_gateway = true;
+            break;
+        }
+    }
+    if ( ! $from_gateway ) { return $preempt; }
+    $blocked = static function () {
+        // WP_Http will return this without issuing ANY external POST. The
+        // upstream gateway then fails checkout without a success redirect.
+        // Never claim a captured charge was refunded or ask to pay twice.
+        return new WP_Error( 'mansu_paystack_saved_card_precharge_blocked',
+            'Saved-card payment was not started because stock could not be verified. Contact the store before trying again.' );
+    };
+    if ( ! defined( 'WC_PAYSTACK_VERSION' ) || WC_PAYSTACK_VERSION !== '5.8.6' ||
+         ( $args['method'] ?? '' ) !== 'POST' ||
+         ! is_string( $args['body'] ?? null ) ) {
+        return $blocked();
+    }
+    $payload = json_decode( $args['body'], true );
+    if ( ! is_array( $payload ) || ! is_string( $payload['reference'] ?? null ) ||
+         ! preg_match( '/^([1-9][0-9]{0,11})_[0-9]+$/D', $payload['reference'], $match ) ) {
+        return $blocked();
+    }
+    $order_id = (int) $match[1];
+    global $wpdb;
+    $lock_name = 'mansu-paystack-order-' . $order_id;
+    // Serialize the external charge, subsequent Woo completion and concurrent
+    // gateway webhook/return against ONE original Woo order. GET_LOCK is
+    // connection-owned, not transaction-owned; hold through PHP shutdown.
+    $owned = $wpdb->get_var( $wpdb->prepare(
+        'SELECT CASE WHEN IS_USED_LOCK(%s) = CONNECTION_ID() THEN 1 ELSE 0 END', $lock_name
+    ) );
+    if ( (string) $owned !== '1' ) {
+        $locked = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, 20 ) );
+        if ( (string) $locked !== '1' ) { return $blocked(); }
+        register_shutdown_function( static function () use ( $wpdb, $lock_name ) {
+            $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+        } );
+    }
+    mansu_online_paystack_request_lock_expected( $order_id, true );
+    if ( ! mansu_online_paystack_request_lock_retained( $order_id ) ) {
+        return $blocked();
+    }
+    $order = wc_get_order( $order_id );
+    if ( ! mansu_online_paystack_token_charge_matches( $order, $payload ) ) {
+        return $blocked();
+    }
+    return $preempt; // Native Paystack HTTP request may now start.
+}
+add_filter( 'pre_http_request', 'mansu_online_paystack_saved_token_precharge', 1, 3 );
+
+/**
  * DRAFT ONLY: serialize the actual Paystack v5.8.6 WC-API entry points for
  * each website order, BEFORE upstream code fetches its order object.
  *
