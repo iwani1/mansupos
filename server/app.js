@@ -166,7 +166,8 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     // including endpoints that never had an explicit staff-role middleware.
     if (req.user.role === 'reviewer') {
       const permitted = (req.method === 'POST' &&
-        ['/api/auth/password','/api/auth/logout','/api/reviewer/acknowledgements'].includes(req.path)) ||
+        ['/api/auth/password','/api/auth/logout','/api/reviewer/acknowledgements',
+          '/api/reviewer/handoff-receipt'].includes(req.path)) ||
         (req.method === 'GET' && req.path === '/api/reviewer/cases');
       if (!permitted) return next(new AppError('Reviewer accounts cannot access staff, catalogue, customers, payments or stock.',403,'REVIEWER_PORTAL_ONLY'));
     }
@@ -641,6 +642,20 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   app.post('/api/reviewer/acknowledgements',
     auth,role('reviewer'),countPilot,sensitiveLimit,async(req,res)=>{
       res.status(201).json(reviewerAccess.acknowledge(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body));
+    });
+
+  // Phase 5.5: Owner declares an out-of-band reviewer identity check and
+  // issues a one-time secret; the reviewer confirms possession and submits an
+  // account-authenticated fingerprint CLAIM. No file transfer or approval.
+  app.post('/api/stock-safety/reviewer-access/handoff',
+    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
+      res.status(201).json(reviewerAccess.issueHandoff(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body));
+    });
+  app.post('/api/reviewer/handoff-receipt',
+    auth,role('reviewer'),countPilot,sensitiveLimit,async(req,res)=>{
+      res.status(201).json(reviewerAccess.receiveHandoff(req.user,inStore.snapshot(),
         await catalog.get(true),req.body));
     });
 
