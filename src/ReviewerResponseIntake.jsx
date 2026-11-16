@@ -133,9 +133,10 @@ export default function ReviewerResponseIntake(){
         flag evidence discrepancies for separate investigation.</p>
     </div></div>
     <Notice tone="warning"><LockKeyhole size={16}/>
-      <strong>There is no external-reviewer login.</strong> You are recording
-      your own account of a reported response. A reviewer has not signed
-      in, accepted a file, authenticated a signature or verified stock.
+      <strong>This register contains Owner reports only.</strong> These entries
+      are never authenticated reviewer responses. The separate reviewer-only
+      portal below can log account responses, but neither workflow verifies
+      a human identity, an original file, a signature or physical stock.
     </Notice>
     <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'end'}}>
       <label style={{flex:'1 1 220px'}}>Report status
