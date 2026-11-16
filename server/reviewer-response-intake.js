@@ -189,7 +189,7 @@ export class ReviewerResponseIntake{
       throw new AppError('Two distinguishable staff declarations are required.',409,
         'REVIEWER_INTAKE_COUNTERS_MISSING');
     const claimed=data.reviewerCode.toLowerCase();
-    if([user.id,counters.firstActor,counters.secondActor].some(x=>
+    if([user.id,user.username,counters.firstActor,counters.secondActor].some(x=>
       typeof x==='string'&&x.toLowerCase()===claimed))
       throw new AppError('Reviewer reference duplicates the Owner or an assigned counter account.',409,
         'REVIEWER_INTAKE_REFERENCE_NOT_DISTINCT');
