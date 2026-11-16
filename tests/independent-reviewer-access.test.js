@@ -395,6 +395,27 @@ test('Phase 5.4 reviewer account is case-scoped, denies other POS APIs and never
   assert.match(manifestResponse.data.sha256,/^[a-f0-9]{64}$/);
   assert.equal(manifestResponse.data.content.summary.acceptedRows,0);
   assert.equal((await req(exportPath+'?expectedRef='+('0'.repeat(64)),owner)).status,409);
+  // All four remaining tracks: Owner can inspect synthetic development
+  // evidence but cannot mark real deployment ready or accept live stock.
+  const launchPath='/stock-safety/full-launch-readiness';
+  assert.equal((await req(launchPath,reviewer)).status,403);
+  assert.equal((await req(launchPath,counter1)).status,403);
+  assert.equal((await req(launchPath)).status,401);
+  const launch=await req(launchPath,owner);
+  assert.equal(launch.status,200);
+  assert.equal(launch.data.kind,'owner-four-track-launch-readiness');
+  assert.equal(launch.data.content.stages.length,4);
+  assert.equal(launch.data.content.requirements.length,8);
+  assert.equal(launch.data.content.productionReady,false);
+  assert.equal(launch.data.authorizedLiveDeployment,false);
+  assert.equal(launch.data.stockImportAuthorized,false);
+  assert.equal(launch.data.checkoutAuthorized,false);
+  assert.equal(launch.data.paymentsAuthorized,false);
+  assert.equal(launch.data.content.evidence.syntheticWooOrderWrites,0);
+  assert.equal(launch.data.content.evidence.syntheticGatewayCalls,0);
+  assert.equal((await req(launchPath+'?expectedRef='+('0'.repeat(64)),owner)).status,409);
+  assert.equal((await req(launchPath+'?approved=true',owner)).status,400);
+  assert.equal((await req(launchPath,owner,'POST',{})).status,404);
   const ownerCounts=await req('/stock-safety/count-claims-review?search='+encodeURIComponent(source.sku),owner);
   assert.equal(ownerCounts.data.items[0].stage,'discrepant_claims');
   assert.equal(ownerCounts.data.checkoutAuthorized,false);
