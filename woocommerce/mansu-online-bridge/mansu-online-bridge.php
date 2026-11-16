@@ -246,7 +246,7 @@ function mansu_online_holds( $order_id, $items ) {
     $expected = array();
     foreach ( $items as $item ) { $expected[ $item['ownerId'] ] = ( $expected[ $item['ownerId'] ] ?? 0 ) + $item['quantity']; }
     $rows = $wpdb->get_results( $wpdb->prepare( "SELECT product_id,stock_quantity,
-        TIMESTAMPDIFF(SECOND,NOW(),expires) AS remaining FROM {$wpdb->wc_reserved_stock} WHERE order_id=%d", $order_id ), ARRAY_A );
+        TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),expires) AS remaining FROM {$wpdb->wc_reserved_stock} WHERE order_id=%d", $order_id ), ARRAY_A );
     if ( ! is_array( $rows ) || count( $rows ) !== count( $expected ) ) { return array( false, null, 0 ); }
     $min = PHP_INT_MAX;
     foreach ( $rows as $hold ) {
