@@ -63,8 +63,8 @@ $http_mock = static function ( $preempt, $args, $url ) use ( &$paystack_mode, &$
         $stack = array_map( static function ( $frame ) {
             return ( $frame['class'] ?? '' ) . '::' . ( $frame['function'] ?? '' );
         }, debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 22 ) );
-        error_log( 'SYNTHETIC_PAYSTACK_STACK_ONLY ' . implode( ' > ', $stack ) );
-        error_log( 'SYNTHETIC_PAYSTACK_POST_METHOD ' . (string) ( $args['method'] ?? 'missing' ) );
+        WP_CLI::log( 'SYNTHETIC_PAYSTACK_STACK_ONLY ' . implode( ' > ', $stack ) );
+        WP_CLI::log( 'SYNTHETIC_PAYSTACK_POST_METHOD ' . (string) ( $args['method'] ?? 'missing' ) );
     }
     ++$synthetic_http_calls;
     $paid_cents = $paystack_mode === 'underpaid' ? $payload['amount'] - 100 : $payload['amount'];
@@ -151,7 +151,9 @@ $exercise = static function ( $via, $mode, $expired ) use (
         $near_charge = $gateway->process_token_payment(
             'synthetic_authorization###synthetic@example.invalid', $order_id );
         $paystack_assert( $near_charge === false && $synthetic_http_calls === $before,
-            'Saved-card near-expiry charge reached Paystack despite precharge guard.' );
+            'Saved-card near-expiry charge reached Paystack despite precharge guard: return=' .
+            get_debug_type( $near_charge ) . '; calls=' . $before . '/' . $synthetic_http_calls .
+            '; gate=' . ( mansu_online_enabled() ? 'enabled' : 'disabled' ) );
         $reset = $wpdb->update( $wpdb->wc_reserved_stock,
             array( 'expires' => gmdate( 'Y-m-d H:i:s', time() + 600 ) ),
             array( 'order_id' => $order_id ) );
