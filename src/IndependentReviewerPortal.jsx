@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {api} from './api.js';
+import ReviewerReconciliationPanel from './ReviewerReconciliationPanel.jsx';
 
 // A reviewer can see ONLY evidence metadata assigned by the Owner. No
 // original document bytes, counts, pricing or customer information.
@@ -187,6 +188,7 @@ export default function IndependentReviewerPortal({user,logout}){
           }}>Cancel</button>
         </div>
       </form>}
+      <ReviewerReconciliationPanel/>
       {selected&&<form className="surface" style={{padding:20,marginTop:24}} aria-label="Reviewer acknowledgement" onSubmit={submit}>
         <h2>Respond to assigned row {selected.reportRow}</h2>
         <p>The response is tied to this login and the exact current document metadata.
