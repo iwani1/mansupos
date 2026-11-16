@@ -40,5 +40,7 @@ try {
   console.log('This backs up the POS ledger only. Back up WordPress files and its database separately before deployment.');
 } finally {
   db.close();
-  if (fs.existsSync(partial)) fs.rmSync(partial);
+  // SQLite leaves empty -shm/-wal sidecars beside the temporary copy; without
+  // this an hourly timer accumulates two stray files per run.
+  for (const leftover of [partial, `${partial}-shm`, `${partial}-wal`]) fs.rmSync(leftover, { force: true });
 }
