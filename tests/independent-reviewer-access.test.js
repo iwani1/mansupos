@@ -10,11 +10,12 @@ import {hashPassword} from '../server/db.js';
 test('Phase 5.4 reviewer account is case-scoped, denies other POS APIs and never releases stock',async t=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mansu-reviewer-access-'));
   const wooCalls=[];
+  let wooSku='1';
   const api={
     async products(){
       wooCalls.push('products GET');
       return {data:[{id:42,type:'simple',name:'Synthetic private item',
-        sku:'42',status:'publish',price:'100.00',stock_status:'instock',
+        sku:wooSku,status:'publish',price:'100.00',stock_status:'instock',
         manage_stock:true,stock_quantity:12,purchasable:true,
         backorders:'no',images:[],categories:[]}],pages:1,total:1};
     },
@@ -69,6 +70,7 @@ test('Phase 5.4 reviewer account is case-scoped, denies other POS APIs and never
   })).data.token;
   const source=inStore.snapshot().items.find(x=>x.status==='available'&&x.sku);
   assert.ok(source,'Synthetic historical source must include an eligible row.');
+  wooSku=source.sku;
   const work=await req('/stock-safety/count-worklist?search='+encodeURIComponent(source.sku),counter1);
   assert.equal(work.status,200);
   const row=work.data.items.find(x=>x.sku===source.sku);
