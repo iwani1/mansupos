@@ -2,6 +2,7 @@
 // Disposable-only PHP stubs. No WordPress, Paystack, MySQL, network or money.
 // The uninstalled bridge source is injected by tests/online-bridge-php-native.mjs.
 define( 'ABSPATH', '/synthetic/' );
+define( 'ARRAY_A', 'ARRAY_A' );
 define( 'MANSU_ONLINE_BRIDGE_ENABLED', true );
 define( 'MANSU_ONLINE_BRIDGE_SERVICE', 'staging' );
 define( 'MANSU_ONLINE_BRIDGE_LEDGER_ID', 'ba0c917e-6278-4aaf-b89d-d87f39a39762' );
