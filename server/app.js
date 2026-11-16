@@ -28,6 +28,7 @@ import { CountSupervisionEvidence } from './count-supervision-evidence.js';
 import { PrivateCountFileManifests } from './private-count-file-manifests.js';
 import { EvidenceCustodyReview } from './evidence-custody-review.js';
 import { ReviewerResponseIntake } from './reviewer-response-intake.js';
+import { IndependentReviewerAccess } from './independent-reviewer-access.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
@@ -111,6 +112,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const countFiles = new PrivateCountFileManifests(db,countSupervision);
   const custodyReview = new EvidenceCustodyReview(db,countFiles);
   const reviewerIntake = new ReviewerResponseIntake(db,custodyReview);
+  const reviewerAccess = new IndependentReviewerAccess(db,reviewerIntake);
   const mappingEvidence = new OwnerMappingEvidence(db);
   let inStore;
   try { inStore = new InStoreService(db, config); }
@@ -160,6 +162,14 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const auth = (req, res, next) => {
     req.user = sessionUser(req, db, config);
     if (!req.user) return next(new AppError('Sign in to continue.', 401));
+    // Reviewer sessions are deny-by-default for ALL existing POS routes,
+    // including endpoints that never had an explicit staff-role middleware.
+    if (req.user.role === 'reviewer') {
+      const permitted = (req.method === 'POST' &&
+        ['/api/auth/password','/api/auth/logout','/api/reviewer/acknowledgements'].includes(req.path)) ||
+        (req.method === 'GET' && req.path === '/api/reviewer/cases');
+      if (!permitted) return next(new AppError('Reviewer accounts cannot access staff, catalogue, customers, payments or stock.',403,'REVIEWER_PORTAL_ONLY'));
+    }
     if (req.user.mustChangePassword && !['/api/auth/password', '/api/auth/logout', '/api/session'].includes(req.path)) {
       return next(new AppError('Change your temporary password before continuing.', 403, 'PASSWORD_CHANGE_REQUIRED'));
     }
@@ -602,6 +612,36 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
         await catalog.get(true),req.body);
       res.set('Cache-Control','no-store');
       res.status(201).json(report);
+    });
+
+  // Phase 5.4: dedicated reviewer ACCOUNT, one-case metadata grants and
+  // account-authenticated responses. No proof of human identity, document
+  // delivery, independent witnessing or approval is implied.
+  app.get('/api/stock-safety/reviewer-access',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      res.json(reviewerAccess.listOwner(req.user,inStore.snapshot(),await catalog.get()));
+    });
+  app.post('/api/stock-safety/reviewer-access/accounts',
+    auth,role('owner'),countPilot,sensitiveLimit,(req,res)=>{
+      res.status(201).json(reviewerAccess.provision(req.user,req.body));
+    });
+  app.post('/api/stock-safety/reviewer-access/grants',
+    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
+      res.status(201).json(reviewerAccess.grant(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body));
+    });
+  app.post('/api/stock-safety/reviewer-access/revoke',
+    auth,role('owner'),countPilot,sensitiveLimit,(req,res)=>{
+      res.json(reviewerAccess.revoke(req.user,req.body));
+    });
+  app.get('/api/reviewer/cases',
+    auth,role('reviewer'),countPilot,async(req,res)=>{
+      res.json(reviewerAccess.listAssigned(req.user,inStore.snapshot(),await catalog.get()));
+    });
+  app.post('/api/reviewer/acknowledgements',
+    auth,role('reviewer'),countPilot,sensitiveLimit,async(req,res)=>{
+      res.status(201).json(reviewerAccess.acknowledge(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body));
     });
 
   // Separately gated live trading service only. The read-only pilot, demo and
