@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { audit, hashPassword } from './db.js';
 import { AppError } from './errors.js';
@@ -31,6 +31,36 @@ const revokeSchema = z.object({
   grantId:z.number().int().positive(),
   requestId:z.string().regex(uuid),
 }).strict();
+// A short-lived out-of-band challenge confirms only possession of a secret,
+ // never human identity or actual delivery of an original document.
+const handoffMethods=['owner_reports_in_person_check','owner_reports_known_contact_callback',
+  'owner_reports_organization_callback'];
+const transferChannels=['in_person','secured_external_channel','sealed_paper_copy'];
+const observations=['file_not_available','fingerprint_match_reported',
+  'fingerprint_mismatch_reported'];
+const issueHandoffSchema=z.object({
+  grantId:z.number().int().positive(),expectedRef:z.string().regex(sha),
+  identityCheckMethod:z.enum(handoffMethods),
+  transferChannel:z.enum(transferChannels),
+  requestId:z.string().regex(uuid),
+}).strict();
+const receiptSchema=z.object({
+  handoffId:z.number().int().positive(),
+  expectedRef:z.string().regex(sha),
+  challenge:z.string().regex(sha),
+  observation:z.enum(observations),
+  observedFileSha256:z.string().regex(sha).nullable(),
+  note:z.string().trim().min(12).max(180).refine(x=>!/[\r\n]/.test(x)),
+  requestId:z.string().regex(uuid),
+}).strict().superRefine((v,ctx)=>{
+  if((v.observation==='file_not_available')!==(v.observedFileSha256===null))
+    ctx.addIssue({code:'custom',path:['observedFileSha256'],
+      message:'A missing file must not have a fingerprint; an inspected file requires one.'});
+});
+const HANDOFF_TTL_MS=24*60*60*1000;
+const secretHash=(grantId,challenge)=>createHash('sha256')
+  .update('mansupos-review-handoff-v1:'+grantId+':'+challenge).digest('hex');
+
 const acknowledgementSchema = z.object({
   grantId:z.number().int().positive(),
   expectedRef:z.string().regex(sha),
@@ -87,6 +117,46 @@ function acknowledgements(db){
     outcomes.includes(x.outcome)&&
     (x.issueCode===null||issues.includes(x.issueCode)));
 }
+function handoffs(db){
+  return events(db,'inventory.reviewer_handoff_issued').filter(x=>
+    Number.isSafeInteger(x.grantId)&&x.grantId>0&&
+    uuid.test(x.reviewerId||'')&&sha.test(x.secretDigest||'')&&
+    sha.test(x.sourceHash||'')&&sha.test(x.custodyRef||'')&&
+    sha.test(x.fileSha256||'')&&Number.isSafeInteger(x.expiresAt)&&
+    handoffMethods.includes(x.identityCheckMethod)&&
+    transferChannels.includes(x.transferChannel));
+}
+function receipts(db){
+  return events(db,'inventory.reviewer_handoff_receipt').filter(x=>
+    Number.isSafeInteger(x.handoffId)&&x.handoffId>0&&
+    Number.isSafeInteger(x.grantId)&&x.grantId>0&&
+    uuid.test(x.reviewerId||'')&&
+    observations.includes(x.observation)&&
+    (x.observedFileSha256===null||sha.test(x.observedFileSha256||'')));
+}
+function handoffStatus(grant,history,received,clock,valid){
+  const latest=history.filter(x=>x.grantId===grant.id).at(-1);
+  if(!latest)return {status:'not_issued',receipt:null};
+  const receipt=received.find(x=>x.handoffId===latest.id);
+  return {
+    id:latest.id,
+    issuedAt:latest.recordedAt,
+    expiresAt:new Date(latest.expiresAt).toISOString(),
+    identityCheckMethod:latest.identityCheckMethod,
+    transferChannel:latest.transferChannel,
+    status:receipt?'account_receipt_recorded':
+      !valid?'inactive_or_stale':
+      clock>=latest.expiresAt?'expired':'awaiting_challenge',
+    receipt:receipt?{
+      id:receipt.id,observation:receipt.observation,
+      observedFileSha256:receipt.observedFileSha256,
+      note:receipt.note,recordedAt:receipt.recordedAt,
+      challengePossessionConfirmed:true,
+      humanIdentityVerified:false,documentAuthenticityVerified:false,
+    }:null,
+    humanIdentityVerified:false,documentDeliveredByPOS:false,
+  };
+}
 function isSameCase(row,grant){
   return Boolean(row?.mayReport&&row.custodyRequestId===grant.custodyRequestId&&
     row.manifestId===grant.manifestId&&row.fileSha256===grant.fileSha256&&
@@ -106,7 +176,7 @@ function matchGrant(ctx,grant){
     ctx.report.custodyRef===grant.custodyRef&&
     isSameCase(ctx.rows.find(x=>x.reportRow===grant.reportRow),grant);
 }
-function snapshot(ctx,grant,revoked,ack){
+function snapshot(ctx,grant,revoked,ack,handoff,clock=Date.now()){
   const row=ctx.rows.find(x=>x.reportRow===grant.reportRow);
   const current=!revoked&&matchGrant(ctx,grant);
   return {
@@ -118,6 +188,7 @@ function snapshot(ctx,grant,revoked,ack){
     status:revoked?'revoked':current?'assigned_metadata_only':'stale_evidence',
     mayAcknowledge:current,
     countDiscrepancyOpen:current?row.countDiscrepancyOpen:null,
+    handoff:handoff||{status:'not_issued',receipt:null},
     latestAcknowledgement:ack?{
       id:ack.id,outcome:ack.outcome,issueCode:ack.issueCode,
       note:ack.note,recordedAt:ack.recordedAt,
@@ -227,6 +298,7 @@ export class IndependentReviewerAccess{
     const ctx=context(this.intake,physical,website,clock);
     const revoked=new Set(revocations(this.db).map(x=>x.grantId));
     const ack=acknowledgements(this.db);
+    const history=handoffs(this.db),received=receipts(this.db);
     const accounts=this.db.prepare("SELECT id,username,active FROM users WHERE role='reviewer' ORDER BY username LIMIT 100").all();
     return {
       kind:'owner-reviewer-access-register',
@@ -240,7 +312,8 @@ export class IndependentReviewerAccess{
       accounts:accounts.map(x=>({id:x.id,username:x.username,active:Boolean(x.active)})),
       assignments:grants(this.db).map(g=>({
         reviewerId:g.reviewerId,
-        ...snapshot(ctx,g,revoked.has(g.id),latestAcknowledgement(ack,g.id)),
+        ...snapshot(ctx,g,revoked.has(g.id),latestAcknowledgement(ack,g.id),
+          handoffStatus(g,history,received,clock,!revoked.has(g.id)&&matchGrant(ctx,g)),clock),
       })),
       ...locked,
       notice:'Account-authenticated review of assigned metadata only. No document bytes, count quantities, customer data, prices or trading rights.',
@@ -252,14 +325,143 @@ export class IndependentReviewerAccess{
     const ctx=context(this.intake,physical,website,clock);
     const revoked=new Set(revocations(this.db).map(x=>x.grantId));
     const ack=acknowledgements(this.db);
+    const history=handoffs(this.db),received=receipts(this.db);
     return {
       kind:'reviewer-assigned-request-metadata',
       snapshotRef:ctx.report.snapshotRef,
       cases:grants(this.db).filter(g=>g.reviewerId===user.id).map(g=>
-        snapshot(ctx,g,revoked.has(g.id),latestAcknowledgement(ack,g.id))),
+        snapshot(ctx,g,revoked.has(g.id),latestAcknowledgement(ack,g.id),
+          handoffStatus(g,history,received,clock,!revoked.has(g.id)&&matchGrant(ctx,g)),clock)),
       ...locked,
       notice:'Your login only authenticates this POS account. No original file is delivered by MansuPOS. Acknowledging this request does not certify documents or physical counts.',
     };
+  }
+
+  // Owner initiates an EXTERNAL handoff challenge after declaring an
+  // out-of-band identity-check method. Nothing here sends a document.
+  issueHandoff(user,physical,website,raw,clock=Date.now()){
+    ownerOnly(user);
+    const data=issueHandoffSchema.parse(raw);
+    const ctx=context(this.intake,physical,website,clock);
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      const history=handoffs(this.db),received=receipts(this.db);
+      const replay=history.find(x=>x.requestId===data.requestId);
+      if(replay){
+        if(replay.actor!==user.id||replay.grantId!==data.grantId||
+           replay.expectedRef!==data.expectedRef||
+           replay.identityCheckMethod!==data.identityCheckMethod||
+           replay.transferChannel!==data.transferChannel)
+          throw new AppError('Handoff request UUID reused with different evidence.',409,
+            'REVIEWER_HANDOFF_REPLAY_CONFLICT');
+        this.db.exec('COMMIT');
+        // The plaintext secret is intentionally NOT recoverable on replay.
+        return {kind:'reviewer-handoff-challenge',handoffId:replay.id,
+          replayed:true,challenge:null,...locked};
+      }
+      const grant=grants(this.db).find(x=>x.id===data.grantId);
+      if(!grant||revocations(this.db).some(x=>x.grantId===grant.id))
+        throw new AppError('No active reviewer grant exists.',409,'REVIEWER_HANDOFF_GRANT_INVALID');
+      if(!this.db.prepare("SELECT id FROM users WHERE id=? AND role='reviewer' AND active=1")
+        .get(grant.reviewerId))
+        throw new AppError('Reviewer account is inactive.',409,'REVIEWER_HANDOFF_ACCOUNT_INACTIVE');
+      if(data.expectedRef!==ctx.report.snapshotRef||!matchGrant(ctx,grant))
+        throw new AppError('Evidence or custody request changed.',409,'REVIEWER_HANDOFF_CASE_STALE');
+      const forGrant=history.filter(x=>x.grantId===grant.id);
+      if(forGrant.some(x=>received.some(y=>y.handoffId===x.id)))
+        throw new AppError('This grant already has a recorded receipt; create a new reviewed grant if needed.',
+          409,'REVIEWER_HANDOFF_ALREADY_RECEIVED');
+      const previous=forGrant.at(-1);
+      if(previous&&clock<previous.expiresAt)
+        throw new AppError('A handoff challenge is still active.',409,
+          'REVIEWER_HANDOFF_ALREADY_ACTIVE');
+      const challenge=randomBytes(32).toString('hex');
+      const id=insertAudit(this.db,user.id,'inventory.reviewer_handoff_issued',{
+        ...data,reviewerId:grant.reviewerId,
+        sourceHash:grant.sourceHash,custodyRef:grant.custodyRef,
+        fileSha256:grant.fileSha256,
+        secretDigest:secretHash(grant.id,challenge),
+        expiresAt:clock+HANDOFF_TTL_MS,
+      });
+      this.db.exec('COMMIT');
+      return {
+        kind:'reviewer-handoff-challenge',handoffId:id,challenge,
+        expiresAt:new Date(clock+HANDOFF_TTL_MS).toISOString(),
+        replayed:false,...locked,
+        notice:'Share this secret separately via a trusted channel. It is shown once and cannot prove delivery of an original document.',
+      };
+    }catch(err){this.db.exec('ROLLBACK');throw err;}
+  }
+
+  // Reviewer confirms possession of the handoff secret and reports whether
+  // a file locally examined matches the expected SHA-256. The server does not
+  // receive the file, attest its provenance or verify a real-world identity.
+  receiveHandoff(user,physical,website,raw,clock=Date.now()){
+    reviewerOnly(user);
+    const data=receiptSchema.parse(raw);
+    const ctx=context(this.intake,physical,website,clock);
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      const history=handoffs(this.db),received=receipts(this.db);
+      const replay=received.find(x=>x.requestId===data.requestId);
+      if(replay){
+        if(replay.actor!==user.id||replay.reviewerId!==user.id||
+           replay.handoffId!==data.handoffId||
+           replay.expectedRef!==data.expectedRef||
+           replay.observation!==data.observation||
+           replay.observedFileSha256!==data.observedFileSha256||
+           replay.note!==data.note)
+          throw new AppError('Receipt UUID reused with different evidence.',409,
+            'REVIEWER_HANDOFF_RECEIPT_REPLAY_CONFLICT');
+        this.db.exec('COMMIT');
+        return {kind:'reviewer-handoff-account-receipt',eventId:replay.id,
+          replayed:true,...locked};
+      }
+      const issued=history.find(x=>x.id===data.handoffId);
+      const grant=issued&&grants(this.db).find(x=>
+        x.id===issued.grantId&&x.reviewerId===user.id);
+      if(!grant||issued.reviewerId!==user.id||
+         revocations(this.db).some(x=>x.grantId===grant.id))
+        throw new AppError('No active handoff for this reviewer.',403,
+          'REVIEWER_HANDOFF_NOT_ASSIGNED');
+      if(data.expectedRef!==ctx.report.snapshotRef||!matchGrant(ctx,grant)||
+         issued.sourceHash!==grant.sourceHash||
+         issued.custodyRef!==grant.custodyRef||
+         issued.fileSha256!==grant.fileSha256)
+        throw new AppError('The custody or file evidence changed; request a new handoff.',409,
+          'REVIEWER_HANDOFF_STALE');
+      if(clock>=issued.expiresAt||
+         history.filter(x=>x.grantId===grant.id).at(-1)?.id!==issued.id)
+        throw new AppError('Handoff challenge expired or superseded.',409,
+          'REVIEWER_HANDOFF_EXPIRED');
+      if(received.some(x=>x.handoffId===issued.id))
+        throw new AppError('This handoff already has a receipt.',409,
+          'REVIEWER_HANDOFF_ALREADY_RECEIVED');
+      const digest=secretHash(grant.id,data.challenge);
+      if(!timingSafeEqual(Buffer.from(digest,'hex'),Buffer.from(issued.secretDigest,'hex')))
+        throw new AppError('The handoff secret is invalid.',403,
+          'REVIEWER_HANDOFF_SECRET_INVALID');
+      if(data.observation==='fingerprint_match_reported'&&
+         data.observedFileSha256!==grant.fileSha256||
+         data.observation==='fingerprint_mismatch_reported'&&
+         data.observedFileSha256===grant.fileSha256)
+        throw new AppError('Observed fingerprint does not match the selected outcome.',400,
+          'REVIEWER_HANDOFF_FINGERPRINT_CONFLICT');
+      const id=insertAudit(this.db,user.id,'inventory.reviewer_handoff_receipt',{
+        handoffId:issued.id,grantId:grant.id,reviewerId:user.id,
+        expectedRef:data.expectedRef,sourceHash:grant.sourceHash,
+        custodyRef:grant.custodyRef,fileSha256:grant.fileSha256,
+        observation:data.observation,
+        observedFileSha256:data.observedFileSha256,
+        note:data.note,requestId:data.requestId,
+      });
+      this.db.exec('COMMIT');
+      return {kind:'reviewer-handoff-account-receipt',eventId:id,
+        replayed:false,...locked,
+        challengePossessionConfirmed:true,
+        humanIdentityVerified:false,originalFileDeliveredByPOS:false,
+      };
+    }catch(err){this.db.exec('ROLLBACK');throw err;}
   }
 
   acknowledge(user,physical,website,raw,clock=Date.now()){
