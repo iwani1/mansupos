@@ -1148,7 +1148,12 @@ function mansu_online_paystack_route_lock() {
             if ( $order->has_status( 'pending' ) ) {
                 $order->update_status( 'on-hold', 'External Paystack settlement unconfirmed; no fulfilment until Owner review.' );
             }
-            status_header( 409 );
+            // This is ONLY an acknowledgement of the signed webhook's
+            // delivery. The Woo order stays on hold for manual settlement
+            // reconciliation and must not fulfil or reduce stock. Paystack
+            // retries non-200 events for days; replaying a securely recorded
+            // quarantine would increase noise without making stock safer.
+            status_header( 200 );
         } else {
             // A browser return query is NOT signed payment evidence. An
             // attacker with a leaked reference must not be able to quarantine
