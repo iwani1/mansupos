@@ -60,7 +60,7 @@ test('Phase 5.4 reviewer account is case-scoped, denies other POS APIs and never
   const owner=ownerLogin.data.token;
   assert.equal((await req('/auth/password',owner,'POST',{
     currentPassword:'synthetic-reviewer-setup-123',
-    newPassword:'synthetic-owner-rotated-1234',
+    newPassword:'synthetic-rotated-login-1234',
   })).status,200);
   const counter1=(await req('/auth/login',null,'POST',{
     username:'review-counter-one',password:'synthetic-counter-password-123',
