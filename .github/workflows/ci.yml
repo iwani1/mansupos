@@ -18,6 +18,13 @@ jobs:
       - run: npm ci
       - run: test -z "$(git ls-files 'wc-product-export-*.csv')" # no raw Woo export in branch head
       - run: npm test
+      - name: Four-track synthetic-only safety preflight and mandatory live release refusal
+        run: |
+          node scripts/four-track-preflight.mjs
+          if node scripts/four-track-preflight.mjs --require-production-ready; then
+            echo "::error::Synthetic test completion must NEVER authorize a live rollout."
+            exit 1
+          fi
       - name: Syntax-check uninstalled WooCommerce PHP extensions
         run: |
           php -l woocommerce/mansu-online-bridge/mansu-online-bridge.php
