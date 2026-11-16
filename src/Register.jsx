@@ -203,7 +203,11 @@ export default function Register({ active = true, catalog, config, checkoutScope
     const source = (item.variationId ? product?.variations.find(v => v.id === item.variationId) : product) || item;
     const quantity = source.stockSource === 'parent' && product ? cart.filter(i => i.productId === product.id && (product.variations.find(v => v.id === i.variationId)?.stockSource ?? i.stockSource) === 'parent').reduce((sum, i) => sum + i.quantity, 0) : item.quantity;
     const mayBeBackordered = onBackorder(source) || (source.manageStock && allowsBackorders(source) && (!hasKnownStock(source) || quantity > source.stock));
-    return mayBeBackordered ? (source.backorders === 'notify' ? 'Backorder · notify customer' : 'Backorder') : '';
+    if (mayBeBackordered) return source.backorders === 'notify' ? 'Backorder · notify customer' : 'Backorder';
+    // The website can hold a last unit for an unpaid online checkout. The
+    // server refuses held units; staff should still glance at Woo first.
+    const lastUnit = config.mode !== 'demo' && source.manageStock && hasKnownStock(source) && !allowsBackorders(source) && quantity >= source.stock;
+    return lastUnit ? 'Last unit · check no online order is holding it before taking cash' : '';
   }
   const shiftRequired = config.requireShift && config.mode !== 'demo' && !config.liveReadOnly;
   const checkoutDisabled = !cart.length || busy || (!online && !desktop) || stockStale || (config.mode !== 'demo' && !config.writesEnabled) || (shiftRequired && !shift);
@@ -216,6 +220,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
         <SellingModeSwitch mode="retail" onRetail={() => {}} onWholesale={onOpenWholesale} canWholesale={canWholesale} />
         {config.onlineBridgeLocalTest && <Notice tone="warning"><strong>Isolated local development fixture only.</strong> No real cash, customer, live Woo inventory/order or receipt. Every attempt must use its own verified Woo hold; stop and reconcile the original key if its response is uncertain.</Notice>}
         {config.liveReadOnly && <Notice tone="warning">Live WooCommerce catalogue. Cart amounts are references, not verified payable totals. Checkout and payment recording are disabled; do not collect money or release goods through this POS.</Notice>}
+        {config.liveRetailCashDirect && <Notice tone="warning">Live till · cash-only retail. Each sale creates a real WooCommerce order and lowers website stock. Count the cash before confirming; never release goods until the sale shows Paid.</Notice>}
         {stockStale && <Notice tone="warning">This catalogue is not current. Stock counts are hidden and checkout is blocked; refresh before relying on prices or availability.</Notice>}
         {requireStockSource && catalog?.complete === false && <Notice tone="warning">Only the loaded WooCommerce product and option pages appear here. Refresh or review the website if a product is missing.</Notice>}
         {!online && <Notice tone="warning" icon={WifiOff}>{desktop ? 'Internet is unavailable. Only a valid, previously reserved Woo stock allocation can be sold; the committed receipt stays in the protected local sync queue.' : 'You’re offline. Checkout is disabled; no offline payment queue is stored. Reconnect and refresh before selling.'}</Notice>}
@@ -244,7 +249,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
         <div className="cart-items" role="region" aria-label="Items in current sale" tabIndex={0}>{!cart.length ? <Empty icon={ShoppingBag} title="A fresh start">Add products to begin a new sale.<br />Search, tap, or scan to get started.</Empty> : cart.map(item => <div className="cart-item" key={item.key}><ProductImage src={item.image} name={item.name} /><div className="cart-item-content">
             <div className="cart-item-title"><h3>{item.name}</h3><button aria-label={`Remove ${item.name}`} onClick={() => setCart(previous => previous.filter(i => i.key !== item.key))}><Trash2 size={14} /></button></div>
             <p>{item.optionLabel || item.label || 'Standard'} <span>· {money(item.price)}</span></p>
-            {cartBackorder(item) && <p className="cart-backorder">{cartBackorder(item)}</p>}
+            {cartBackorder(item) && <p className="cart-backorder" role="status">{cartBackorder(item)}</p>}
             <div className="cart-item-bottom"><div className="quantity-control"><button aria-label={`Decrease ${item.name}`} onClick={() => changeQty(item.key,-1)}><Minus size={13} /></button><span>{item.quantity}</span><button aria-label={`Increase ${item.name}`} onClick={() => changeQty(item.key,1)}><Plus size={13} /></button></div><strong>{money(item.price * item.quantity)}</strong></div>
           </div></div>)}</div>
         <div className="cart-bottom"><div className="cart-details" ref={cartDetailsRef} role="region" aria-label="Sale summary" tabIndex={0}>

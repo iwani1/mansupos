@@ -412,6 +412,44 @@ export class SalesService {
       throw new AppError('Checkout was interrupted. Do not create another order; reconcile this sale from Sales first.', 502, 'RECONCILIATION_REQUIRED');
     }
   }
+  // Direct live retail cash has no atomic Woo reservation. When this sale would
+  // take the LAST units of a stock pool, refuse while any unpaid website or POS
+  // order created within the Woo hold window contains the same pool: Woo holds
+  // those units for the online shopper without lowering stock_quantity yet.
+  // Fails closed if the order list cannot be read completely.
+  async assertNoOpenHolds(lines, excludeOrderId = null) {
+    if (!this.config.liveRetailCashDirect) return;
+    const wanted = new Map();
+    for (const line of lines) wanted.set(line.stockKey, (wanted.get(line.stockKey) || 0) + line.quantity);
+    const lastUnits = new Map();
+    for (const line of lines) {
+      if (!line.manageStock || !Number.isFinite(Number(line.stock))) continue;
+      if (Number(line.stock) - wanted.get(line.stockKey) <= 0) lastUnits.set(line.stockKey, line);
+    }
+    if (!lastUnits.size) return;
+    let result;
+    try {
+      result = await this.api.recentOrders(new Date(Date.now() - this.config.websiteHoldMinutes * 60000).toISOString());
+    } catch {
+      throw new AppError('Could not check WooCommerce for unpaid orders holding the last unit. Do not take cash; try again or check WooCommerce first.', 503, 'LAST_UNIT_UNVERIFIED');
+    }
+    if (!Array.isArray(result?.data) || result.paginationKnown === false || result.pages > 1 || result.data.length >= 100) {
+      throw new AppError('Too many recent WooCommerce orders to confirm the last unit is free. Check WooCommerce before selling it.', 409, 'LAST_UNIT_UNVERIFIED');
+    }
+    const open = new Set(['pending', 'on-hold', 'checkout-draft']);
+    for (const order of result.data) {
+      if (!open.has(order.status) || Number(order.id) === Number(excludeOrderId)) continue;
+      for (const item of order.line_items || []) {
+        for (const [key, line] of lastUnits) {
+          const [productId, variationId] = key.split(':').map(Number);
+          const sameProduct = Number(item.product_id) === productId;
+          if (sameProduct && (variationId === 0 || Number(item.variation_id) === variationId)) {
+            throw new AppError(`The last ${line.name}${line.label ? ` (${line.label})` : ''} is held by unpaid order #${order.number || order.id}. Do not take cash; check that order in WooCommerce first.`, 409, 'LAST_UNIT_HELD');
+          }
+        }
+      }
+    }
+  }
   async prepare(user, input) {
     if (this.config.onlineBridgeEnabled || this.config.onlineBridgeQuarantined || this.hasOnlineHistory()) {
       throw new AppError('Legacy Woo checkout cannot create unreserved orders in this online-bridge ledger.', 403, 'CHECKOUT_LOCKED');
@@ -467,6 +505,7 @@ export class SalesService {
       try {
         const lines = await this.catalog.fresh(items);
         validateAvailability(lines);
+        await this.assertNoOpenHolds(lines);
         if (saleType === 'retail' && lines.some(line => !Number.isSafeInteger(line.price) || line.price < 1)) {
           throw new AppError('A retail item has no positive WooCommerce price. Review it before preparing a cash order.', 409, 'PRICE_UNAVAILABLE');
         }
@@ -626,7 +665,9 @@ export class SalesService {
           this.saveRemote(row, current, user.id);
           throw new AppError('The wholesale order changed after price approval. Do not collect payment; reconcile it first.', 409, 'WHOLESALE_QUOTE_CHANGED');
         }
-        validateAvailability(await this.catalog.fresh(JSON.parse(row.items_json).map(i => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }))));
+        const freshLines = await this.catalog.fresh(JSON.parse(row.items_json).map(i => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity })));
+        validateAvailability(freshLines);
+        await this.assertNoOpenHolds(freshLines, row.woo_order_id);
         if (payment.method === 'cash' && payment.tendered < currentTotal) throw new AppError('Cash received must cover the WooCommerce order total.', 400);
         // Persist intent BEFORE the remote write. Do not overwrite a previous
         // interrupted intent with different method, amount or reference.
@@ -658,6 +699,9 @@ export class SalesService {
         });
         return saleView(saved);
       } catch (error) {
+        // A held/unverifiable last unit is checked before any payment intent or
+        // remote write: keep the order payable so staff can retry or cancel it.
+        if (!remoteAttempted && ['LAST_UNIT_HELD', 'LAST_UNIT_UNVERIFIED'].includes(error.code) && !this.get(id, user).payment_method) throw error;
         const latest = this.get(id, user);
         const hasPaymentIntent = Boolean(latest.payment_method);
         const status = error.code === 'ORDER_CANCELLED' && !hasPaymentIntent && !remoteAttempted ? 'cancelled' : 'needs_reconciliation';

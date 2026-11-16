@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly verified backup of the Mansu POS live trading ledger
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

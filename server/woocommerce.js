@@ -94,6 +94,11 @@ export class WooCommerce {
   async order(id) { return (await this.request(`orders/${id}`)).data; }
   async createOrder(body) { return (await this.request('orders', { method: 'POST', body: { ...body, created_via: 'mansu-pos' } })).data; }
   async updateOrder(id, body) { return (await this.request(`orders/${id}`, { method: 'PUT', body })).data; }
+  // Orders created since `after` in any non-trash status (website checkout
+  // holds and other tills' unpaid POS orders). Read-only; caller filters.
+  async recentOrders(after) {
+    return this.request('orders', { query: { after, status: 'any', per_page: 100, page: 1, orderby: 'date', order: 'asc' } });
+  }
   async findOrderByKey(key, createdAt) {
     const started = new Date(createdAt).getTime();
     if (!Number.isFinite(started)) throw new RemoteError('POS checkout time is invalid. Review the ledger before searching for an order.', 409);

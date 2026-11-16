@@ -4,10 +4,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFileSync, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 
-test('host-level POS listener can bind only to loopback without exposing another app port', { timeout: 15000 }, async t => {
+// The kernel listener check needs iproute2's `ss` (present on CI/Ubuntu and
+// the Contabo host). Skip with a visible reason where it is not installed.
+const ssMissing = spawnSync('ss', ['-V']).error ? 'iproute2 `ss` is not installed' : false;
+
+test('host-level POS listener can bind only to loopback without exposing another app port', { timeout: 15000, skip: ssMissing }, async t => {
   const unit = fs.readFileSync('deploy/mansu-pos-staging.service', 'utf8');
   const starts = unit.split('\n').filter(line => /^ExecStart(Pre)?=/.test(line));
   assert.equal(starts.length, 2);

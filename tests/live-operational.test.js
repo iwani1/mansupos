@@ -92,3 +92,40 @@ test('live trading template starts locked, has no secrets and requires a separat
   assert.match(backup, /^EnvironmentFile=\/etc\/mansu-pos-live-trading\/pos\.env$/m);
   assert.match(backup, /^ExecStart=.*POS_MODE=live POS_LIVE_READ_ONLY=false POS_DATA_DIR=\/var\/lib\/mansu-pos-live-trading .*server\/backup\.js \/var\/lib\/mansu-pos-live-trading\/backups$/m);
 });
+
+test('retail-cash drop-in enables only cash Retail on the trading service, whatever the env file says', () => {
+  const dropIn = fs.readFileSync('deploy/mansu-pos-live-trading.retail-cash.conf', 'utf8');
+  assert.match(dropIn, /^ExecStartPre=$/m, 'Drop-in must reset the base unit start commands');
+  assert.match(dropIn, /^ExecStart=$/m);
+  const startLines = dropIn.split('\n').filter(line => /^ExecStart(Pre)?=\/usr\/bin\/env /.test(line));
+  assert.equal(startLines.length, 2);
+  const copied = {
+    ...parse(template), WOO_CONSUMER_KEY: 'ck_mock', WOO_CONSUMER_SECRET: 'cs_mock',
+    POS_OWNER_APPROVAL_REFERENCE: 'owner-chat-2026-11-16-cash-retail',
+    POS_LIVE_WHOLESALE_APPROVED: 'true', POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'copied-wholesale-approval',
+    POS_INSTORE_CASH_APPROVED: 'true', POS_DESKTOP_SETUP_APPROVED: 'true', POS_DESKTOP_RESERVATION_APPROVED: 'true',
+    POS_STAGING_APPROVED: 'true', POS_REQUIRE_SHIFT: 'false', PORT: '3000', POS_LIVE_READ_ONLY: 'true',
+  };
+  for (const line of startLines) {
+    assert.match(line, /\/usr\/bin\/env .* \/usr\/bin\/node server\/(preflight|index)\.js$/);
+    const effective = { ...copied };
+    for (const part of line.slice(line.indexOf('/usr/bin/env ') + 13, line.indexOf(' /usr/bin/node')).split(' ')) {
+      const equals = part.indexOf('=');
+      effective[part.slice(0, equals)] = part.slice(equals + 1);
+    }
+    const config = readConfig(effective);
+    assert.equal(config.liveRetailCashDirect, true);
+    assert.equal(config.writesEnabled, true);
+    assert.equal(config.wholesaleWritesEnabled, false);
+    assert.equal(config.inStoreCashEnabled, false);
+    assert.equal(config.desktopSetupEnabled, false);
+    assert.equal(config.onlineBridgeEnabled, false);
+    assert.deepEqual(config.paymentMethods, ['cash']);
+    assert.equal(config.requireShift, true);
+    assert.equal(config.port, 3188);
+    assert.equal(config.dataDir, '/var/lib/mansu-pos-live-trading');
+    assert.equal(config.publicOrigin, 'https://pos.mansutrendzgh.com');
+    // Without the private owner approval reference the service refuses to start.
+    assert.throws(() => readConfig({ ...effective, POS_OWNER_APPROVAL_REFERENCE: '' }));
+  }
+});

@@ -48,14 +48,34 @@ export function readConfig(env = process.env) {
       env.POS_REQUIRE_SHIFT !== 'true')) {
     throw new Error('The live Woo bridge requires a dedicated trading service, mandatory shifts and separate documented owner and bridge acceptance; never the read-only pilot.');
   }
-  // A legacy REST-created POS order does NOT atomically reserve WooCommerce
-  // checkout stock. Production may never turn this old write path on via env
-  // approvals while the replacement Woo reservation bridge is still unaccepted.
+  // Owner-chosen first release (2026-11-16): cash-only RETAIL orders written
+  // straight to WooCommerce, without the reservation bridge. It is a distinct,
+  // explicit switch and refuses to combine with Wholesale, MoMo/card, the
+  // bridge, offline tills or the retired POS-only stock pool. A REST-created
+  // order still does not atomically reserve Woo stock, so SalesService also
+  // refuses last-unit sales while an unpaid website/POS order holds that item.
+  if (env.POS_LIVE_RETAIL_CASH_DIRECT && !['true', 'false'].includes(env.POS_LIVE_RETAIL_CASH_DIRECT)) {
+    throw new Error('POS_LIVE_RETAIL_CASH_DIRECT must be true or false.');
+  }
+  const liveRetailCashDirect = env.POS_LIVE_RETAIL_CASH_DIRECT === 'true';
+  if (liveRetailCashDirect && (mode !== 'live' || liveReadOnly || !configured ||
+      env.POS_ALLOW_LIVE_WRITES !== 'true' || approvalReference.length < 8 ||
+      env.POS_REQUIRE_SHIFT !== 'true' || onlineBridgeLiveEnabled ||
+      env.POS_LIVE_WHOLESALE_APPROVED === 'true' || env.POS_INSTORE_CASH_APPROVED === 'true' ||
+      env.POS_DESKTOP_SETUP_APPROVED === 'true' || env.POS_DESKTOP_RESERVATION_APPROVED === 'true')) {
+    throw new Error('Direct live retail cash requires a separate live trading service (never the read-only pilot), Woo credentials, POS_ALLOW_LIVE_WRITES=true, an owner approval reference, mandatory shifts, and no Wholesale, bridge, offline or in-store gates.');
+  }
+  const websiteHoldMinutes = Number(env.POS_WEBSITE_HOLD_MINUTES || 60);
+  if (!Number.isInteger(websiteHoldMinutes) || websiteHoldMinutes < 1 || websiteHoldMinutes > 1440) {
+    throw new Error('POS_WEBSITE_HOLD_MINUTES must be an integer from 1 to 1440 (match WooCommerce Hold stock minutes).');
+  }
+  // Without that explicit switch, a legacy REST-created POS order remains
+  // blocked in production even if older approval flags are copied in.
   // Synthetic NODE_ENV=test fixtures remain available for historical tests.
-  const legacyLiveCheckoutBlocked = mode === 'live' && production;
+  const legacyLiveCheckoutBlocked = mode === 'live' && production && !liveRetailCashDirect;
   const writesEnabled = mode === 'staging'
     ? configured && env.POS_STAGING_APPROVED === 'true'
-    : mode === 'live' && (!production || onlineBridgeLiveEnabled) && !liveReadOnly && configured &&
+    : mode === 'live' && (!production || onlineBridgeLiveEnabled || liveRetailCashDirect) && !liveReadOnly && configured &&
       env.POS_ALLOW_LIVE_WRITES === 'true' && approvalReference.length >= 8;
   // Wholesale is a separate, explicitly approved write path. Staging approval
   // is only for staging; a no-staging live rollout must not pretend it passed
@@ -170,6 +190,7 @@ export function readConfig(env = process.env) {
 
   return {
     mode, storeUrl, configured, liveReadOnly, legacyLiveCheckoutBlocked, writesEnabled, wholesaleWritesEnabled, approvalReference,
+    liveRetailCashDirect, websiteHoldMinutes,
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
     desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',
@@ -212,6 +233,7 @@ export function publicConfig(config) {
   return {
     mode: config.mode, storeUrl: config.storeUrl, configured: config.configured,
     liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
+    liveRetailCashDirect: Boolean(config.liveRetailCashDirect),
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
     onlineBridgeLocalTest: config.onlineBridgeLocalTest,
     onlineBridgeLiveEnabled: config.onlineBridgeLiveEnabled,
