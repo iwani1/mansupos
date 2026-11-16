@@ -157,7 +157,7 @@ export class InventoryReconciliationPackets{
       grant.status==='assigned_metadata_only'&&
       ctx.access.accounts.some(a=>a.id===packet.reviewerId&&a.active));
   }
-  listOwner(user,physical,website,options={},clock=Date.now()){
+  listOwner(user,physical,website,options={},clock=Date.now(),collectRows=null){
     ownerOnly(user);
     const parsed=z.object({
       page:z.number().int().min(1).max(10000).default(1),
@@ -197,6 +197,7 @@ export class InventoryReconciliationPackets{
         stockImportAuthorized:false,
       };
     });
+    if(Array.isArray(collectRows))collectRows.push(...items);
     const q=parsed.search.trim().toUpperCase();
     const filtered=items.filter(r=>!q||r.sku.toUpperCase().includes(q)||
       String(r.reportRow).includes(q));
