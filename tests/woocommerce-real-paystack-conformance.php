@@ -41,6 +41,10 @@ $paystack_assert( $gateway->saved_cards === true,
 $paystack_mode = 'exact';
 $synthetic_http_calls = 0;
 $http_mock = static function ( $preempt, $args, $url ) use ( &$paystack_mode, &$synthetic_http_calls ) {
+    // A previously refused charge MUST remain refused. WP_Http filters run
+    // sequentially; accidentally replacing our earlier WP_Error with a fake
+    // Paystack success would make this conformance test dangerously misleading.
+    if ( $preempt !== false ) { return $preempt; }
     // Never make any Paystack network call, including from a newly added path.
     if ( strpos( $url, 'api.paystack.co/' ) === false ) { return $preempt; }
     if ( $url !== 'https://api.paystack.co/transaction/charge_authorization' ||
