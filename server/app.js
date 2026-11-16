@@ -85,6 +85,9 @@ function createSession(res, db, config, userId) {
 }
 const role = (...roles) => (req, res, next) => roles.includes(req.user.role) ? next() : next(new AppError('Your staff role does not allow this action.', 403));
 const passwordSchema = z.string().min(12).max(256);
+// Unknown usernames still pay the scrypt cost, so response time does not
+// reveal which staff usernames exist.
+const UNKNOWN_USER_HASH = hashPassword(randomBytes(24).toString('hex'));
 
 export function createApp({ env = process.env, api: injectedApi, bridge: injectedBridge, reservations: injectedReservations, logger: injectedLogger } = {}) {
   const config = readConfig(env);
@@ -218,7 +221,8 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
       audit(db, row.id, 'auth.locked_attempt', row.id);
       return next(new AppError('This account is temporarily locked. Try again later or ask an owner to reset the password.', 423));
     }
-    if (!row || !verifyPassword(parsed.data.password, row.password_hash)) {
+    const passwordOk = verifyPassword(parsed.data.password, row ? row.password_hash : UNKNOWN_USER_HASH);
+    if (!row || !passwordOk) {
       if (row) {
         const attempts = (row.failed_attempts || 0) + 1;
         const lockedUntil = attempts >= 8 ? Date.now() + 15 * 60000 : null;

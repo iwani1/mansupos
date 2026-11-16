@@ -54,7 +54,7 @@ export default function DailyOperations({user}){
       if(id===requestId.current)setError(failure.message||'Staff operations could not be loaded.');
     }finally{if(id===requestId.current)setLoading(false);}
   },[canReview]);
-  useEffect(()=>{void load(day);return()=>{requestId.current++;};},[day,load]);
+  useEffect(()=>{void load(day);const requests=requestId;return()=>{requests.current++;};},[day,load]);
 
   async function changeTask(taskId,done){
     setBusy('task:'+taskId);setError('');setSuccess('');

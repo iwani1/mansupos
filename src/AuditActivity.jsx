@@ -64,7 +64,8 @@ export default function AuditActivity() {
 
   useEffect(() => {
     void load(initialFilters);
-    return () => { requestId.current++; };
+    const requests = requestId; // Invalidate any in-flight load on unmount.
+    return () => { requests.current++; };
   }, [load]);
 
   const applyFilters = e => {

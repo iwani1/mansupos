@@ -97,7 +97,9 @@ export class WooCommerce {
   // Orders created since `after` in any non-trash status (website checkout
   // holds and other tills' unpaid POS orders). Read-only; caller filters.
   async recentOrders(after) {
-    return this.request('orders', { query: { after, status: 'any', per_page: 100, page: 1, orderby: 'date', order: 'asc' } });
+    // dates_are_gmt: compare `after` (UTC ISO) with the UTC creation column,
+    // independent of the store's timezone setting.
+    return this.request('orders', { query: { after, dates_are_gmt: true, status: 'any', per_page: 100, page: 1, orderby: 'date', order: 'asc' } });
   }
   async findOrderByKey(key, createdAt) {
     const started = new Date(createdAt).getTime();
