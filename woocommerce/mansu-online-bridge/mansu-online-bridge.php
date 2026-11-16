@@ -1045,7 +1045,10 @@ function mansu_online_paystack_saved_card_checkout_result( $result, $order_id ) 
     // The remote charge may already have succeeded; never retry, delete the
     // order, restore inventory, issue a refund or claim payment was declined.
     mansu_online_website_review( $order, 'Saved-card gateway returned checkout success without verified Woo payment and stock reduction' );
-    if ( $order->has_status( 'pending' ) ) {
+    // A processing/completed status without verified stock is not safe to
+    // fulfil either. Quarantine those states as well as pending; do not
+    // resurrect cancelled/refunded orders as automatically fulfillable.
+    if ( $order->has_status( array( 'pending', 'processing', 'completed' ) ) ) {
         $order->update_status( 'on-hold', 'Saved-card payment requires manual settlement and stock reconciliation; do not fulfil.' );
     }
     wc_add_notice(
