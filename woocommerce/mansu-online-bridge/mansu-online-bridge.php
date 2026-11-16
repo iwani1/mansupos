@@ -706,7 +706,13 @@ function mansu_online_pay( $request ) {
         }
         // Never re-send payment_complete on retry. A read-only status may later
         // recover verified paid evidence; otherwise a human reviews the money.
-        return mansu_online_error( 'mansu_payment_uncertain', 'Woo payment or stock reduction is uncertain. Review the original attempt.', 503 );
+        $diagnostic = 'Woo payment or stock reduction is uncertain. Review the original attempt.';
+        if ( defined( 'MANSU_CI_DISPOSABLE_WOO' ) && MANSU_CI_DISPOSABLE_WOO === true &&
+             function_exists( 'wp_get_environment_type' ) && wp_get_environment_type() === 'local' ) {
+            // Never surface exception details to real cashiers or customers.
+            $diagnostic .= ' DISPOSABLE_CI_CAUSE: ' . $error->getMessage();
+        }
+        return mansu_online_error( 'mansu_payment_uncertain', $diagnostic, 503 );
     }
 }
 function mansu_online_expire( $service, $key ) {
