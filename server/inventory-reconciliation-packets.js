@@ -250,7 +250,6 @@ export class InventoryReconciliationPackets{
       const rows=ctx.rows.filter(x=>x.reportRow===data.reportRow);
       if(rows.length!==1||rows[0].evidenceRef!==data.expectedRowEvidenceRef)
         throw new AppError('Inventory row evidence changed.',409,'RECONCILIATION_ROW_CHANGED');
-      const row=rows[0];
       const grants=ctx.access.assignments.filter(g=>g.grantId===data.grantId&&
         g.reportRow===data.reportRow&&g.status==='assigned_metadata_only'&&
         ctx.access.accounts.some(a=>a.id===g.reviewerId&&a.active));
