@@ -40,6 +40,12 @@ function main(){
       artifact.releaseReady!==false||
       !Array.isArray(artifact.content.items)||
       !Array.isArray(artifact.content.globalRequirements)||
+      artifact.content.auditOnly!==true||artifact.content.metadataOnly!==true||
+      artifact.content.stockImportAuthorized!==false||
+      artifact.content.checkoutAuthorized!==false||
+      artifact.content.paymentsAuthorized!==false||
+      artifact.content.inventoryAccepted!==false||
+      artifact.content.releaseReady!==false||
       artifact.content.summary?.acceptedRows!==0||
       artifact.content.summary?.approvedForImport!==0||
       artifact.content.items.length!==artifact.content.summary?.historicalRows||
