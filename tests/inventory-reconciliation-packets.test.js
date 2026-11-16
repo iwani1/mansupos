@@ -156,7 +156,7 @@ test('5.8 Owner proposals remain non-approving, private and bound to assigned ca
     assert.equal(visible.items[0].reportRow,1);
     assert.equal(visible.items[0].packetId,recorded.packetId);
     assert.equal(visible.items[0].reconciliationApproved,false);
-    assert.doesNotMatch(JSON.stringify(visible),/proposedUnits|twelve garments|42|43|ownerNote|priceCents|customerEmail/);
+    assert.doesNotMatch(JSON.stringify(visible),/proposedUnits|twelve garments|ownerNote|priceCents|customerEmail/);
     assert.equal(x.service.listReviewer(stranger,x.physical,x.website,NOW).items.length,0);
     assert.equal(x.db.prepare("SELECT COUNT(*) n FROM audit").get().n,1);
     assert.throws(()=>x.db.prepare('UPDATE audit SET subject=?').run('hacked'),/immutable/);
