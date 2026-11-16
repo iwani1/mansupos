@@ -92,7 +92,7 @@ ls -1 "$DATA/backups" | tail -3
 
 step "7/7 Done — trading service is running on 127.0.0.1:3188 (not public yet)"
 cat <<EOF
-Nginx file for the cutover: $(grep -rl "pos.mansutrendzgh.com" /etc/nginx/ 2>/dev/null | head -1 || echo "not found")
+Nginx files serving pos.mansutrendzgh.com: $(nginx -T 2>/dev/null | awk '/^# configuration file /{f=$4; sub(/:$/,"",f)} /server_name[^;]*pos\\.mansutrendzgh\\.com/{print f}' | sort -u | tr '\n' ' ')
 Next (go live):  bash $APP/deploy/pos-domain-switch.sh trading
 Rollback:        bash $APP/deploy/pos-domain-switch.sh pilot
 Rollback info and backups: $BK

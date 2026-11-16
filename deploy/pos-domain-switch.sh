@@ -20,15 +20,21 @@ esac
 HEALTH=$(curl -sf "http://127.0.0.1:$TO/api/health") || fail "nothing healthy on 127.0.0.1:$TO; domain left unchanged"
 echo "$HEALTH" | grep -q "$WANT" || fail "service on $TO is not the expected one ($HEALTH); domain left unchanged"
 
-# Exactly one Nginx file may declare this host (symlinks resolved, deduplicated).
-mapfile -t FILES < <(grep -rlE 'server_name[^;]*\bpos\.mansutrendzgh\.com\b' /etc/nginx/ 2>/dev/null | xargs -r -n1 readlink -f | sort -u)
-[ "${#FILES[@]}" = 1 ] || fail "expected one Nginx file for pos.mansutrendzgh.com, found ${#FILES[@]}: ${FILES[*]:-none}"
-F=${FILES[0]}
-N=$(grep -c "proxy_pass http://127.0.0.1:$FROM" "$F" || true)
-if [ "$N" = 0 ]; then
-  grep -q "proxy_pass http://127.0.0.1:$TO" "$F" && { echo "Already pointing at $TO. Nothing to do."; exit 0; }
-  fail "no 'proxy_pass http://127.0.0.1:$FROM' in $F; inspect it manually"
+# Only files Nginx ACTUALLY loads count (from `nginx -T`), so stray copies like
+# *.before-proxy are ignored. Among those declaring this host, exactly one may
+# proxy it to the port we are leaving (an HTTP->HTTPS redirect block is skipped).
+nginx -t >/dev/null 2>&1 || fail "current Nginx config does not pass nginx -t; fix that first"
+mapfile -t HOSTFILES < <(nginx -T 2>/dev/null | awk '/^# configuration file /{f=$4; sub(/:$/,"",f)} /server_name[^;]*pos\.mansutrendzgh\.com/{print f}' | sort -u)
+[ "${#HOSTFILES[@]}" -ge 1 ] || fail "no loaded Nginx file declares pos.mansutrendzgh.com"
+FILES=()
+for x in "${HOSTFILES[@]}"; do grep -q "proxy_pass http://127.0.0.1:$FROM" "$x" && FILES+=("$x"); done
+if [ "${#FILES[@]}" = 0 ]; then
+  for x in "${HOSTFILES[@]}"; do grep -q "proxy_pass http://127.0.0.1:$TO" "$x" && { echo "Already pointing at $TO ($x). Nothing to do."; exit 0; }; done
+  fail "no loaded file for pos.mansutrendzgh.com proxies to $FROM (files: ${HOSTFILES[*]}); inspect manually"
 fi
+[ "${#FILES[@]}" = 1 ] || fail "more than one loaded file proxies pos.mansutrendzgh.com to $FROM: ${FILES[*]}; inspect manually"
+F=$(readlink -f "${FILES[0]}")
+N=$(grep -c "proxy_pass http://127.0.0.1:$FROM" "$F")
 # Show every host this file serves so the operator sees exactly what is affected.
 HOSTS=$(grep -oE 'server_name[^;]*' "$F" | sed 's/server_name//' | tr -s ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')
 echo "Nginx file: $F  (hosts: $HOSTS)  lines to change: $N"
