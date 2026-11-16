@@ -1047,13 +1047,19 @@ function mansu_online_paystack_route_lock() {
     // not display/acknowledge an ordinary completed sale or consume POS stock.
     // This does not reverse a charge; never ask a customer to pay again.
     if ( ! mansu_online_paystack_original_hold_safe( $order ) ) {
-        mansu_online_website_review( $order, 'Paystack return/webhook arrived without an original hold valid for the verification margin' );
-        if ( $order->has_status( 'pending' ) ) {
-            $order->update_status( 'on-hold', 'External Paystack settlement unconfirmed; no fulfilment until Owner review.' );
-        }
         if ( $is_webhook ) {
+            // This request carried a valid Paystack webhook HMAC, so its
+            // external-success CLAIM deserves Owner reconciliation. We must
+            // not infer settlement, mark paid, allocate stock or fulfil.
+            mansu_online_website_review( $order, 'Signed Paystack webhook arrived without an original hold valid for the verification margin' );
+            if ( $order->has_status( 'pending' ) ) {
+                $order->update_status( 'on-hold', 'External Paystack settlement unconfirmed; no fulfilment until Owner review.' );
+            }
             status_header( 409 );
         } else {
+            // A browser return query is NOT signed payment evidence. An
+            // attacker with a leaked reference must not be able to quarantine
+            // a pending order just by visiting the return URL.
             wp_die(
                 'We could not confirm this order. If you were charged, please contact the store before trying to pay again.',
                 'Order requires verification',
