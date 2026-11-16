@@ -78,6 +78,11 @@ const cases = [
   ['simple', ['pos','pos']],
   ['shared', ['website','pos']],
   ['shared', ['pos','website']],
+  // LYSA-like managed variations: both checkouts contend for one Size S,
+  // while the parent's displayed stock and the other size are untouched.
+  ['individual', ['website','pos']],
+  ['individual', ['pos','website']],
+  ['individual', ['pos','pos']],
 ];
 for (let i = 0; i < cases.length; i++) await race(i, ...cases[i]);
 console.log('REAL_WOO_CONCURRENT_OK ' + cases.length +
