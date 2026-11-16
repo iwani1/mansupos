@@ -151,8 +151,8 @@ switch ( $phase ) {
                 ++$paystack_notes;
             }
         }
-        $assert( $paystack_notes === 1,
-            'Repeated expired-hold webhook generated duplicate Paystack success evidence.' );
+        $assert( $paystack_notes === 0,
+            'Early-quarantined expired-hold webhook must not invent a Paystack gateway success note.' );
         break;
     case 'webhook-underpaid':
         $late( 'webhook_underpaid', 'on-hold' );
@@ -161,7 +161,14 @@ switch ( $phase ) {
         $valid( 'return_valid' );
         break;
     case 'return-late':
-        $late( 'return_late' );
+        // An unsigned browser return is not payment proof. When the original
+        // hold expired and POS already sold the final unit, reject the return
+        // without falsely marking this website order paid or on-hold.
+        list( $order, $product, $reduced ) = $case( 'return_late' );
+        $assert( $order->has_status( 'pending' ) &&
+            $order->get_meta( '_mansu_website_stock_review', true ) !== 'required' &&
+            ! $order->get_date_paid() && (int) $product->get_stock_quantity() === 0 &&
+            $reduced === 0, 'Unsigned late return mutated Woo order or oversold stock.' );
         break;
     case 'webhook-mismatch':
         $late( 'webhook_mismatch', 'on-hold' );
@@ -210,19 +217,19 @@ switch ( $phase ) {
             'stock' => $product->get_stock_quantity(),
             'line_reduced' => $reduced,
         ) ) . PHP_EOL;
-        $assert( count( $race_arrivals ) === 2 && count( $race_markers ) === 1,
-            'Late callback race must overlap at entry but verify only the first quarantined attempt.' );
+        $assert( count( $race_arrivals ) === 2 && count( $race_markers ) === 0,
+            'Late webhook/return must overlap at admission while NO expired-hold gateway verification runs.' );
         $late( 'race_late' );
         list( $order ) = $case( 'race_late' );
         $notes = wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 100 ) );
         $success_notes = array_filter( $notes, static function ( $note ) {
             return strpos( $note->content, 'Payment via Paystack successful' ) !== false;
         } );
-        $assert( count( $success_notes ) === 1,
-            'Concurrent late webhook/return callbacks generated multiple Paystack success notes; count=' . count( $success_notes ) );
+        $assert( count( $success_notes ) === 0,
+            'Concurrent late webhook/return must not invent gateway success; count=' . count( $success_notes ) );
         $race_markers = glob( WP_CONTENT_DIR . '/mansu-ci-paystack-race-late/verify-*' );
-        $assert( count( $race_markers ) === 1,
-            'Second late callback should not verify once the original is on-hold for human review.' );
+        $assert( count( $race_markers ) === 0,
+            'Neither expired-hold callback may reach Paystack verification; preserve on-hold settlement review.' );
         break;
     case 'webhook-verify-failed':
         list( $order, $product, $reduced ) = $case( 'webhook_verify_failed' );
