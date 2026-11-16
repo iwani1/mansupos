@@ -206,8 +206,11 @@ if ( $phase === 'cross-verify' ) {
         'Expired website Paystack callback claimed the stock or lost human review.' );
     $check( (int) $product->get_stock_quantity() === 0,
         'POS+website race oversold the final synthetic unit: ' . $product->get_stock_quantity() );
-    $check( $notes( $web ) === 1,
-        'Cross-channel race produced duplicate external Paystack success notes.' );
+    // The signed late webhook is acknowledged and quarantined BEFORE the
+    // Paystack gateway payment_complete() route can run. No success/settlement
+    // note may be invented; the externally settled claim needs Owner review.
+    $check( $notes( $web ) === 0,
+        'Early-quarantined signed website callback incorrectly recorded Paystack gateway success.' );
     if ( $kind === 'shared-parent' ) {
         $check( $data['kind'] === 'shared-parent' &&
             (int) $data['websiteVariationId'] > 0 &&
