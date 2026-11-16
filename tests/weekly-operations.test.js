@@ -46,7 +46,11 @@ test('weekly scorecard counts assigned Mon–Sat days, newest staff reports and 
   const {owner,db,staff,history,call}=await setup(t);
   const cashier=staff('sales-person','cashier');
   const manager=staff('packing-person','manager');
-  const today=accraDay(),monday=weekMonday(today);
+  const today=accraDay(),currentMonday=weekMonday(today);
+  // On Monday/Tuesday this week's Wednesday is still in the future, so
+  // exercise the latest completed working Wednesday instead.
+  const monday=today<dayOffset(currentMonday,2)?
+    dayOffset(currentMonday,-7):currentMonday;
   const wednesday=dayOffset(monday,2);
   history('demo-owner','operations.assignment',{staffId:'sales-person',lane:'sales'},dayOffset(monday,-1));
   history('demo-owner','operations.assignment',{staffId:'packing-person',lane:'fulfilment'},dayOffset(monday,-1));

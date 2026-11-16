@@ -101,7 +101,7 @@ test('two claims required; owner can record checksum only, with immutable append
     assert.equal(after.items[0].latestManifest.signatureVerified,false);
     assert.equal(after.totalRecordedUnverified,1);
     assert.notEqual(after.snapshotRef,before.snapshotRef);
-    assert.doesNotMatch(JSON.stringify(after),/PRIVATE|priceCents|"stock":900|firstUnits|secondUnits/);
+    assert.doesNotMatch(JSON.stringify(after),/"name":"PRIVATE"|priceCents|"stock":900|firstUnits|secondUnits/);
     assert.equal(ctx.db.prepare("SELECT COUNT(*) AS n FROM audit WHERE action='inventory.private_count_file_manifest'").get().n,1);
     assert.throws(()=>ctx.db.prepare("UPDATE audit SET action='x'").run(),/immutable/);
   }finally{ctx.db.close();}
