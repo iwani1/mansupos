@@ -162,7 +162,7 @@ export class InventoryEvidenceExceptionReview{
   constructor(db,intake,reviewerAccess){
     this.db=db;this.intake=intake;this.reviewerAccess=reviewerAccess;
   }
-  list(user,physical,website,raw={},clock=Date.now()){
+  list(user,physical,website,raw={},clock=Date.now(),collectRows=null){
     ownerOnly(user);
     const input=z.object({
       page:z.number().int().min(1).max(10000).default(1),
@@ -172,6 +172,9 @@ export class InventoryEvidenceExceptionReview{
     }).strict().parse(raw);
     const {snapshotRef,cases}=prepare(this.db,this.intake,this.reviewerAccess,
       user,physical,website,clock);
+    if(Array.isArray(collectRows))collectRows.push(...cases.map(item=>{
+      const safe={...item};delete safe.caseKey;return safe;
+    }));
     const term=input.search.toUpperCase();
     const filtered=cases.filter(x=>(input.status==='all'||x.category===input.status)&&
       (!term||String(x.sku).toUpperCase().includes(term)||
