@@ -40,20 +40,6 @@ $paystack_assert( $gateway->saved_cards === true,
     'Saved-card gateway test must match the owner-reported live configuration.' );
 $paystack_assert( has_filter( 'pre_http_request', 'mansu_online_paystack_saved_token_precharge' ) === 1,
     'Pinned Paystack precharge HTTP filter was not registered in native Woo.' );
-// Nonsecret single-shot diagnostic for the native Paystack HTTP filter stack.
-add_filter( 'pre_http_request', static function ( $value, $args, $url ) {
-    static $shown = false;
-    if ( $shown || $url !== 'https://api.paystack.co/transaction/charge_authorization' ) {
-        return $value;
-    }
-    $shown = true;
-    $stack = array_map( static function ( $frame ) {
-        return ( $frame['class'] ?? '' ) . '::' . ( $frame['function'] ?? '' );
-    }, debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 24 ) );
-    WP_CLI::log( 'SYNTHETIC_PAYSTACK_ENTRY_TRACE ' . implode( ' > ', $stack ) );
-    WP_CLI::log( 'SYNTHETIC_PAYSTACK_ENTRY_METHOD ' . (string) ( $args['method'] ?? 'missing' ) );
-    return $value;
-}, 0, 3 );
 $paystack_mode = 'exact';
 $synthetic_http_calls = 0;
 $http_mock = static function ( $preempt, $args, $url ) use ( &$paystack_mode, &$synthetic_http_calls ) {
@@ -70,15 +56,6 @@ $http_mock = static function ( $preempt, $args, $url ) use ( &$paystack_mode, &$
     $payload = json_decode( $args['body'] ?? '', true );
     if ( ! is_array( $payload ) || ! isset( $payload['reference'], $payload['amount'] ) ) {
         throw new RuntimeException( 'Paystack test could not inspect outgoing synthetic token charge.' );
-    }
-    static $trace_dumped = false;
-    if ( ! $trace_dumped ) {
-        $trace_dumped = true;
-        $stack = array_map( static function ( $frame ) {
-            return ( $frame['class'] ?? '' ) . '::' . ( $frame['function'] ?? '' );
-        }, debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 22 ) );
-        WP_CLI::log( 'SYNTHETIC_PAYSTACK_STACK_ONLY ' . implode( ' > ', $stack ) );
-        WP_CLI::log( 'SYNTHETIC_PAYSTACK_POST_METHOD ' . (string) ( $args['method'] ?? 'missing' ) );
     }
     ++$synthetic_http_calls;
     $paid_cents = $paystack_mode === 'underpaid' ? $payload['amount'] - 100 : $payload['amount'];
@@ -164,10 +141,9 @@ $exercise = static function ( $via, $mode, $expired ) use (
         $before = $synthetic_http_calls;
         $near_charge = $gateway->process_token_payment(
             'synthetic_authorization###synthetic@example.invalid', $order_id );
-        $paystack_assert( $near_charge === false && $synthetic_http_calls === $before,
-            'Saved-card near-expiry charge reached Paystack despite precharge guard: return=' .
-            get_debug_type( $near_charge ) . '; calls=' . $before . '/' . $synthetic_http_calls .
-            '; gate=' . ( mansu_online_enabled() ? 'enabled' : 'disabled' ) );
+        $paystack_assert( ! $near_charge && $synthetic_http_calls === $before,
+            'Saved-card near-expiry charge reached Paystack or appeared successful: return=' .
+            get_debug_type( $near_charge ) . '; calls=' . $before . '/' . $synthetic_http_calls );
         $reset = $wpdb->update( $wpdb->wc_reserved_stock,
             array( 'expires' => gmdate( 'Y-m-d H:i:s', time() + 600 ) ),
             array( 'order_id' => $order_id ) );
@@ -201,7 +177,7 @@ $exercise = static function ( $via, $mode, $expired ) use (
         $blocked_charge = $gateway->process_token_payment(
             'synthetic_authorization###synthetic@example.invalid', $order_id );
         $blocked_order = wc_get_order( $order_id );
-        $paystack_assert( $blocked_charge === false &&
+        $paystack_assert( ! $blocked_charge &&
             $synthetic_http_calls === $before &&
             $blocked_order->has_status( 'pending' ) &&
             $blocked_order->get_meta( '_mansu_website_stock_review', true ) !== 'required',
