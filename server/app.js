@@ -29,6 +29,7 @@ import { PrivateCountFileManifests } from './private-count-file-manifests.js';
 import { EvidenceCustodyReview } from './evidence-custody-review.js';
 import { ReviewerResponseIntake } from './reviewer-response-intake.js';
 import { IndependentReviewerAccess } from './independent-reviewer-access.js';
+import { InventoryEvidenceExceptionReview } from './inventory-evidence-exceptions.js';
 import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
 import { buildInventoryDossier } from './inventory-evidence-dossier.js';
 import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
@@ -113,6 +114,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const custodyReview = new EvidenceCustodyReview(db,countFiles);
   const reviewerIntake = new ReviewerResponseIntake(db,custodyReview);
   const reviewerAccess = new IndependentReviewerAccess(db,reviewerIntake);
+  const evidenceExceptions = new InventoryEvidenceExceptionReview(db,reviewerIntake,reviewerAccess);
   const mappingEvidence = new OwnerMappingEvidence(db);
   let inStore;
   try { inStore = new InStoreService(db, config); }
@@ -657,6 +659,35 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     auth,role('reviewer'),countPilot,sensitiveLimit,async(req,res)=>{
       res.status(201).json(reviewerAccess.receiveHandoff(req.user,inStore.snapshot(),
         await catalog.get(true),req.body));
+    });
+
+  // Phase 5.6: independent evidence exception queue and Owner FOLLOW-UP notes.
+  // Never resolves physical count disputes, accepts stock, or enables trading.
+  app.get('/api/stock-safety/evidence-exceptions',
+    auth,role('owner'),countPilot,async(req,res)=>{
+      const options=z.object({
+        page:z.coerce.number().int().min(1).max(10000).default(1),
+        pageSize:z.coerce.number().int().min(1).max(50).default(25),
+        status:z.enum(['all','count_disagreement','reviewer_evidence_issue',
+          'handoff_action_needed','custody_or_source_hold','other_unverified']).default('all'),
+        search:z.string().trim().max(64).default(''),
+        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict().parse(req.query);
+      const {expectedRef,...filters}=options;
+      const result=evidenceExceptions.list(req.user,inStore.snapshot(),
+        await catalog.get(),filters);
+      if(expectedRef&&result.snapshotRef!==expectedRef)
+        throw new AppError('Inventory exception evidence changed; refresh the queue.',409,
+          'EVIDENCE_EXCEPTION_SNAPSHOT_CHANGED');
+      res.set('Cache-Control','no-store');
+      res.json(result);
+    });
+  app.post('/api/stock-safety/evidence-exceptions/followup',
+    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
+      const result=evidenceExceptions.followup(req.user,inStore.snapshot(),
+        await catalog.get(true),req.body);
+      res.set('Cache-Control','no-store');
+      res.status(201).json(result);
     });
 
   // Separately gated live trading service only. The read-only pilot, demo and
