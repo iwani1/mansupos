@@ -416,6 +416,9 @@ td small { font-size:11px; color:#566064; }
   .overview-intro { padding:19px; }
 }
 @media (max-width:820px) {
+  /* The register rule above applies at every width; restore the single
+     column so the product list is not squeezed to zero on phones/tablets. */
+  .register-layout { grid-template-columns:minmax(0,1fr); }
   .cart-panel { top:0; border-radius:0; }
   .mobile-cart-bar { border-radius:8px; }
   .main-content { padding-bottom:91px; }

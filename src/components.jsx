@@ -22,7 +22,12 @@ export function Modal({ title, subtitle, children, onClose, wide = false, busy =
     const previous = document.activeElement;
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const timer = setTimeout(() => (ref.current?.querySelector('input:not([type="checkbox"]), select, textarea') || ref.current?.querySelector('button'))?.focus(), 30);
+    // Move focus into the dialog only if the person (or a scanner/autofill) has
+    // not already started using it; never pull the cursor out of a field.
+    const timer = setTimeout(() => {
+      if (ref.current?.contains(document.activeElement)) return;
+      (ref.current?.querySelector('input:not([type="checkbox"]), select, textarea') || ref.current?.querySelector('button'))?.focus();
+    }, 30);
     const key = e => {
       if (e.key === 'Escape' && !busyRef.current) closeRef.current();
       if (e.key === 'Tab') {
