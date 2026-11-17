@@ -18,7 +18,8 @@ function flags(row) {
   return {
     cash_custody_unconfirmed: cashAccepted && (uncertain || !row.paid_at),
     cash_intent_unconfirmed: cashIntent && !cashAccepted && (uncertain || !row.paid_at),
-    cash_refund_payout_unverified: row.payment_method === 'cash' && row.refunded > 0,
+    // A POS customer return records its cash out on a shift; only the rest is unproven.
+    cash_refund_payout_unverified: row.payment_method === 'cash' && row.refunded > (row.cash_refund_recorded || 0),
     paid_evidence_incomplete: originalAttempt && (row.status === 'paid' ||
       row.status === 'partially_refunded' || row.status === 'refunded') &&
       (!row.paid_at || !paymentVerifiedEvent),
@@ -27,7 +28,7 @@ function flags(row) {
   };
 }
 
-const common = `
+const commonSql = `
   WITH event_flags AS (
     SELECT sale_id,
       MAX(CASE WHEN event='online.intent' THEN 1 ELSE 0 END) AS online_intent_event,
@@ -44,7 +45,8 @@ const common = `
       COALESCE(ef.online_intent_event,0) AS online_intent_event,
       COALESCE(ef.cash_intent_event,0) AS cash_intent_event,
       COALESCE(ef.cash_accepted_event,0) AS cash_accepted_event,
-      COALESCE(ef.payment_verified_event,0) AS payment_verified_event
+      COALESCE(ef.payment_verified_event,0) AS payment_verified_event,
+      __CASH_REFUND_RECORDED__ AS cash_refund_recorded
     FROM sales s
     LEFT JOIN shifts sh ON sh.id=s.shift_id
     LEFT JOIN event_flags ef ON ef.sale_id=s.id
@@ -52,7 +54,7 @@ const common = `
   SELECT * FROM evidence
   WHERE (
     status IN ('creating','awaiting_payment','needs_reconciliation')
-    OR (refunded > 0 AND payment_method='cash')
+    OR (refunded > cash_refund_recorded AND payment_method='cash')
     OR (cash_accepted_event=1 AND paid_at IS NULL)
     OR (cash_intent_event=1 AND cash_accepted_event=0 AND paid_at IS NULL)
     OR (online_intent_event=1 AND woo_order_id IS NULL)
@@ -60,6 +62,13 @@ const common = `
       AND (paid_at IS NULL OR payment_verified_event=0))
   )
 `;
+
+// Older ledgers (and isolated tests) may not have the returns table yet.
+function evidenceSql(db) {
+  const returns = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='customer_returns'").get();
+  return commonSql.replace('__CASH_REFUND_RECORDED__', returns
+    ? 'COALESCE((SELECT SUM(cr.refund_total) FROM customer_returns cr WHERE cr.sale_id=s.id AND cr.cash_recorded=1),0)' : '0');
+}
 
 function decodeCursor(cursor) {
   if (!cursor) return null;
@@ -96,11 +105,12 @@ function presentCase(row) {
         externalCashRefundPaidVerified: false,
       },
       cashCustodyAtRiskCents: found.cash_custody_unconfirmed ? row.total : 0,
-      cashRefundEvidenceCents: found.cash_refund_payout_unverified ? row.refunded : 0,
+      cashRefundEvidenceCents: found.cash_refund_payout_unverified ? row.refunded - (row.cash_refund_recorded || 0) : 0,
     };
 }
 
 export function paymentReconciliationCase(db, saleId) {
+  const common = evidenceSql(db);
   const row = db.prepare('SELECT * FROM (' + common + ') WHERE id=?').get(saleId);
   return row ? presentCase(row) : null;
 }
@@ -114,6 +124,7 @@ export function paymentReconciliation(db, { limit = 50, cursor } = {}) {
   const params = after ? [after.updatedAt, after.updatedAt, after.id] : [];
   // The count is POS ledger cases only, not a bank balance or merchant-wide
   // gateway settlement figure. All cases use one original sale ID.
+  const common = evidenceSql(db);
   const count = db.prepare('SELECT COUNT(*) AS cases FROM (' + common + ')').get().cases;
   const rows = db.prepare(common + filter +
     ' ORDER BY updated_at DESC,id DESC LIMIT ?').all(...params, limit + 1);

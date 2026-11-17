@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import { ClipboardCheck, ShoppingBag, ReceiptText, Package, ChartNoAxesCombined, Users, ArrowRight, Store, ShieldCheck, LockKeyhole, LoaderCircle, Banknote, ScrollText, Download, WifiOff, LayoutDashboard, Tags, Boxes, Settings2, Truck } from 'lucide-react';
+import { ClipboardCheck, ShoppingBag, ReceiptText, Package, ChartNoAxesCombined, Users, ArrowRight, Store, ShieldCheck, LockKeyhole, LoaderCircle, Banknote, ScrollText, Download, WifiOff, LayoutDashboard, Tags, Boxes, Settings2, Truck, Undo2 } from 'lucide-react';
 import { api, setSessionToken } from './api.js';
 import Register from './Register.jsx';
 import Overview from './Overview.jsx';
@@ -20,6 +20,7 @@ const PaymentReconciliation = lazy(() => import('./PaymentReconciliation.jsx'));
 const StockSafety = lazy(() => import('./StockSafety.jsx'));
 const StockControl = lazy(() => import('./StockControl.jsx'));
 const Purchasing = lazy(() => import('./Purchasing.jsx'));
+const Returns = lazy(() => import('./Returns.jsx'));
 const DailyOperations = lazy(() => import('./DailyOperations.jsx'));
 const WeeklyScorecard = lazy(() => import('./WeeklyScorecard.jsx'));
 const PhysicalCountWorkspace = lazy(() => import('./PhysicalCountWorkspace.jsx'));
@@ -46,6 +47,7 @@ const navigation = [
   { id:'stockSafety', label:'Stock safety review', short:'Audit stock', icon:ShieldCheck, group:'Catalogue', roles:['owner','manager'], liveOnly:true },
   { id:'sales', label:'Sales history', short:'Sales', icon:ReceiptText, group:'Operations' },
   { id:'orders', label:'Orders', short:'Orders', icon:ScrollText, group:'Operations' },
+  { id:'returns', label:'Customer returns', short:'Returns', icon:Undo2, group:'Operations', roles:['owner','manager'], hideReadOnly:true },
   { id:'recovery', label:'Recovery queue', short:'Review', icon:ShieldCheck, group:'Operations', roles:['owner','manager'] },
   { id:'paymentReconciliation', label:'Payment reconciliation', short:'Payments', icon:Banknote, group:'Operations', roles:['owner','manager'] },
   { id:'customers', label:'Customers', short:'Buyers', icon:Users, group:'Operations', roles:['owner','manager'] },
@@ -217,6 +219,7 @@ export default function App() {
           {page==='categories'&&<CategoriesPage catalog={catalog} config={config} onSelect={openCategory} refresh={refresh}/>}
           {(page==='sales'||page==='orders')&&<Sales key={page} view={page} sales={sales} config={config} refresh={refresh} onReceipt={setReceipt} onPay={setPending} notify={notify} hasMore={salesHasMore} loadingMore={salesLoadingMore} onLoadMore={loadMoreSales}/>}
           {page==='inventory'&&<Inventory catalog={catalog} config={config} user={user} active={page==='inventory'} refresh={refresh} notify={notify}/>}
+          {page==='returns'&&user.role!=='cashier'&&!config.liveReadOnly&&<Returns notify={notify} refreshCatalog={refresh}/>}
           {page==='purchasing'&&user.role!=='cashier'&&!config.liveReadOnly&&<Purchasing user={user} notify={notify} refreshCatalog={refresh}/>}
           {page==='stockControl'&&user.role!=='cashier'&&<StockControl user={user} notify={notify} refreshCatalog={refresh} config={config}/>}
           {page==='stockSafety'&&config.mode==='live'&&user.role!=='cashier'&&<StockSafety active={page==='stockSafety'} user={user}/>}

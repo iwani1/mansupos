@@ -46,6 +46,7 @@ import { WeeklyOperations } from './weekly-operations.js';
 import { InventoryService, adjustSchema, countSchema, priceSchema, movementQuery } from './inventory.js';
 import { ProductService, productSchema, productUpdateSchema } from './products.js';
 import { WordPressMedia } from './wp-media.js';
+import { ReturnsService, returnSchema, resolveSchema } from './returns.js';
 import { PurchasingService, supplierSchema, poSchema, poActionSchema, receiptSchema, costSchema } from './purchasing.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -106,6 +107,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     config.wholesaleWritesEnabled = false;
     config.inventoryWritesEnabled = false;
     config.productWritesEnabled = false;
+    config.returnsEnabled = false;
     config.paymentMethods = ['cash'];
   }
   const api = injectedApi || new WooCommerce(config, fetch, logger);
@@ -122,6 +124,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     ? new OnlineSalesService(db, catalog, injectedBridge || new OnlineBridgeClient(config), config)
     : null;
   const shifts = new ShiftService(db, config);
+  const returns = new ReturnsService(db, api, inventory, shifts, config);
   const operations = new DailyOperations(db);
   const weekly = new WeeklyOperations(db);
   const countClaims = new PhysicalCountClaims(db);
@@ -307,6 +310,14 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   app.post('/api/purchase-orders/:id/action', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => res.json(purchasing.act(req.user, uuidParam(req.params.id), poActionSchema.parse(req.body))));
   app.post('/api/purchase-orders/:id/receive', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await purchasing.receive(req.user, uuidParam(req.params.id), receiptSchema.parse(req.body))));
   app.put('/api/inventory/cost', auth, role('owner'), sensitiveLimit, (req, res) => res.json(purchasing.setCost(req.user, costSchema.parse(req.body))));
+
+  // Customer returns (owner and manager): refund on the Woo order, cash out on the shift, restock choice.
+  app.get('/api/returns/summary', auth, role('owner', 'manager'), (_req, res) => res.json({ writes: returns.state(), summary: returns.summary(), awaiting: returns.awaiting() }));
+  app.get('/api/returns/find', auth, role('owner', 'manager'), (req, res) => res.json({ sales: returns.find(String(req.query.q || '').slice(0, 40)) }));
+  app.get('/api/returns/sale/:saleId', auth, role('owner', 'manager'), (req, res) => res.json(returns.forUser(req.user, z.string().min(1).max(80).parse(req.params.saleId))));
+  app.get('/api/returns', auth, role('owner', 'manager'), (_req, res) => res.json({ returns: returns.list() }));
+  app.post('/api/returns', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await returns.create(req.user, returnSchema.parse(req.body))));
+  app.post('/api/returns/items/:id/resolve', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await returns.resolve(req.user, z.string().uuid().parse(req.params.id), resolveSchema.parse(req.body))));
 
   // Add / edit website product listings (owner and manager).
   const productId = value => z.coerce.number().int().positive().max(2 ** 31).parse(value);
@@ -1305,5 +1316,5 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     if (status >= 500) logger.error({ reqId: req.id, method: req.method, path: req.path, code: error.code || 'SERVER_ERROR', name: error.name || 'Error' });
     res.status(status).json({ error: error instanceof AppError ? error.message : 'An unexpected server error occurred. Check the sale history before retrying.', code: error.code || 'SERVER_ERROR', reqId: req.id });
   });
-  return { app, config, db, api, catalog, sales, inventory, products, purchasing, desktop, inStore, shifts, logger };
+  return { app, config, db, api, catalog, sales, inventory, products, purchasing, returns, desktop, inStore, shifts, logger };
 }
