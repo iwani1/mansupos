@@ -248,7 +248,10 @@ export function openDatabase(config) {
     // A fully migrated v9 ledger must always have an identity, including after
     // a later bootstrap/seed error. Bind new or legacy non-live ledgers BEFORE
     // the v9 step; legacy live ledgers require the separate offline review.
-    migrate(db, SCHEMA_VERSION - 1);
+    // New ledgers must be bound after v8 but BEFORE v9's identity protections.
+    // Keep this boundary pinned when adding v10+ migrations: a fresh database
+    // cannot be treated as an unbound existing v9 ledger.
+    migrate(db, 8);
     db.exec('BEGIN IMMEDIATE');
     try {
       db.prepare('INSERT OR IGNORE INTO app_meta(key,value) VALUES (?,?)').run('mode', config.mode);
