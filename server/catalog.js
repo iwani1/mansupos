@@ -1,9 +1,26 @@
 import { demoProducts, demoLine, SNAPSHOT_DATE } from './demo-catalog.js';
 import { fetchLiveCatalog, freshLine } from './woocommerce.js';
-import { AppError } from './errors.js';
+import { AppError, RemoteError } from './errors.js';
+
+// How long a loaded catalogue is used without asking Woo again, and when an
+// older copy must be shown as "not current" (which blocks checkout in the UI).
+const FRESH_MS = 30000;
+const STALE_MS = 15 * 60000;
+const age = cache => { const t = new Date(cache?.fetchedAt).getTime(); return Number.isFinite(t) ? Date.now() - t : Infinity; };
 
 export class Catalog {
-  constructor(db, api, config) { this.db = db; this.api = api; this.config = config; this.cache = null; this.refreshing = null; }
+  constructor(db, api, config) {
+    this.db = db; this.api = api; this.config = config; this.cache = null; this.refreshing = null;
+    // Start from the last saved catalogue after a restart instead of making
+    // the first visitor wait for a full reload of a large store.
+    if (config.mode !== 'demo' && config.configured) {
+      try {
+        const row = db.prepare('SELECT payload FROM catalog_cache WHERE id=1').get();
+        const saved = row ? JSON.parse(row.payload) : null;
+        if (saved && Array.isArray(saved.products) && saved.fetchedAt) this.cache = { ...saved, stale: false, error: undefined };
+      } catch { this.cache = null; }
+    }
+  }
   demo() {
     const stocks = new Map(this.db.prepare('SELECT * FROM demo_stock').all().map(row => [row.line_key, row.stock]));
     return demoProducts.map(p => ({ ...p,
@@ -12,28 +29,50 @@ export class Catalog {
       variations: p.variations.map(v => { const stock = stocks.get(`${p.id}:${v.id}`); return { ...v, stock, stockStatus: stock <= 0 ? 'outofstock' : 'instock' }; }),
     }));
   }
-  async get(force = false) {
-    if (this.config.mode === 'demo') return { products: this.demo(), source: 'public-product-snapshot', fetchedAt: SNAPSHOT_DATE, isDemo: true, complete: false, unsupported: 0 };
-    if (!this.config.configured) {
-      const cached = this.db.prepare('SELECT * FROM catalog_cache WHERE id=1').get();
-      if (cached) return { ...JSON.parse(cached.payload), stale: true, error: 'Credentials missing; showing the last saved catalogue. Checkout is disabled.' };
-      return { products: [], source: 'woocommerce', fetchedAt: null, complete: false, error: 'Configure WooCommerce API credentials on the server to load the catalogue.' };
-    }
-    if (!force && this.cache && Date.now() - new Date(this.cache.fetchedAt).getTime() < 30000) return this.cache;
+  refresh() {
     if (this.refreshing) return this.refreshing;
     this.refreshing = (async () => {
       try {
         const result = await fetchLiveCatalog(this.api);
         this.cache = { ...result, isDemo: false, stale: false };
+        this.lastError = null;
         this.db.prepare('INSERT INTO catalog_cache(id,payload,updated_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at').run(JSON.stringify(this.cache), result.fetchedAt);
         return this.cache;
       } catch (error) {
+        this.lastError = error;
         const cached = this.cache || (() => { const row = this.db.prepare('SELECT payload FROM catalog_cache WHERE id=1').get(); return row ? JSON.parse(row.payload) : null; })();
         if (cached) return { ...cached, stale: true, error: 'Refresh failed. Showing cached stock; checkout uses fresh WooCommerce availability.' };
         throw error;
       } finally { this.refreshing = null; }
     })();
     return this.refreshing;
+  }
+  // `maxWaitMs` bounds how long a screen request waits for Woo. If a refresh
+  // takes longer (large store), the saved catalogue is returned and the
+  // refresh keeps running in the background; checkout still re-reads every
+  // line from WooCommerce before creating or paying an order.
+  async get(force = false, { maxWaitMs = null } = {}) {
+    if (this.config.mode === 'demo') return { products: this.demo(), source: 'public-product-snapshot', fetchedAt: SNAPSHOT_DATE, isDemo: true, complete: false, unsupported: 0 };
+    if (!this.config.configured) {
+      const cached = this.db.prepare('SELECT * FROM catalog_cache WHERE id=1').get();
+      if (cached) return { ...JSON.parse(cached.payload), stale: true, error: 'Credentials missing; showing the last saved catalogue. Checkout is disabled.' };
+      return { products: [], source: 'woocommerce', fetchedAt: null, complete: false, error: 'Configure WooCommerce API credentials on the server to load the catalogue.' };
+    }
+    if (!force && this.cache && !this.cache.stale && !this.cache.expired && age(this.cache) < FRESH_MS) return this.cache;
+    const pending = this.refresh();
+    if (maxWaitMs == null) return pending;
+    pending.catch(() => {}); // A background failure is reported on the next request.
+    // With a saved copy, only wait briefly: a small store refreshes within
+    // this window, a large one keeps serving the saved copy meanwhile.
+    const wait = this.cache ? Math.min(maxWaitMs, 4000) : maxWaitMs;
+    let timer;
+    const timeout = new Promise(resolve => { timer = setTimeout(() => resolve(null), wait); timer.unref?.(); });
+    const done = await Promise.race([pending, timeout]).finally(() => clearTimeout(timer));
+    if (done) return done;
+    if (!this.cache) throw new RemoteError('The WooCommerce catalogue is still loading (large store). Wait a minute, then try again.', 503);
+    const old = age(this.cache) > STALE_MS;
+    return { ...this.cache, expired: undefined, refreshing: true, stale: old,
+      ...(old ? { error: 'The saved catalogue is more than 15 minutes old and an update from WooCommerce is still loading. Wait a minute, then refresh.' } : {}) };
   }
   async lines(items) {
     const catalog = this.config.mode === 'demo' ? { products: this.demo() } : await this.get();
@@ -56,7 +95,24 @@ export class Catalog {
     for (const item of items) lines.push({ ...await freshLine(this.api, item.productId, item.variationId), quantity: item.quantity });
     return lines;
   }
-  invalidate() { this.cache = null; }
+  // Mark the saved copy as out of date (after a sale or stock change) without
+  // discarding it, so a large catalogue is not reloaded from scratch.
+  invalidate() { if (this.cache) this.cache = { ...this.cache, expired: true }; }
+  // Reflect a confirmed WooCommerce stock/price write in the saved copy now.
+  patchLine(productId, variationId, { stock, price } = {}) {
+    if (!this.cache?.products) return;
+    const status = value => value > 0 ? 'instock' : 'outofstock';
+    this.cache = { ...this.cache, products: this.cache.products.map(p => {
+      if (p.id !== productId) return p;
+      if (!variationId) {
+        const next = { ...p, ...(stock != null ? { stock, manageStock: true, stockSource: p.type === 'variable' ? p.stockSource : 'product', stockStatus: status(stock) } : {}), ...(price != null && p.type !== 'variable' ? { price } : {}) };
+        if (stock != null && p.type === 'variable') next.variations = p.variations.map(v => v.stockSource === 'parent' ? { ...v, stock, stockStatus: status(stock) } : v);
+        return next;
+      }
+      return { ...p, variations: p.variations.map(v => v.id !== variationId ? v : { ...v,
+        ...(stock != null ? { stock, manageStock: true, stockSource: 'variation', stockStatus: status(stock) } : {}), ...(price != null ? { price } : {}) }) };
+    }) };
+  }
 }
 
 export function validateAvailability(lines) {

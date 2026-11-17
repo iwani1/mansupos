@@ -43,6 +43,7 @@ import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolu
 import { financeReviewWritesAllowed, financeReviewHistory, createFinanceReviewRequest, acknowledgeFinanceReview, reviewSteps } from './payment-review-workflow.js';
 import { DailyOperations } from './daily-operations.js';
 import { WeeklyOperations } from './weekly-operations.js';
+import { InventoryService, adjustSchema, countSchema, priceSchema, movementQuery } from './inventory.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -100,6 +101,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     config.onlineBridgeQuarantined = true;
     config.writesEnabled = false;
     config.wholesaleWritesEnabled = false;
+    config.inventoryWritesEnabled = false;
     config.paymentMethods = ['cash'];
   }
   const api = injectedApi || new WooCommerce(config, fetch, logger);
@@ -108,6 +110,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const desktop = new DesktopSyncService(db, config, catalog, api,
     injectedReservations || new OfflineReservations(config), wholesalePrices);
   const sales = new SalesService(db, catalog, api, config);
+  const inventory = new InventoryService(db, catalog, api, config);
   // No bridge client, routes, plugin writes or new SQLite schema when OFF.
   const online = config.onlineBridgeEnabled
     ? new OnlineSalesService(db, catalog, injectedBridge || new OnlineBridgeClient(config), config)
@@ -270,7 +273,19 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     res.json({ ok: true });
   });
 
-  app.get('/api/catalog', auth, async (req, res) => res.json(await catalog.get(req.query.refresh === '1')));
+  app.get('/api/catalog', auth, async (req, res) => res.json(await catalog.get(req.query.refresh === '1', { maxWaitMs: 20000 })));
+
+  // Shared inventory management (website + shop share WooCommerce stock).
+  app.get('/api/inventory', auth, role('owner', 'manager'), async (req, res) => res.json(await inventory.overview({ refresh: req.query.refresh === '1' })));
+  app.get('/api/inventory/movements', auth, role('owner', 'manager'), (req, res) => res.json(inventory.movements(movementQuery.parse(req.query))));
+  app.get('/api/inventory/export', auth, role('owner', 'manager'), async (req, res) => {
+    const csv = await inventory.exportCsv();
+    audit(db, req.user.id, 'inventory.export', 'stock-csv');
+    res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', `attachment; filename="mansu-stock-${new Date().toISOString().slice(0, 10)}.csv"`).send(csv);
+  });
+  app.post('/api/inventory/adjust', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await inventory.adjust(req.user, adjustSchema.parse(req.body))));
+  app.post('/api/inventory/count', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await inventory.count(req.user, countSchema.parse(req.body))));
+  app.post('/api/inventory/price', auth, role('owner'), sensitiveLimit, async (req, res) => res.json(await inventory.price(req.user, priceSchema.parse(req.body))));
   // Owner/Manager Phase 2 evidence, not permission to trade. This refreshes
   // Woo products/variations only and never calls an order or stock write API.
   app.get('/api/stock-safety/audit', auth, role('owner', 'manager'), async (_req, res) => {
@@ -1256,5 +1271,5 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     if (status >= 500) logger.error({ reqId: req.id, method: req.method, path: req.path, code: error.code || 'SERVER_ERROR', name: error.name || 'Error' });
     res.status(status).json({ error: error instanceof AppError ? error.message : 'An unexpected server error occurred. Check the sale history before retrying.', code: error.code || 'SERVER_ERROR', reqId: req.id });
   });
-  return { app, config, db, api, catalog, sales, desktop, inStore, shifts, logger };
+  return { app, config, db, api, catalog, sales, inventory, desktop, inStore, shifts, logger };
 }
