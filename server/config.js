@@ -196,6 +196,21 @@ export function readConfig(env = process.env) {
   const inventoryWritesEnabled = mode === 'demo' || (writesEnabled && !onlineBridgeEnabled &&
     (mode === 'staging' || env.POS_INVENTORY_WRITES_APPROVED === 'true'));
 
+  // Adding/editing website products from the POS is a third, separate switch.
+  if (env.POS_PRODUCT_WRITES_APPROVED && !['true', 'false'].includes(env.POS_PRODUCT_WRITES_APPROVED)) {
+    throw new Error('POS_PRODUCT_WRITES_APPROVED must be true or false.');
+  }
+  if (env.POS_PRODUCT_WRITES_APPROVED === 'true' && (liveReadOnly || onlineBridgeEnabled)) {
+    throw new Error('Product writes cannot be enabled on the read-only pilot or with the reservation bridge.');
+  }
+  const productWritesEnabled = mode === 'demo' || (writesEnabled && !onlineBridgeEnabled &&
+    (mode === 'staging' || env.POS_PRODUCT_WRITES_APPROVED === 'true'));
+  // Photos go to the WordPress media library with a dedicated Application Password.
+  const mediaUser = (env.POS_WP_MEDIA_USER || '').trim();
+  const mediaPassword = (env.POS_WP_MEDIA_APP_PASSWORD || '').trim();
+  if (Boolean(mediaUser) !== Boolean(mediaPassword)) throw new Error('Set both POS_WP_MEDIA_USER and POS_WP_MEDIA_APP_PASSWORD, or neither.');
+  if (mediaPassword && mediaPassword.replace(/\s/g, '').length < 16) throw new Error('POS_WP_MEDIA_APP_PASSWORD must be a WordPress Application Password (24 characters).');
+
   const port = Number(env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.');
   const bindHost = env.POS_BIND_HOST || '0.0.0.0';
@@ -209,7 +224,7 @@ export function readConfig(env = process.env) {
 
   return {
     mode, storeUrl, configured, liveReadOnly, legacyLiveCheckoutBlocked, writesEnabled, wholesaleWritesEnabled, approvalReference,
-    liveRetailCashDirect, websiteHoldMinutes, abandonedOrderMinutes, inventoryWritesEnabled,
+    liveRetailCashDirect, websiteHoldMinutes, abandonedOrderMinutes, inventoryWritesEnabled, productWritesEnabled, mediaUser, mediaPassword,
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
     desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',
@@ -255,6 +270,7 @@ export function publicConfig(config) {
     liveRetailCashDirect: Boolean(config.liveRetailCashDirect),
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
     inventoryWritesEnabled: Boolean(config.inventoryWritesEnabled),
+    productWritesEnabled: Boolean(config.productWritesEnabled),
     onlineBridgeLocalTest: config.onlineBridgeLocalTest,
     onlineBridgeLiveEnabled: config.onlineBridgeLiveEnabled,
     onlineBridgeEnabled: config.onlineBridgeEnabled,

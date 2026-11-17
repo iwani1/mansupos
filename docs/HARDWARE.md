@@ -39,6 +39,9 @@ Observed from owner-supplied photos on 4 November 2026. **Identification is not 
    - If present, connect the drawer RJ11 cable to the printer’s drawer-kick port, not to the computer.
    - Mansu POS does not send a drawer-kick command.
    - Only mark cash drawer support as passed if the printer driver/firmware reliably opens the drawer during the tested receipt workflow and the owner accepts that behavior.
+   - **Driver setup (Windows, Xprinter driver):** Settings → Bluetooth & devices → Printers → the XP-80T → **Printing preferences** (or *Printer properties* → *Device Settings*). Find the cash-drawer option (named *Cash Drawer*, *Peripheral* or *Open drawer*) and choose **open before printing** (preferred: the drawer opens while the receipt prints). If there is a choice of drawer pin/pulse, start with **Drawer 1 / pin 2** and the default pulse. Apply.
+   - **Test:** make a cash sale and print the receipt: the drawer should open once. Print from the browser's ordinary print dialog only, never a "test page" loop.
+   - **Known side effects:** every print to this printer opens the drawer, including **reprints** from the Sales screen and any non-POS print sent to it. Use this printer only for receipts, and treat a reprint as a drawer opening the manager may ask about. The POS still does not log drawer openings; that needs a future POS-controlled drawer feature.
 
 5. **Customer display**
    - Leave unsupported for now.

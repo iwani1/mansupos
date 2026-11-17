@@ -59,6 +59,8 @@ Record ordinary cash in/out against the open shift with a reason. Cash out canno
 
 ## Refunds
 
+**Day-to-day steps:** follow [REFUND-PROCEDURE.md](REFUND-PROCEDURE.md) (refund in WooCommerce, then record a **Cash out** on the open shift). It becomes the owner's approved rule once signed. The background below still applies.
+
 For Woo-backed Retail/Wholesale, a WooCommerce refund can be observed by POS reconciliation and changes **net-sales reporting**, but it is **not evidence that cash was paid out**. The POS does not issue payment refunds. Do not use a Woo refund to infer an original- or later-shift drawer deduction; closed shifts remain frozen, and open shifts count gross cash received unless an actual movement is separately recorded. **The owner has not decided the authorization, proof and shift attribution for a cash payout, particularly after the sale shift closes.** Preserve the physical count and Woo/POS evidence; do not use the generic cash-out button as an approved refund rule until the owner has documented one. See [PHASE1-RELIABILITY.md](PHASE1-RELIABILITY.md). **Physical In-store collection has no return/refund/void flow**; do not issue a Woo refund for a POS-only historical receipt or revive its retired cash gate.
 
 ## Backups

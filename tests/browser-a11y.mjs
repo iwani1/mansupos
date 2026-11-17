@@ -57,6 +57,16 @@ try {
   await page.getByRole('dialog', { name: 'Receive stock' }).getByRole('button', { name: 'Cancel' }).click();
   await page.getByRole('tab', { name: 'Stock count' }).click();
   await scan('stock-control-count');
+  await page.locator('[data-nav="products"]').click();
+  await page.getByRole('button', { name: 'Add product' }).click();
+  await page.getByRole('dialog', { name: 'Add product' }).getByLabel('Product name').waitFor();
+  await page.getByRole('dialog', { name: 'Add product' }).getByLabel('Add Size value').fill('M');
+  await page.getByRole('dialog', { name: 'Add product' }).getByLabel('Add Size value').press('Enter');
+  await page.getByRole('dialog', { name: 'Add product' }).getByLabel('Add Colour value').fill('Black');
+  await page.getByRole('dialog', { name: 'Add product' }).getByLabel('Add Colour value').press('Enter');
+  await page.locator('.pe-table tbody tr').first().waitFor();
+  await scan('product-editor');
+  await page.getByRole('dialog', { name: 'Add product' }).getByRole('button', { name: 'Cancel' }).click();
   await page.locator('[data-nav="sales"]').click();
   await page.getByRole('heading', { name: 'Sales history' }).waitFor();
   await scan('sales');
