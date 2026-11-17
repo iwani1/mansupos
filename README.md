@@ -29,6 +29,7 @@ Operate and update it with [docs/RETAIL-CASH-GO-LIVE-RUNBOOK.md](docs/RETAIL-CAS
 - Idempotent checkout preparation and interrupted-order reconciliation.
 - Printable 58 mm, 80 mm, and A4 receipts.
 - Inventory and missing/duplicate SKU visibility.
+- **Draft only (not deployed):** audited stock adjustment requests with owner review. Demo approvals update isolated demo stock; live approvals never write WooCommerce stock. See [stock adjustment guide](docs/STOCK-ADJUSTMENTS.md).
 - Daily/period sales reports, payment mix, top products, and scoped CSV export.
 - Named owner/manager/cashier accounts with server-enforced permissions.
 - Forced temporary-password change, password policy, account lockout, idle session expiry, and audit log.

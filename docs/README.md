@@ -11,6 +11,7 @@
 - [PRIVATE-WHOLESALE-PRICES.md](PRIVATE-WHOLESALE-PRICES.md) — Wholesale price defaults (feature locked)
 - [RETAIL-CASH-GO-LIVE-RUNBOOK.md](RETAIL-CASH-GO-LIVE-RUNBOOK.md) — Install, update, switch-over, first sale and rollback for the live service
 - [SECURITY.md](SECURITY.md) — Accounts, sessions, secrets
+- [STOCK-ADJUSTMENTS.md](STOCK-ADJUSTMENTS.md) — Draft-only request, owner review and Woo stock verification; no live stock writes
 - [UI-DESIGN.md](UI-DESIGN.md) — Visual design notes
 - [WEEKLY-STAFF-SCORECARD.md](WEEKLY-STAFF-SCORECARD.md) — Weekly staff review
 - [WORKSPACE-REDESIGN.md](WORKSPACE-REDESIGN.md) — Workspace layout
