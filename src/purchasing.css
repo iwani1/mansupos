@@ -1,0 +1,21 @@
+.purchasing{display:grid;gap:18px;min-width:0}
+.purchasing .page-heading,.purchasing .notice,.purchasing .stats-grid{margin-bottom:0}
+.po-table td small{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+.po-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.po-grid label{display:grid;gap:8px;font-size:13px;font-weight:600;color:var(--ink-soft)}
+.po-num{width:100px}
+.po-modal.modal-wide{max-width:900px}
+.po-picker{position:relative;display:grid;gap:6px}
+.po-picker .search-field{max-width:none}
+.po-matches{display:grid;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--surface)}
+.po-matches button{display:grid;gap:2px;text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);min-height:44px}
+.po-matches button:last-child{border-bottom:0}
+.po-matches button:hover,.po-matches button:focus{background:var(--paper)}
+.po-matches span{font-size:12px;color:var(--muted)}
+.po-receipts{display:grid;gap:8px;font-size:13px}
+.po-receipts>div{padding:10px 12px;border:1px solid var(--line);border-radius:6px;display:grid;gap:4px}
+.po-receipts small{color:var(--muted)}
+.po-over td{background:var(--amber-light)}
+.po-actions{display:flex;justify-content:flex-end;gap:10px}
+.purchasing .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media(max-width:700px){.po-grid{grid-template-columns:1fr}}

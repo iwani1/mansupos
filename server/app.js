@@ -46,6 +46,7 @@ import { WeeklyOperations } from './weekly-operations.js';
 import { InventoryService, adjustSchema, countSchema, priceSchema, movementQuery } from './inventory.js';
 import { ProductService, productSchema, productUpdateSchema } from './products.js';
 import { WordPressMedia } from './wp-media.js';
+import { PurchasingService, supplierSchema, poSchema, poActionSchema, receiptSchema, costSchema } from './purchasing.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -114,6 +115,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     injectedReservations || new OfflineReservations(config), wholesalePrices);
   const sales = new SalesService(db, catalog, api, config);
   const inventory = new InventoryService(db, catalog, api, config);
+  const purchasing = new PurchasingService(db, inventory, config);
   const products = new ProductService(db, catalog, api, config, injectedMedia || new WordPressMedia(config));
   // No bridge client, routes, plugin writes or new SQLite schema when OFF.
   const online = config.onlineBridgeEnabled
@@ -291,6 +293,20 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   app.post('/api/inventory/adjust', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await inventory.adjust(req.user, adjustSchema.parse(req.body))));
   app.post('/api/inventory/count', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await inventory.count(req.user, countSchema.parse(req.body))));
   app.post('/api/inventory/price', auth, role('owner'), sensitiveLimit, async (req, res) => res.json(await inventory.price(req.user, priceSchema.parse(req.body))));
+
+  // Purchasing: suppliers, purchase orders, goods receiving, costs, reorder list.
+  const uuidParam = value => z.string().uuid().parse(value);
+  app.get('/api/purchasing/overview', auth, role('owner', 'manager'), async (_req, res) => res.json(await purchasing.overview()));
+  app.get('/api/suppliers', auth, role('owner', 'manager'), (_req, res) => res.json({ suppliers: purchasing.suppliers() }));
+  app.post('/api/suppliers', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => res.status(201).json(purchasing.saveSupplier(req.user, supplierSchema.parse(req.body))));
+  app.put('/api/suppliers/:id', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => res.json(purchasing.saveSupplier(req.user, supplierSchema.parse(req.body), uuidParam(req.params.id))));
+  app.get('/api/purchase-orders', auth, role('owner', 'manager'), (req, res) => res.json({ orders: purchasing.orders({ status: req.query.status === 'open' ? 'open' : 'all' }) }));
+  app.get('/api/purchase-orders/:id', auth, role('owner', 'manager'), (req, res) => res.json({ order: purchasing.order(uuidParam(req.params.id)) }));
+  app.post('/api/purchase-orders', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => res.status(201).json(purchasing.saveOrder(req.user, poSchema.parse(req.body))));
+  app.put('/api/purchase-orders/:id', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => res.json(purchasing.saveOrder(req.user, poSchema.parse(req.body), uuidParam(req.params.id))));
+  app.post('/api/purchase-orders/:id/action', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => res.json(purchasing.act(req.user, uuidParam(req.params.id), poActionSchema.parse(req.body))));
+  app.post('/api/purchase-orders/:id/receive', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await purchasing.receive(req.user, uuidParam(req.params.id), receiptSchema.parse(req.body))));
+  app.put('/api/inventory/cost', auth, role('owner'), sensitiveLimit, (req, res) => res.json(purchasing.setCost(req.user, costSchema.parse(req.body))));
 
   // Add / edit website product listings (owner and manager).
   const productId = value => z.coerce.number().int().positive().max(2 ** 31).parse(value);
@@ -1289,5 +1305,5 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     if (status >= 500) logger.error({ reqId: req.id, method: req.method, path: req.path, code: error.code || 'SERVER_ERROR', name: error.name || 'Error' });
     res.status(status).json({ error: error instanceof AppError ? error.message : 'An unexpected server error occurred. Check the sale history before retrying.', code: error.code || 'SERVER_ERROR', reqId: req.id });
   });
-  return { app, config, db, api, catalog, sales, inventory, products, desktop, inStore, shifts, logger };
+  return { app, config, db, api, catalog, sales, inventory, products, purchasing, desktop, inStore, shifts, logger };
 }
