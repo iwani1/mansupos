@@ -12,6 +12,7 @@
 - [MONITORING.md](MONITORING.md) — Uptime alert for the POS and website
 - [OPERATIONS.md](OPERATIONS.md) — Daily use: shifts, sales, reconciliation
 - [OWNER-AUDIT-ACTIVITY.md](OWNER-AUDIT-ACTIVITY.md) — Owner audit history screen
+- [PURCHASING.md](PURCHASING.md) — Suppliers, purchase orders, receiving deliveries, reorder list and stock value at cost
 - [PRODUCT-MANAGEMENT.md](PRODUCT-MANAGEMENT.md) — Add and edit website products (photos, sizes, colours) from the POS
 - [PRIVATE-WHOLESALE-PRICES.md](PRIVATE-WHOLESALE-PRICES.md) — Wholesale price defaults (feature locked)
 - [REFUND-PROCEDURE.md](REFUND-PROCEDURE.md) — How to refund a sale until the POS has a return screen

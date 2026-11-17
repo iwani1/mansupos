@@ -67,6 +67,15 @@ try {
   await page.locator('.pe-table tbody tr').first().waitFor();
   await scan('product-editor');
   await page.getByRole('dialog', { name: 'Add product' }).getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('[data-nav="purchasing"]').click();
+  await page.getByRole('heading', { name: 'Purchasing', exact: true }).waitFor();
+  await scan('purchasing');
+  await page.getByRole('tab', { name: /^Reorder/ }).click();
+  await scan('purchasing-reorder');
+  await page.getByRole('button', { name: 'New purchase order' }).click();
+  await page.getByRole('dialog', { name: 'New purchase order' }).waitFor();
+  await scan('purchase-order-form');
+  await page.getByRole('dialog', { name: 'New purchase order' }).getByRole('button', { name: 'Cancel' }).click();
   await page.locator('[data-nav="sales"]').click();
   await page.getByRole('heading', { name: 'Sales history' }).waitFor();
   await scan('sales');
