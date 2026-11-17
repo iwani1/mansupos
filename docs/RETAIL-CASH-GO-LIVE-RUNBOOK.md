@@ -154,7 +154,7 @@ journalctl -u mansu-pos-live-trading -n 40 --no-pager
 systemctl start mansu-pos-live-trading-backup && journalctl -u mansu-pos-live-trading-backup -n 15 --no-pager && systemctl enable --now mansu-pos-live-trading-backup.timer && ls -la /var/lib/mansu-pos-live-trading/backups
 ```
 
-These backups stay on the same server. Copy them off the server regularly, for example by downloading them to your own computer each week.
+These backups stay on the same server. Each week, make an encrypted copy with `bash deploy/export-backup.sh` and download it; once a month, run the restore drill. See [BACKUP-AND-RESTORE-DRILL.md](BACKUP-AND-RESTORE-DRILL.md).
 
 ## 7. Check the website is still fine
 
