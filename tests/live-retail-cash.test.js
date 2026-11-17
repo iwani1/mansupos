@@ -162,3 +162,21 @@ test('the live till refuses items whose stock WooCommerce does not track', async
   assert.equal(res.data.code, 'STOCK_NOT_TRACKED');
   assert.equal(h.api.state.creates, 0, 'No Woo order for an untracked item');
 });
+
+test('untouched unpaid POS orders are cancelled after the abandon window; fresh and attempted ones are kept', async t => {
+  const h = await harness(t);
+  h.api.state.stock = 5;
+  const old = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: cartOf() });
+  const fresh = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: { ...cartOf(), note: 'fresh' } });
+  assert.equal(old.status, 201); assert.equal(fresh.status, 201);
+  const longAgo = new Date(Date.now() - 3 * 3600000).toISOString();
+  h.db.prepare('UPDATE sales SET created_at=? WHERE id=?').run(longAgo, old.data.sale.id);
+  const result = await h.sales.cancelAbandoned();
+  assert.deepEqual(result, { checked: 1, cancelled: 1 });
+  assert.equal(h.db.prepare('SELECT status FROM sales WHERE id=?').get(old.data.sale.id).status, 'cancelled');
+  assert.equal(h.api.state.orders[0].status, 'cancelled', 'Woo order cancelled too');
+  assert.equal(h.db.prepare('SELECT status FROM sales WHERE id=?').get(fresh.data.sale.id).status, 'awaiting_payment');
+  // A sale with a recorded payment attempt is never auto-cancelled.
+  h.db.prepare("UPDATE sales SET created_at=?, payment_method='cash' WHERE id=?").run(longAgo, fresh.data.sale.id);
+  assert.deepEqual(await h.sales.cancelAbandoned(), { checked: 0, cancelled: 0 });
+});

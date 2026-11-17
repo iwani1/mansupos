@@ -9,6 +9,9 @@ WorkingDirectory=/opt/mansu-pos-live-trading
 EnvironmentFile=/etc/mansu-pos-live-trading/pos.env
 # Never point a trading backup at the pilot or a demo/staging ledger.
 ExecStart=/usr/bin/env NODE_ENV=production POS_MODE=live POS_LIVE_READ_ONLY=false POS_DATA_DIR=/var/lib/mansu-pos-live-trading /usr/bin/node server/backup.js /var/lib/mansu-pos-live-trading/backups
+# After a successful new backup, remove verified snapshots older than 30 days.
+# Copy backups off this server regularly; this only limits local disk use.
+ExecStartPost=/usr/bin/find /var/lib/mansu-pos-live-trading/backups -maxdepth 1 -type f -name pos-live-* -mtime +30 -delete
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

@@ -1,34 +1,36 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { ClipboardCheck, ShoppingBag, ReceiptText, Package, ChartNoAxesCombined, Users, ArrowRight, Store, ShieldCheck, LockKeyhole, LoaderCircle, Banknote, ScrollText, Download, WifiOff, LayoutDashboard, Tags, Boxes, Settings2 } from 'lucide-react';
 import { api, setSessionToken } from './api.js';
 import Register from './Register.jsx';
-import Wholesale from './Wholesale.jsx';
-import InStore from './InStore.jsx';
 import Overview from './Overview.jsx';
 import { ProductsPage, CategoriesPage } from './Catalogue.jsx';
-import Customers from './Customers.jsx';
 import { WorkspaceSidebar, WorkspaceHeader } from './WorkspaceChrome.jsx';
 import WorkspaceCommandMenu from './WorkspaceCommandMenu.jsx';
 import { Sales, Inventory, Reports, Staff, Connection, Help, Shifts, Audit } from './Pages.jsx';
 import { Checkout, Receipt } from './Checkout.jsx';
-import RecoveryQueue from './RecoveryQueue.jsx';
-import PaymentReconciliation from './PaymentReconciliation.jsx';
-import StockSafety from './StockSafety.jsx';
-import DailyOperations from './DailyOperations.jsx';
-import WeeklyScorecard from './WeeklyScorecard.jsx';
-import PhysicalCountWorkspace from './PhysicalCountWorkspace.jsx';
-import CountSupervisionEvidence from './CountSupervisionEvidence.jsx';
-import PrivateCountFileRegister from './PrivateCountFileRegister.jsx';
-import CustodyReview from './CustodyReview.jsx';
-import ReviewerResponseIntake from './ReviewerResponseIntake.jsx';
-import ReviewerAccessPanel from './ReviewerAccessPanel.jsx';
-import InventoryEvidenceExceptions from './InventoryEvidenceExceptions.jsx';
-import InventoryVerificationReadiness from './InventoryVerificationReadiness.jsx';
-import ProvisionalReconciliationPanel from './ProvisionalReconciliationPanel.jsx';
-import InventoryAuditHandoff from './InventoryAuditHandoff.jsx';
-import FullLaunchReadinessPanel from './FullLaunchReadinessPanel.jsx';
 import IndependentReviewerPortal from './IndependentReviewerPortal.jsx';
 import { Spinner, Toast, Notice, Modal } from './components.jsx';
+// The till (Register, Checkout, Sales) loads up front. Owner and back-office
+// pages load on first visit so the register opens faster on slow connections.
+const Wholesale = lazy(() => import('./Wholesale.jsx'));
+const InStore = lazy(() => import('./InStore.jsx'));
+const Customers = lazy(() => import('./Customers.jsx'));
+const RecoveryQueue = lazy(() => import('./RecoveryQueue.jsx'));
+const PaymentReconciliation = lazy(() => import('./PaymentReconciliation.jsx'));
+const StockSafety = lazy(() => import('./StockSafety.jsx'));
+const DailyOperations = lazy(() => import('./DailyOperations.jsx'));
+const WeeklyScorecard = lazy(() => import('./WeeklyScorecard.jsx'));
+const PhysicalCountWorkspace = lazy(() => import('./PhysicalCountWorkspace.jsx'));
+const CountSupervisionEvidence = lazy(() => import('./CountSupervisionEvidence.jsx'));
+const PrivateCountFileRegister = lazy(() => import('./PrivateCountFileRegister.jsx'));
+const CustodyReview = lazy(() => import('./CustodyReview.jsx'));
+const ReviewerResponseIntake = lazy(() => import('./ReviewerResponseIntake.jsx'));
+const ReviewerAccessPanel = lazy(() => import('./ReviewerAccessPanel.jsx'));
+const InventoryEvidenceExceptions = lazy(() => import('./InventoryEvidenceExceptions.jsx'));
+const InventoryVerificationReadiness = lazy(() => import('./InventoryVerificationReadiness.jsx'));
+const ProvisionalReconciliationPanel = lazy(() => import('./ProvisionalReconciliationPanel.jsx'));
+const InventoryAuditHandoff = lazy(() => import('./InventoryAuditHandoff.jsx'));
+const FullLaunchReadinessPanel = lazy(() => import('./FullLaunchReadinessPanel.jsx'));
 
 const navigation = [
   { id:'overview', label:'Overview', short:'Home', icon:LayoutDashboard, group:'Workspace', roles:['owner','manager'] },
@@ -187,6 +189,7 @@ export default function App() {
       {config.onlineBridgeQuarantined&&<div className="demo-banner" role="alert"><span><span className="demo-banner-icon"><LockKeyhole size={14}/></span><strong>Original online attempt requires review</strong><span>The reservation bridge is disabled and all checkout writes are locked on this ledger. Do not use legacy order creation or collect cash.</span></span></div>}
       {(offline||connectionRecheck)&&<div className="offline-banner" role="alert"><WifiOff size={18}/><span>{offline?<><strong>Device offline.</strong> Current stock cannot be checked. Do not take payment or release goods; reconnect and refresh first.</>:<><strong>Reconnected · verifying stock.</strong> Do not take payment or release goods until the current catalogue is confirmed. <button className="offline-refresh" onClick={()=>refresh(true)} disabled={refreshing}>{refreshing?'Checking…':'Retry refresh'}</button></>}</span></div>}
       <main id="main-content" tabIndex={-1} className={`main-content ${page==='register'?'register-main':''}`}>
+        <Suspense fallback={<Spinner label="Loading page…" />}>
         {catalogError&&page!=='instore'&&<Notice tone="error">{catalogError}<button className="text-button" onClick={()=>refresh(true)}>Try again</button></Notice>}
         {page==='operations'&&<DailyOperations user={user}/>}
         {page==='physicalCounts'&&config.mode==='live'&&<PhysicalCountWorkspace user={user}/>}
@@ -220,6 +223,7 @@ export default function App() {
           {page==='audit'&&user.role==='owner'&&<Audit notify={notify}/>}
           {page==='connection'&&<Connection config={config} catalog={catalog} refresh={refresh} notify={notify} user={user}/>}
         </>)}
+        </Suspense>
       </main><footer className="app-footer"><span>MansuTRENDZGH <span>·</span> POS workspace</span><span><ShieldCheck size={12}/>{isDemo?'Isolated demo environment':config.liveReadOnly?'Live catalogue · checkout locked':`${config.mode} environment`}<span>·</span>GHS</span></footer>
     </div>
     {commandOpen&&<WorkspaceCommandMenu allowed={allowed} onNavigate={navigate} onSearchProducts={openProductSearch} onClose={()=>setCommandOpen(false)}/>}

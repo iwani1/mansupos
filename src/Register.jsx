@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, ScanLine, RefreshCw, Plus, Minus, Trash2, ShoppingBag, ArrowRight, X, Pause, Play, UserRound, StickyNote, Check, WifiOff, LayoutGrid, List, Banknote, ShieldCheck } from 'lucide-react';
 import { api, money, uuid } from './api.js';
 import { IconButton, Badge, ProductImage, Empty, Modal, Notice, PageHeading, NoResults, SellingModeSwitch } from './components.jsx';
-import { available, physicallyInStock, allowsBackorders, hasKnownStock, stockUnknown, ownershipUnknown, onBackorder } from './stock.js';
+import { available, physicallyInStock, allowsBackorders, hasKnownStock, stockUnknown, ownershipUnknown, onBackorder, takesLastUnit } from './stock.js';
 
 const parentAllowsSale = p => Boolean(p?.purchasable && p.stockStatus !== 'outofstock');
 const productAvailable = (p, requireSource = false) => Boolean(p && (p.type === 'variable' ? parentAllowsSale(p) && p.variations.some(v => available(v, requireSource)) : available(p, requireSource)));
@@ -206,7 +206,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
     if (mayBeBackordered) return source.backorders === 'notify' ? 'Backorder · notify customer' : 'Backorder';
     // The website can hold a last unit for an unpaid online checkout. The
     // server refuses held units; staff should still glance at Woo first.
-    const lastUnit = config.mode !== 'demo' && source.manageStock && hasKnownStock(source) && !allowsBackorders(source) && quantity >= source.stock;
+    const lastUnit = config.mode !== 'demo' && takesLastUnit(source, quantity);
     return lastUnit ? 'Last unit · check no online order is holding it before taking cash' : '';
   }
   const shiftRequired = config.requireShift && config.mode !== 'demo' && !config.liveReadOnly;

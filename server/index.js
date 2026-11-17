@@ -41,6 +41,8 @@ const reconcileTimer = shouldRunReconcileTimer(config) ? setInterval(async () =>
   try {
     const result = await sales.reconcilePending();
     if (result.checked) logger.info({ msg: 'reconciliation.sweep', ...result });
+    const abandoned = await sales.cancelAbandoned();
+    if (abandoned.checked) logger.info({ msg: 'abandoned_orders.sweep', ...abandoned });
   } catch (error) { logger.error({ msg: 'reconciliation.sweep_failed', name: error.name }); }
   finally { reconciling = false; }
 }, config.reconcileIntervalSeconds * 1000) : null;

@@ -5,7 +5,7 @@
 # (runbook step 8). Safe to re-run: existing settings and ledger are kept.
 set -euo pipefail
 
-BRANCH=claude/gifted-ramanujan-wt9kjc
+BRANCH=main
 REPO=https://github.com/iwani1/mansupos.git
 APP=/opt/mansu-pos-live-trading
 DATA=/var/lib/mansu-pos-live-trading

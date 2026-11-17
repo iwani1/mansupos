@@ -69,6 +69,13 @@ export function readConfig(env = process.env) {
   if (!Number.isInteger(websiteHoldMinutes) || websiteHoldMinutes < 1 || websiteHoldMinutes > 1440) {
     throw new Error('POS_WEBSITE_HOLD_MINUTES must be an integer from 1 to 1440 (match WooCommerce Hold stock minutes).');
   }
+  // WooCommerce only auto-cancels unpaid WEBSITE checkouts. A POS order that a
+  // cashier prepared but never paid would stay Pending forever, so the live
+  // till cancels its own untouched ones after this many minutes.
+  const abandonedOrderMinutes = Number(env.POS_ABANDONED_ORDER_MINUTES || 120);
+  if (!Number.isInteger(abandonedOrderMinutes) || abandonedOrderMinutes < 15 || abandonedOrderMinutes > 10080) {
+    throw new Error('POS_ABANDONED_ORDER_MINUTES must be an integer from 15 to 10080.');
+  }
   // Without that explicit switch, a legacy REST-created POS order remains
   // blocked in production even if older approval flags are copied in.
   // Synthetic NODE_ENV=test fixtures remain available for historical tests.
@@ -190,7 +197,7 @@ export function readConfig(env = process.env) {
 
   return {
     mode, storeUrl, configured, liveReadOnly, legacyLiveCheckoutBlocked, writesEnabled, wholesaleWritesEnabled, approvalReference,
-    liveRetailCashDirect, websiteHoldMinutes,
+    liveRetailCashDirect, websiteHoldMinutes, abandonedOrderMinutes,
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
     desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',

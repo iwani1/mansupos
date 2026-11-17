@@ -9,3 +9,6 @@ export const stockUnknown = (line, requireSource = false) => ownershipUnknown(li
 export const available = (line, requireSource = false) => Boolean(line?.purchasable && !ownershipUnknown(line, requireSource) && line.stockStatus !== 'outofstock' && (!line.manageStock || allowsBackorders(line) || (hasKnownStock(line) && line.stock > 0)));
 export const physicallyInStock = (line, requireSource = false) => available(line, requireSource) && line.stockStatus !== 'onbackorder' && (!line.manageStock || (hasKnownStock(line) && line.stock > 0));
 export const onBackorder = line => line?.stockStatus === 'onbackorder' || Boolean(line?.manageStock && hasKnownStock(line) && line.stock <= 0 && allowsBackorders(line));
+// A cart line that would take every remaining tracked unit. The website can be
+// holding such a unit for an unpaid online checkout, so the till warns staff.
+export const takesLastUnit = (line, quantity) => Boolean(line?.manageStock && hasKnownStock(line) && !allowsBackorders(line) && quantity >= line.stock);

@@ -761,6 +761,22 @@ export class SalesService {
       }
     });
   }
+  // Cancel this till's own unpaid retail orders that nobody touched for
+  // abandonedOrderMinutes: no payment attempt recorded, still awaiting payment.
+  // Uses the same guarded cancel() as staff, so a paid or changed Woo order is
+  // never cancelled; it is left for review instead.
+  async cancelAbandoned(limit = 10) {
+    if (!this.config.liveRetailCashDirect || !this.config.writesEnabled) return { checked: 0, cancelled: 0 };
+    const system = { id: 'system', role: 'owner', name: 'System' };
+    const before = new Date(Date.now() - this.config.abandonedOrderMinutes * 60000).toISOString();
+    const rows = this.db.prepare(`SELECT id FROM sales WHERE status='awaiting_payment' AND sale_type='retail'
+      AND payment_method IS NULL AND created_at < ? ORDER BY created_at LIMIT ?`).all(before, limit);
+    let cancelled = 0;
+    for (const { id } of rows) {
+      try { if ((await this.cancel(system, id)).status === 'cancelled') cancelled++; } catch { /* left for staff review */ }
+    }
+    return { checked: rows.length, cancelled };
+  }
   async reconcilePending(user = { id: 'system', role: 'owner', name: 'System' }, limit = 20) {
     // Neither the timer nor a manual bulk endpoint may fall through to legacy
     // Woo order inspection on a bridge ledger. Use individual, original-key

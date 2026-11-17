@@ -78,13 +78,13 @@ install -d -o mansu-pos-trading -g mansu-pos-trading -m 0700 /var/lib/mansu-pos-
 ```
 
 ```bash
-sudo -u mansu-pos-trading -H git clone --single-branch --branch claude/gifted-ramanujan-wt9kjc https://github.com/iwani1/mansupos.git /opt/mansu-pos-live-trading
+sudo -u mansu-pos-trading -H git clone --single-branch --branch main https://github.com/iwani1/mansupos.git /opt/mansu-pos-live-trading
 ```
 
 **If it already existed**, stop that service and switch its code to this release instead:
 
 ```bash
-systemctl stop mansu-pos-live-trading 2>/dev/null; sudo -u mansu-pos-trading -H git -C /opt/mansu-pos-live-trading fetch origin claude/gifted-ramanujan-wt9kjc && sudo -u mansu-pos-trading -H git -C /opt/mansu-pos-live-trading checkout -B live-retail-cash FETCH_HEAD
+systemctl stop mansu-pos-live-trading 2>/dev/null; sudo -u mansu-pos-trading -H git -C /opt/mansu-pos-live-trading fetch origin main && sudo -u mansu-pos-trading -H git -C /opt/mansu-pos-live-trading checkout -B live-retail-cash FETCH_HEAD
 ```
 
 **Either way**, build it. This takes a few minutes:
