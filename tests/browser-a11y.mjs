@@ -76,6 +76,13 @@ try {
   await page.getByRole('dialog', { name: 'New purchase order' }).waitFor();
   await scan('purchase-order-form');
   await page.getByRole('dialog', { name: 'New purchase order' }).getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('[data-nav="returns"]').click();
+  await page.getByRole('heading', { name: 'Customer returns', exact: true }).waitFor();
+  await page.getByLabel('Search sales to return').waitFor();
+  await scan('returns');
+  await page.locator('.po-table tbody tr').first().getByRole('button', { name: 'Return items' }).click();
+  await page.getByLabel(/^Quantity to return for /).first().waitFor();
+  await scan('return-form');
   await page.locator('[data-nav="sales"]').click();
   await page.getByRole('heading', { name: 'Sales history' }).waitFor();
   await scan('sales');

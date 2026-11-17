@@ -105,6 +105,14 @@ try {
     await noPageOverflow(`register ${size.width}x${size.height}`);
     if (size.width > 1080) await fullyVisible('.sidebar-profile > button');
   }
+  // Phones and upright tablets: the product list must use the full width
+  // (a later stylesheet once squeezed it to 0px under the hidden cart column).
+  for (const size of [{ width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 820, height: 1180 }]) {
+    await page.setViewportSize(size);
+    const widths = await page.evaluate(() => ({ panel: document.querySelector('.catalog-panel').getBoundingClientRect().width, main: document.querySelector('main').getBoundingClientRect().width }));
+    if (widths.panel < widths.main * 0.8) throw new Error(`register product list too narrow at ${size.width}px: ${JSON.stringify(widths)}`);
+    await page.locator('.product-card').first().waitFor({ state: 'visible' });
+  }
   await page.setViewportSize({ width: 1280, height: 800 });
   const columns = await page.locator('.product-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
   if (columns !== 3) throw new Error(`Expected three product columns at 1280px, found ${columns}.`);

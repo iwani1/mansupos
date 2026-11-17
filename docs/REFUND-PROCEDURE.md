@@ -1,6 +1,8 @@
 # Refunds and returns — written procedure
 
-**Status:** Proposed — in force once the owner signs below. Use this until the POS has its own return screen.
+**Status:** Proposed — in force once the owner signs below.
+
+> **Shop (POS) sales:** use **Operations → Customer returns** in the POS instead. It does steps 3–5 for you: the WooCommerce refund, the Cash out on your shift, and the restock decision. See `CUSTOMER-RETURNS.md`. The manual steps below remain for **website orders**, **taxed sales**, and when returns are switched off.
 
 The POS does not issue refunds. A refund is done in WooCommerce, and the cash that leaves the drawer is recorded separately as a **Cash out** on the shift. Both steps are always needed: a WooCommerce refund alone does **not** reduce the drawer's expected cash.
 

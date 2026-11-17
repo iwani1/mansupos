@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef } from 'react';
-import { X, LoaderCircle, Check, AlertCircle, ShoppingBag, Shirt, Banknote, Smartphone, CreditCard, SearchX, FileText, LayoutDashboard, Package, Tags, Boxes, Store, ReceiptText, ScrollText, ShieldCheck, Users, ChartNoAxesCombined, Settings2, PanelTop, UserRound, History, ClipboardCheck, Truck } from 'lucide-react';
+import { X, LoaderCircle, Check, AlertCircle, ShoppingBag, Shirt, Banknote, Smartphone, CreditCard, SearchX, FileText, LayoutDashboard, Package, Tags, Boxes, Store, ReceiptText, ScrollText, ShieldCheck, Users, ChartNoAxesCombined, Settings2, PanelTop, UserRound, History, ClipboardCheck, Truck, Undo2 } from 'lucide-react';
 import { money, methodLabel, statusLabel } from './api.js';
 
 export function IconButton({ icon: Icon, label, className = '', ...props }) { return <button className={`icon-button ${className}`} title={label} aria-label={label} {...props}><Icon size={19} strokeWidth={1.8} /></button>; }
@@ -22,7 +22,12 @@ export function Modal({ title, subtitle, children, onClose, wide = false, busy =
     const previous = document.activeElement;
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const timer = setTimeout(() => (ref.current?.querySelector('input:not([type="checkbox"]), select, textarea') || ref.current?.querySelector('button'))?.focus(), 30);
+    // Move focus into the dialog only if the person (or a scanner/autofill) has
+    // not already started using it; never pull the cursor out of a field.
+    const timer = setTimeout(() => {
+      if (ref.current?.contains(document.activeElement)) return;
+      (ref.current?.querySelector('input:not([type="checkbox"]), select, textarea') || ref.current?.querySelector('button'))?.focus();
+    }, 30);
     const key = e => {
       if (e.key === 'Escape' && !busyRef.current) closeRef.current();
       if (e.key === 'Tab') {
@@ -41,7 +46,7 @@ export function Notice({ children, tone = 'info', icon: Icon = AlertCircle }) { 
 const pageIconMap = {
   Overview:LayoutDashboard, 'Point of sale':ShoppingBag,
   'Wholesale management':Store, Products:Package, Categories:Tags,
-  Inventory:Boxes, 'Stock control':ClipboardCheck, Purchasing:Truck, 'Sales history':ReceiptText, Orders:ScrollText,
+  Inventory:Boxes, 'Stock control':ClipboardCheck, Purchasing:Truck, 'Customer returns':Undo2, 'Sales history':ReceiptText, Orders:ScrollText,
   'Recovery queue':ShieldCheck, 'Payment reconciliation':Banknote, Customers:UserRound, 'Shifts & drawer':Banknote,
   'Reports & analytics':ChartNoAxesCombined, 'Daily staff operations':ShieldCheck, 'Weekly staff scorecard':Users, 'Staff & permissions':Users,
   'Audit log':History, 'Settings & connection':Settings2,

@@ -205,6 +205,11 @@ export function readConfig(env = process.env) {
   }
   const productWritesEnabled = mode === 'demo' || (writesEnabled && !onlineBridgeEnabled &&
     (mode === 'staging' || env.POS_PRODUCT_WRITES_APPROVED === 'true'));
+  // Customer returns refund money on the Woo order and pay cash from a shift:
+  // their own switch on a live service, off by default.
+  if (env.POS_RETURNS_APPROVED && !['true', 'false'].includes(env.POS_RETURNS_APPROVED)) throw new Error('POS_RETURNS_APPROVED must be true or false.');
+  if (env.POS_RETURNS_APPROVED === 'true' && (liveReadOnly || onlineBridgeEnabled)) throw new Error('Returns cannot be enabled on the read-only pilot or with the reservation bridge.');
+  const returnsEnabled = mode === 'demo' || (writesEnabled && !onlineBridgeEnabled && (mode === 'staging' || env.POS_RETURNS_APPROVED === 'true'));
   // Photos go to the WordPress media library with a dedicated Application Password.
   const mediaUser = (env.POS_WP_MEDIA_USER || '').trim();
   const mediaPassword = (env.POS_WP_MEDIA_APP_PASSWORD || '').trim();
@@ -224,7 +229,7 @@ export function readConfig(env = process.env) {
 
   return {
     mode, storeUrl, configured, liveReadOnly, legacyLiveCheckoutBlocked, writesEnabled, wholesaleWritesEnabled, approvalReference,
-    liveRetailCashDirect, websiteHoldMinutes, abandonedOrderMinutes, inventoryWritesEnabled, productWritesEnabled, mediaUser, mediaPassword,
+    liveRetailCashDirect, websiteHoldMinutes, abandonedOrderMinutes, inventoryWritesEnabled, productWritesEnabled, returnsEnabled, mediaUser, mediaPassword,
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
     desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',
@@ -271,6 +276,7 @@ export function publicConfig(config) {
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
     inventoryWritesEnabled: Boolean(config.inventoryWritesEnabled),
     productWritesEnabled: Boolean(config.productWritesEnabled),
+    returnsEnabled: Boolean(config.returnsEnabled),
     onlineBridgeLocalTest: config.onlineBridgeLocalTest,
     onlineBridgeLiveEnabled: config.onlineBridgeLiveEnabled,
     onlineBridgeEnabled: config.onlineBridgeEnabled,
