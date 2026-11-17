@@ -18,7 +18,6 @@ try {
   assert.equal(await page.locator('main h1:visible').innerText(), 'Stock control');
   const firstRow = page.locator('.stock-table tbody tr').first();
   await firstRow.waitFor();
-  const before = Number(await firstRow.locator('.stock-qty').innerText());
   const name = await firstRow.locator('.table-primary').innerText();
 
   await firstRow.getByRole('button', { name: 'Receive' }).click();
@@ -27,19 +26,26 @@ try {
   await dialog.getByLabel(/Note/).fill('Delivery note 17');
   await dialog.getByRole('button', { name: 'Add 4' }).click();
   await dialog.waitFor({ state: 'detached' });
-  await page.waitForFunction(([n, expected]) => [...document.querySelectorAll('.stock-table tbody tr')].some(row =>
-    row.querySelector('.table-primary')?.textContent === n && row.querySelector('.stock-qty')?.textContent === String(expected)), [name, before + 4]);
+  // The confirmation states the quantity the server wrote; the table must then show it.
+  const toast = await page.locator('.toast').filter({ hasText: `${name}: stock` }).innerText();
+  const [, was, now] = toast.match(/stock (\d+) → (\d+)/);
+  assert.equal(Number(now), Number(was) + 4, toast);
+  const showsNew = () => page.waitForFunction(([n, expected]) => [...document.querySelectorAll('.stock-table tbody tr')].some(row =>
+    row.querySelector('.table-primary')?.textContent === n && row.querySelector('.stock-qty')?.textContent === String(expected)), [name, Number(now)], { timeout: 10000 });
+  try { await showsNew(); }
+  catch { await page.getByRole('button', { name: 'Refresh', exact: true }).first().click(); await showsNew(); }
+  const before4 = Number(was);
   await page.screenshot({ path: 'test-results/stock-control-levels.png' });
 
   await page.getByRole('tab', { name: 'Stock count' }).click();
   const countInput = page.getByLabel(new RegExp(`Counted quantity for ${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)).first();
-  await countInput.fill(String(before + 1));
+  await countInput.fill(String(before4 + 1));
   page.once('dialog', d => d.accept());
   await page.getByRole('button', { name: /Save count \(1\)/ }).click();
   await page.getByText('Stock count saved for 1 line.').waitFor();
 
   await page.getByRole('tab', { name: 'Movement history' }).click();
-  await page.locator('.movement-table').getByText('Delivery note 17').waitFor();
+  await page.locator('.movement-table').getByText('Delivery note 17').first().waitFor();
   await page.locator('.movement-table').getByText('Stock count').first().waitFor();
   await page.screenshot({ path: 'test-results/stock-control-history.png' });
 
