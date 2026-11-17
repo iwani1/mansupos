@@ -184,6 +184,18 @@ export function readConfig(env = process.env) {
     }
   }
 
+  // Stock/price management writes to WooCommerce are their own switch on a
+  // live service: approving POS orders does not by itself let staff change
+  // shared website stock. Staging follows its ordinary write approval.
+  if (env.POS_INVENTORY_WRITES_APPROVED && !['true', 'false'].includes(env.POS_INVENTORY_WRITES_APPROVED)) {
+    throw new Error('POS_INVENTORY_WRITES_APPROVED must be true or false.');
+  }
+  if (env.POS_INVENTORY_WRITES_APPROVED === 'true' && (liveReadOnly || onlineBridgeEnabled)) {
+    throw new Error('Inventory writes cannot be enabled on the read-only pilot or with the reservation bridge.');
+  }
+  const inventoryWritesEnabled = mode === 'demo' || (writesEnabled && !onlineBridgeEnabled &&
+    (mode === 'staging' || env.POS_INVENTORY_WRITES_APPROVED === 'true'));
+
   const port = Number(env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.');
   const bindHost = env.POS_BIND_HOST || '0.0.0.0';
@@ -197,7 +209,7 @@ export function readConfig(env = process.env) {
 
   return {
     mode, storeUrl, configured, liveReadOnly, legacyLiveCheckoutBlocked, writesEnabled, wholesaleWritesEnabled, approvalReference,
-    liveRetailCashDirect, websiteHoldMinutes, abandonedOrderMinutes,
+    liveRetailCashDirect, websiteHoldMinutes, abandonedOrderMinutes, inventoryWritesEnabled,
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
     desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',
@@ -242,6 +254,7 @@ export function publicConfig(config) {
     liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
     liveRetailCashDirect: Boolean(config.liveRetailCashDirect),
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
+    inventoryWritesEnabled: Boolean(config.inventoryWritesEnabled),
     onlineBridgeLocalTest: config.onlineBridgeLocalTest,
     onlineBridgeLiveEnabled: config.onlineBridgeLiveEnabled,
     onlineBridgeEnabled: config.onlineBridgeEnabled,

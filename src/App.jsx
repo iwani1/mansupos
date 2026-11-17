@@ -18,6 +18,7 @@ const Customers = lazy(() => import('./Customers.jsx'));
 const RecoveryQueue = lazy(() => import('./RecoveryQueue.jsx'));
 const PaymentReconciliation = lazy(() => import('./PaymentReconciliation.jsx'));
 const StockSafety = lazy(() => import('./StockSafety.jsx'));
+const StockControl = lazy(() => import('./StockControl.jsx'));
 const DailyOperations = lazy(() => import('./DailyOperations.jsx'));
 const WeeklyScorecard = lazy(() => import('./WeeklyScorecard.jsx'));
 const PhysicalCountWorkspace = lazy(() => import('./PhysicalCountWorkspace.jsx'));
@@ -39,6 +40,7 @@ const navigation = [
   { id:'products', label:'Products', short:'Products', icon:Package, group:'Catalogue' },
   { id:'categories', label:'Categories', short:'Categories', icon:Tags, group:'Catalogue' },
   { id:'inventory', label:'Inventory', short:'Stock', icon:Boxes, group:'Catalogue' },
+  { id:'stockControl', label:'Stock control', short:'Restock', icon:ClipboardCheck, group:'Catalogue', roles:['owner','manager'] },
   { id:'stockSafety', label:'Stock safety review', short:'Audit stock', icon:ShieldCheck, group:'Catalogue', roles:['owner','manager'], liveOnly:true },
   { id:'sales', label:'Sales history', short:'Sales', icon:ReceiptText, group:'Operations' },
   { id:'orders', label:'Orders', short:'Orders', icon:ScrollText, group:'Operations' },
@@ -213,6 +215,7 @@ export default function App() {
           {page==='categories'&&<CategoriesPage catalog={catalog} config={config} onSelect={openCategory} refresh={refresh}/>}
           {(page==='sales'||page==='orders')&&<Sales key={page} view={page} sales={sales} config={config} refresh={refresh} onReceipt={setReceipt} onPay={setPending} notify={notify} hasMore={salesHasMore} loadingMore={salesLoadingMore} onLoadMore={loadMoreSales}/>}
           {page==='inventory'&&<Inventory catalog={catalog} config={config} user={user} active={page==='inventory'} refresh={refresh} notify={notify}/>}
+          {page==='stockControl'&&user.role!=='cashier'&&<StockControl user={user} notify={notify} refreshCatalog={refresh}/>}
           {page==='stockSafety'&&config.mode==='live'&&user.role!=='cashier'&&<StockSafety active={page==='stockSafety'} user={user}/>}
           {page==='customers'&&user.role!=='cashier'&&<Customers refreshKey={refreshKey}/>}
           {page==='recovery'&&user.role!=='cashier'&&<RecoveryQueue/>}

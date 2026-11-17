@@ -48,6 +48,15 @@ try {
   await page.locator('[data-nav="inventory"]').click();
   await page.getByRole('heading', { name: 'Inventory', exact: true }).waitFor();
   await scan('inventory');
+  await page.locator('[data-nav="stockControl"]').click();
+  await page.locator('.stock-table tbody tr').first().waitFor();
+  await scan('stock-control');
+  await page.locator('.stock-table tbody tr').first().getByRole('button', { name: 'Receive' }).click();
+  await page.getByRole('dialog', { name: 'Receive stock' }).waitFor();
+  await scan('stock-control-receive');
+  await page.getByRole('dialog', { name: 'Receive stock' }).getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('tab', { name: 'Stock count' }).click();
+  await scan('stock-control-count');
   await page.locator('[data-nav="sales"]').click();
   await page.getByRole('heading', { name: 'Sales history' }).waitFor();
   await scan('sales');
@@ -74,7 +83,7 @@ try {
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   }
   await page.setViewportSize({ width: 375, height: 812 });
-  for (const id of ['overview','products','categories','sales','orders','customers','wholesale','inventory','reports','shifts','staff','audit','connection','register']) {
+  for (const id of ['overview','products','categories','sales','orders','customers','wholesale','inventory','stockControl','reports','shifts','staff','audit','connection','register']) {
     await page.getByLabel('Open navigation').click();
     await page.locator(`[data-nav="${id}"]`).click();
     await page.locator('main h1:visible').waitFor();

@@ -94,6 +94,9 @@ export class WooCommerce {
   async order(id) { return (await this.request(`orders/${id}`)).data; }
   async createOrder(body) { return (await this.request('orders', { method: 'POST', body: { ...body, created_via: 'mansu-pos' } })).data; }
   async updateOrder(id, body) { return (await this.request(`orders/${id}`, { method: 'PUT', body })).data; }
+  // Inventory management: stock quantity / retail price on one product or option.
+  async updateProduct(id, body) { return (await this.request(`products/${id}`, { method: 'PUT', body })).data; }
+  async updateVariation(productId, id, body) { return (await this.request(`products/${productId}/variations/${id}`, { method: 'PUT', body })).data; }
   // Orders created since `after` in any non-trash status (website checkout
   // holds and other tills' unpaid POS orders). Read-only; caller filters.
   async recentOrders(after) {

@@ -151,7 +151,7 @@ export function Inventory({ catalog, config, user, active, refresh, notify }) {
     finally { setPriceBusy(false); }
   }
   return <>
-    <PageHeading eyebrow="Stock overview" title="Inventory" description={config.mode === 'demo' ? 'Sample quantities for the real product catalogue. Your website is unchanged.' : 'Read-only stock visibility. WooCommerce remains the source of truth.'}>
+    <PageHeading eyebrow="Stock overview" title="Inventory" description={config.mode === 'demo' ? 'Sample quantities for the real product catalogue. Your website is unchanged.' : 'Stock visibility. WooCommerce remains the source of truth; owners and managers change stock and prices in Stock control.'}>
       <button className="button secondary" onClick={sync} disabled={refreshing}><RefreshCw size={16} className={refreshing ? 'spin' : ''}/>Refresh catalogue</button>
     </PageHeading>
     <div className="stats-grid four">

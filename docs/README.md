@@ -5,6 +5,7 @@
 - [ARCHITECTURE.md](ARCHITECTURE.md) — How checkout, WooCommerce and the ledger fit together
 - [DAILY-STAFF-OPERATIONS.md](DAILY-STAFF-OPERATIONS.md) — Staff task checklists
 - [HARDWARE.md](HARDWARE.md) — Scanner, printer, drawer
+- [INVENTORY-MANAGEMENT.md](INVENTORY-MANAGEMENT.md) — Stock control: receive, remove, count and re-price shared website + shop stock
 - [INSTALLABLE-WEB-APP.md](INSTALLABLE-WEB-APP.md) — Installing the web app on a device
 - [OPERATIONS.md](OPERATIONS.md) — Daily use: shifts, sales, reconciliation
 - [OWNER-AUDIT-ACTIVITY.md](OWNER-AUDIT-ACTIVITY.md) — Owner audit history screen
