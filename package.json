@@ -108,6 +108,6 @@
     "globals": "^17.14.0",
     "php-parser": "3.7.0",
     "playwright-core": "^1.51.1",
-    "vite": "^6.3.5"
+    "vite": "^8.3.8"
   }
 }
