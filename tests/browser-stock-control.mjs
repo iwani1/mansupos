@@ -43,6 +43,15 @@ try {
   await page.locator('.movement-table').getByText('Stock count').first().waitFor();
   await page.screenshot({ path: 'test-results/stock-control-history.png' });
 
+  // Duplicate SKU filter and Edit product shortcut (demo samples have unique SKUs).
+  await page.getByRole('tab', { name: 'Stock levels' }).click();
+  await page.getByLabel('Filter by stock status').selectOption('dupsku');
+  await page.getByText('No matching stock').waitFor();
+  await page.getByLabel('Filter by stock status').selectOption('all');
+  await page.getByRole('button', { name: /^Edit product / }).first().click();
+  await page.getByRole('dialog', { name: 'Edit product' }).getByText('Demo sample products are fixed').waitFor();
+  await page.getByRole('dialog', { name: 'Edit product' }).getByRole('button', { name: 'Close dialog' }).click();
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('tab', { name: 'Stock levels' }).click();
   const sizes = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth }));

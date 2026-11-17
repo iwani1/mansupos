@@ -215,7 +215,7 @@ export default function App() {
           {page==='categories'&&<CategoriesPage catalog={catalog} config={config} onSelect={openCategory} refresh={refresh}/>}
           {(page==='sales'||page==='orders')&&<Sales key={page} view={page} sales={sales} config={config} refresh={refresh} onReceipt={setReceipt} onPay={setPending} notify={notify} hasMore={salesHasMore} loadingMore={salesLoadingMore} onLoadMore={loadMoreSales}/>}
           {page==='inventory'&&<Inventory catalog={catalog} config={config} user={user} active={page==='inventory'} refresh={refresh} notify={notify}/>}
-          {page==='stockControl'&&user.role!=='cashier'&&<StockControl user={user} notify={notify} refreshCatalog={refresh}/>}
+          {page==='stockControl'&&user.role!=='cashier'&&<StockControl user={user} notify={notify} refreshCatalog={refresh} config={config}/>}
           {page==='stockSafety'&&config.mode==='live'&&user.role!=='cashier'&&<StockSafety active={page==='stockSafety'} user={user}/>}
           {page==='customers'&&user.role!=='cashier'&&<Customers refreshKey={refreshKey}/>}
           {page==='recovery'&&user.role!=='cashier'&&<RecoveryQueue/>}

@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, RefreshCw, Download, PackagePlus, PackageMinus, ClipboardCheck, History, Tag, Boxes, Globe, Store, LockKeyhole } from 'lucide-react';
 import { api, money, dateTime, authHeaders, uuid } from './api.js';
 import { PageHeading, Stat, Empty, Badge, ProductImage, Modal, Notice, Spinner, TableRegion } from './components.jsx';
 import './stock-control.css';
+const ProductEditor = lazy(() => import('./ProductEditor.jsx'));
 
 const STATUS = {
   ok: { label: 'In stock', tone: 'green' }, low: { label: 'Low stock', tone: 'amber' }, out: { label: 'Out of stock', tone: 'red' },
@@ -15,7 +16,7 @@ const TYPE_COPY = {
 };
 const pesewas = value => { const text = String(value ?? '').trim(); return /^\d{1,7}(\.\d{1,2})?$/.test(text) ? Math.round(Number(text) * 100) : null; };
 
-export default function StockControl({ user, notify, refreshCatalog }) {
+export default function StockControl({ user, notify, refreshCatalog, config }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,6 +27,7 @@ export default function StockControl({ user, notify, refreshCatalog }) {
   const [editor, setEditor] = useState(null);
   const [priceEditor, setPriceEditor] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
+  const [editingProduct, setEditingProduct] = useState(null);
 
   const load = useCallback(async (refresh = false) => {
     setLoading(true);
@@ -37,10 +39,14 @@ export default function StockControl({ user, notify, refreshCatalog }) {
   const afterChange = useCallback(async () => { await load(true); refreshCatalog?.(true); }, [load, refreshCatalog]);
 
   const categories = useMemo(() => [...new Set((data?.lines || []).map(l => l.category))].sort(), [data]);
+  // Same SKU on more than one stock line (often sizes that inherit the parent SKU).
+  const skuCounts = useMemo(() => (data?.lines || []).reduce((map, l) => { if (l.sku) map.set(l.sku, (map.get(l.sku) || 0) + 1); return map; }, new Map()), [data]);
+  const duplicateSku = useCallback(line => Boolean(line.sku) && skuCounts.get(line.sku) > 1, [skuCounts]);
+  const duplicateCount = useMemo(() => (data?.lines || []).filter(duplicateSku).length, [data, duplicateSku]);
   const visible = useMemo(() => (data?.lines || []).filter(line =>
-    (filter === 'all' || line.status === filter || (filter === 'attention' && ['low', 'out'].includes(line.status)) || (filter === 'nosku' && !line.sku)) &&
+    (filter === 'all' || line.status === filter || (filter === 'attention' && ['low', 'out'].includes(line.status)) || (filter === 'nosku' && !line.sku) || (filter === 'dupsku' && duplicateSku(line))) &&
     (category === 'all' || line.category === category) &&
-    `${line.name} ${line.label} ${line.sku}`.toLowerCase().includes(query.trim().toLowerCase())), [data, filter, category, query]);
+    `${line.name} ${line.label} ${line.sku}`.toLowerCase().includes(query.trim().toLowerCase())), [data, filter, category, query, duplicateSku]);
 
   async function exportCsv() {
     try {
@@ -91,18 +97,21 @@ export default function StockControl({ user, notify, refreshCatalog }) {
           <option value="low">Low stock ({summary.low})</option>
           <option value="untracked">Not tracked ({summary.untracked})</option>
           <option value="nosku">Missing SKU ({summary.missingSku})</option>
+          <option value="dupsku">Duplicate SKU ({duplicateCount})</option>
         </select>
         <select className="select" aria-label="Filter by category" value={category} onChange={e => setCategory(e.target.value)}>
           <option value="all">All categories</option>{categories.map(c => <option key={c}>{c}</option>)}
         </select>
       </div>}
-      {tab === 'levels' && <StockLevels lines={visible} total={data.lines.length} canWrite={canWrite} canPrice={canWrite && writes.priceEditing && user.role === 'owner'}
-        onAdjust={(line, type) => setEditor({ line, type })} onPrice={line => setPriceEditor(line)} onHistory={line => setHistoryFor(line)} clear={() => { setQuery(''); setFilter('all'); setCategory('all'); }} />}
+      {tab === 'levels' && filter === 'dupsku' && duplicateCount > 0 && <Notice>These stock lines share an SKU, so a scanner or SKU search cannot tell them apart. Open <strong>Catalogue → Products</strong>, search the product, press <strong>Edit</strong>, give each size/colour its own SKU (or press <strong>Fill SKUs</strong>) and save.</Notice>}
+      {tab === 'levels' && <StockLevels duplicateSku={duplicateSku} lines={visible} total={data.lines.length} canWrite={canWrite} canPrice={canWrite && writes.priceEditing && user.role === 'owner'}
+        onAdjust={(line, type) => setEditor({ line, type })} onPrice={line => setPriceEditor(line)} onHistory={line => setHistoryFor(line)} onEditProduct={config?.productWritesEnabled ? line => setEditingProduct(line.productId) : null} clear={() => { setQuery(''); setFilter('all'); setCategory('all'); }} />}
       {tab === 'count' && <StockCount lines={visible} canWrite={canWrite} notify={notify} onDone={afterChange} />}
       {tab === 'history' && <MovementHistory key="all" notify={notify} />}
     </>}
     {editor && <AdjustModal {...editor} reasons={data.reasons} labels={data.reasonLabels} onClose={() => setEditor(null)} notify={notify} onDone={afterChange} />}
     {priceEditor && <PriceModal line={priceEditor} onClose={() => setPriceEditor(null)} notify={notify} onDone={afterChange} />}
+    {editingProduct && <Suspense fallback={null}><ProductEditor productId={editingProduct} config={config} notify={notify} onClose={() => setEditingProduct(null)} onSaved={afterChange} /></Suspense>}
     {historyFor && <Modal title="Stock history" subtitle={`${historyFor.name} · ${historyFor.label}`} wide onClose={() => setHistoryFor(null)}>
       <div className="modal-body"><MovementHistory line={historyFor} notify={notify} compact /></div>
       <div className="modal-footer"><button className="button primary" onClick={() => setHistoryFor(null)}>Close</button></div>
@@ -110,7 +119,7 @@ export default function StockControl({ user, notify, refreshCatalog }) {
   </div>;
 }
 
-function StockLevels({ lines, total, canWrite, canPrice, onAdjust, onPrice, onHistory, clear }) {
+function StockLevels({ duplicateSku, lines, total, canWrite, canPrice, onAdjust, onPrice, onHistory, onEditProduct, clear }) {
   if (!lines.length) return <section className="surface"><Empty icon={Boxes} title={total ? 'No matching stock' : 'No stock lines yet'} action={total ? <button className="button secondary" onClick={clear}>Clear filters</button> : null}>{total ? 'Try another search, status or category.' : 'Refresh to load products from WooCommerce.'}</Empty></section>;
   return <section className="surface records-surface">
     <TableRegion label="Stock levels"><table className="responsive-table stock-table"><thead><tr>
@@ -120,7 +129,7 @@ function StockLevels({ lines, total, canWrite, canPrice, onAdjust, onPrice, onHi
       return <tr key={line.key}>
         <td data-label="Product"><div className="table-product"><ProductImage src={line.image} name={line.name} /><div><strong className="table-primary">{line.name}</strong><small>{line.category}</small></div></div></td>
         <td data-label="Option">{line.label}</td>
-        <td data-label="SKU"><span className="sku-cell">{line.sku || '—'}</span></td>
+        <td data-label="SKU"><span className="sku-cell">{line.sku || '—'}</span>{duplicateSku(line) && <small className="error-text">Duplicate SKU</small>}</td>
         <td data-label="Price" className="right tabular">{money(line.price)}</td>
         <td data-label="In stock" className="right"><strong className="stock-qty">{line.manageStock && line.stock != null ? line.stock : '—'}</strong></td>
         <td data-label="Status"><Badge dot tone={state.tone}>{state.label}</Badge>{line.daysOfCover != null && line.manageStock && <small className="stock-cover">≈ {line.daysOfCover} days left</small>}</td>
@@ -133,6 +142,7 @@ function StockLevels({ lines, total, canWrite, canPrice, onAdjust, onPrice, onHi
           </> : <button className="button secondary small" disabled={!canWrite || line.status === 'unknown'} onClick={() => onAdjust(line, 'count')}><ClipboardCheck size={14} />Start tracking</button>}
           {canPrice && line.priceEditable && <button className="button secondary small" onClick={() => onPrice(line)}><Tag size={14} />Price</button>}
           <button className="text-button" onClick={() => onHistory(line)}>History</button>
+          {onEditProduct && <button className="text-button" onClick={() => onEditProduct(line)} aria-label={`Edit product ${line.name}`}>Edit product</button>}
         </div></td>
       </tr>;
     })}</tbody></table></TableRegion>

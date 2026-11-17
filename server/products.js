@@ -246,10 +246,13 @@ export class ProductService {
     const result = await this.api.batchVariations(productId, { create: variations.map(v => this.wooVariation(v, attributes)) });
     return (result?.create || []).filter(item => item?.error).map(item => String(item.error.message || 'rejected').replace(/<[^>]*>/g, '').slice(0, 120));
   }
-  wooVariation(v, attributes, existing = false) {
+  // `currentSku` (existing options only): send the SKU only when it changed, so
+  // an option that inherits the parent SKU is not rejected as a duplicate.
+  wooVariation(v, attributes, existing = false, currentSku = undefined) {
+    const skuChanged = !existing || (v.sku || '') !== (currentSku ?? '');
     return {
       ...(v.id ? { id: v.id } : {}),
-      regular_price: decimal(v.regularPrice), sale_price: decimal(v.salePrice), sku: v.sku || '',
+      regular_price: decimal(v.regularPrice), sale_price: decimal(v.salePrice), ...(skuChanged ? { sku: v.sku || '' } : {}),
       status: v.enabled ? 'publish' : 'private',
       ...(existing ? {} : { manage_stock: true, stock_quantity: v.stock }),
       ...(v.imageId ? { image: { id: v.imageId } } : {}),
@@ -319,7 +322,9 @@ export class ProductService {
       stock: raw.stock_quantity ?? 0, manageStock: raw.manage_stock === true, hasOptions: raw.type === 'variable', attributes,
       variations: variations.map(v => ({
         id: v.id, attributes: Object.fromEntries((v.attributes || []).map(a => [attributes.find(x => sameName(x.name, a.name))?.name || a.name, a.option])),
-        sku: v.sku || '', regularPrice: decimal(v.regular_price), salePrice: decimal(v.sale_price), stock: v.stock_quantity ?? 0,
+        // WooCommerce reports an option with no SKU of its own using the parent's
+        // SKU. Show it as empty so it can be filled with a distinct code.
+        sku: v.sku && v.sku !== raw.sku ? v.sku : '', regularPrice: decimal(v.regular_price), salePrice: decimal(v.sale_price), stock: v.stock_quantity ?? 0,
         imageId: v.image?.id || null, enabled: v.status !== 'private',
       })),
     };
@@ -353,7 +358,7 @@ export class ProductService {
       } catch (error) { throw this.wooError(error, 'The website did not confirm the product change. Reopen it to check.'); }
       const warnings = [];
       if (input.hasOptions) {
-        const update = [...input.variations.filter(v => v.id), ...hidden].map(v => this.wooVariation(v, attributes, true));
+        const update = [...input.variations.filter(v => v.id), ...hidden].map(v => this.wooVariation(v, attributes, true, known.get(v.id)?.sku));
         const create = input.variations.filter(v => !v.id).map(v => this.wooVariation(v, attributes));
         if (update.length || create.length) {
           try {
