@@ -22,4 +22,4 @@ The POS audit journal records requester and approver IDs, immutable action times
 
 Run `npm test`, `npm run lint`, `npm run build:live` and `npm run test:browser` on an isolated demo. Test cashier request, manager approval rejection, owner approve, demo stock changes, live zero Woo writes, stale count rejection, parent-managed variation block, duplicate queue handling, and audit history.
 
-This draft adds a new v10 SQLite migration. Take a verified backup and test isolated restore before any deployment. Never deploy the draft directly to the live till without owner signoff.
+The draft initializes a separate stock_adjustment_requests table alongside the unchanged v9 ledger. Take a verified backup and test isolated restore before any deployment. Never deploy the draft directly to the live till without owner signoff.

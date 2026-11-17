@@ -41,6 +41,30 @@ export class StockAdjustmentService {
     this.db = db;
     this.catalog = catalog;
     this.config = config;
+    // Independent append-only review queue. This does not change the bound
+    // v9 trading ledger contract, existing checkout tables or WooCommerce.
+    // A service that cannot create the table fails startup rather than
+    // silently losing staff requests. Backup includes this SQLite table.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS stock_adjustment_requests (
+        id TEXT PRIMARY KEY, product_id INTEGER NOT NULL CHECK(product_id>0),
+        variation_id INTEGER NOT NULL CHECK(variation_id>=0),
+        stock_pool TEXT NOT NULL, product_name TEXT NOT NULL, option_label TEXT NOT NULL,
+        sku TEXT NOT NULL, expected_quantity INTEGER NOT NULL CHECK(expected_quantity>=0),
+        target_quantity INTEGER NOT NULL CHECK(target_quantity BETWEEN 0 AND 100000),
+        reason TEXT NOT NULL, note TEXT NOT NULL,
+        requested_by TEXT NOT NULL REFERENCES users(id), requester_name TEXT NOT NULL,
+        created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending'
+          CHECK(status IN ('pending','approved','rejected','verified')),
+        reviewed_by TEXT REFERENCES users(id), reviewed_at TEXT, review_note TEXT,
+        verified_at TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_adjustment_open_pool ON stock_adjustment_requests(stock_pool)
+        WHERE status IN ('pending','approved');
+      CREATE INDEX IF NOT EXISTS idx_stock_adjustment_requested ON stock_adjustment_requests(requested_by,created_at);
+      CREATE TRIGGER IF NOT EXISTS stock_adjustment_no_delete BEFORE DELETE ON stock_adjustment_requests
+        BEGIN SELECT RAISE(ABORT,'Stock adjustment history must be preserved'); END;
+    `);
   }
 
   list(user) {

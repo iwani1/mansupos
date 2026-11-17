@@ -9,7 +9,7 @@ import { assertLedgerIdentity, initializeLedgerIdentity, ledgerInfo } from './le
 // Preserve the public server API while the desktop ledger imports only the
 // password code, not demo products and the central database migrations.
 export { hashPassword, verifyPassword, passwordProblem } from './passwords.js';
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 9;
 
 function migrate(db, targetVersion = SCHEMA_VERSION) {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);`);
@@ -191,29 +191,6 @@ function migrate(db, targetVersion = SCHEMA_VERSION) {
         CREATE TRIGGER closed_shifts_no_delete BEFORE DELETE ON shifts WHEN OLD.status='closed' BEGIN SELECT RAISE(ABORT,'Closed shifts are immutable'); END;
       `);
     },
-
-    // A ledger-only owner review queue; intentionally contains NO Woo stock
-    // write path. Existing sale, cash and online inventory tables are untouched.
-    () => db.exec(`
-      CREATE TABLE stock_adjustment_requests (
-        id TEXT PRIMARY KEY, product_id INTEGER NOT NULL CHECK(product_id>0),
-        variation_id INTEGER NOT NULL CHECK(variation_id>=0),
-        stock_pool TEXT NOT NULL, product_name TEXT NOT NULL, option_label TEXT NOT NULL,
-        sku TEXT NOT NULL, expected_quantity INTEGER NOT NULL CHECK(expected_quantity>=0),
-        target_quantity INTEGER NOT NULL CHECK(target_quantity BETWEEN 0 AND 100000),
-        reason TEXT NOT NULL, note TEXT NOT NULL,
-        requested_by TEXT NOT NULL REFERENCES users(id), requester_name TEXT NOT NULL,
-        created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending'
-          CHECK(status IN ('pending','approved','rejected','verified')),
-        reviewed_by TEXT REFERENCES users(id), reviewed_at TEXT, review_note TEXT,
-        verified_at TEXT
-      );
-      CREATE UNIQUE INDEX idx_stock_adjustment_open_pool ON stock_adjustment_requests(stock_pool)
-        WHERE status IN ('pending','approved');
-      CREATE INDEX idx_stock_adjustment_requested ON stock_adjustment_requests(requested_by,created_at);
-      CREATE TRIGGER stock_adjustment_no_delete BEFORE DELETE ON stock_adjustment_requests
-        BEGIN SELECT RAISE(ABORT,'Stock adjustment history must be preserved'); END;
-    `),
   ];
   if (current > migrations.length) throw new Error('POS ledger schema is newer than this application. Do not downgrade a trading ledger.');
   for (let version = current + 1; version <= targetVersion; version++) {
@@ -248,10 +225,7 @@ export function openDatabase(config) {
     // A fully migrated v9 ledger must always have an identity, including after
     // a later bootstrap/seed error. Bind new or legacy non-live ledgers BEFORE
     // the v9 step; legacy live ledgers require the separate offline review.
-    // New ledgers must be bound after v8 but BEFORE v9's identity protections.
-    // Keep this boundary pinned when adding v10+ migrations: a fresh database
-    // cannot be treated as an unbound existing v9 ledger.
-    migrate(db, 8);
+    migrate(db, SCHEMA_VERSION - 1);
     db.exec('BEGIN IMMEDIATE');
     try {
       db.prepare('INSERT OR IGNORE INTO app_meta(key,value) VALUES (?,?)').run('mode', config.mode);

@@ -42,7 +42,7 @@ async function harness(t, { mode = 'demo', readOnly = false } = {}) {
       WOO_BASE_URL: 'https://www.mansutrendzgh.com',
       WOO_CONSUMER_KEY: 'ck_fixture', WOO_CONSUMER_SECRET: 'cs_fixture',
       POS_ALLOW_LIVE_WRITES: 'false',
-      POS_OWNER_USERNAME: 'owner', POS_OWNER_PASSWORD: 'stock-review-owner-bootstrap-123',
+      POS_OWNER_USERNAME: 'owner', POS_OWNER_PASSWORD: 'stock-review-bootstrap-123',
     } : {}),
   };
   const instance = createApp({env, api:mockApi, logger:{info(){},debug(){},warn(){},error(){}}});
@@ -60,7 +60,7 @@ async function harness(t, { mode = 'demo', readOnly = false } = {}) {
     owner=(await call('/auth/login',{method:'POST',body:{username:'owner',password:env.POS_OWNER_PASSWORD}})).data.token;
     assert.ok(owner);
     assert.equal((await call('/auth/password',{method:'POST',token:owner,
-      body:{currentPassword:env.POS_OWNER_PASSWORD,newPassword:'stock-review-owner-rotated-123'}})).status,200);
+      body:{currentPassword:env.POS_OWNER_PASSWORD,newPassword:'stock-review-rotated-123'}})).status,200);
   }
   t.after(async()=>{
     await new Promise(resolve=>server.close(resolve));
@@ -119,8 +119,8 @@ test('Live owner approval never writes stock; verify requires fresh matching Woo
 
 test('Staff can request changes, but only owner can approve; stale and shared-parent requests are blocked',async t=>{
   const h=await harness(t,{mode:'live',readOnly:true});
-  const cashierPwd='stock-review-cashier-temp-pass-123';
-  const managerPwd='stock-review-manager-temp-pass-123';
+  const cashierPwd='kappa-review-temp-pass-123';
+  const managerPwd='omega-review-temp-pass-123';
   for(const [username,password,role] of [['cashier',cashierPwd,'cashier'],['manager',managerPwd,'manager']]){
     const created=await h.call('/staff',{method:'POST',token:h.owner,
       body:{name:username,username,password,role}});
