@@ -20,6 +20,7 @@ const PaymentReconciliation = lazy(() => import('./PaymentReconciliation.jsx'));
 const StockSafety = lazy(() => import('./StockSafety.jsx'));
 const DailyOperations = lazy(() => import('./DailyOperations.jsx'));
 const WeeklyScorecard = lazy(() => import('./WeeklyScorecard.jsx'));
+const StockAdjustments = lazy(() => import('./StockAdjustments.jsx'));
 const PhysicalCountWorkspace = lazy(() => import('./PhysicalCountWorkspace.jsx'));
 const CountSupervisionEvidence = lazy(() => import('./CountSupervisionEvidence.jsx'));
 const PrivateCountFileRegister = lazy(() => import('./PrivateCountFileRegister.jsx'));
@@ -212,7 +213,7 @@ export default function App() {
           {page==='products'&&<ProductsPage catalog={catalog} config={config} category={productCategory} onCategoryChange={setProductCategory} refresh={refresh} notify={notify} onNavigate={navigate}/>}
           {page==='categories'&&<CategoriesPage catalog={catalog} config={config} onSelect={openCategory} refresh={refresh}/>}
           {(page==='sales'||page==='orders')&&<Sales key={page} view={page} sales={sales} config={config} refresh={refresh} onReceipt={setReceipt} onPay={setPending} notify={notify} hasMore={salesHasMore} loadingMore={salesLoadingMore} onLoadMore={loadMoreSales}/>}
-          {page==='inventory'&&<Inventory catalog={catalog} config={config} user={user} active={page==='inventory'} refresh={refresh} notify={notify}/>}
+          {page==='inventory'&&<><Inventory catalog={catalog} config={config} user={user} active={page==='inventory'} refresh={refresh} notify={notify}/><StockAdjustments catalog={catalog} user={user} config={config} refresh={refresh}/></>}
           {page==='stockSafety'&&config.mode==='live'&&user.role!=='cashier'&&<StockSafety active={page==='stockSafety'} user={user}/>}
           {page==='customers'&&user.role!=='cashier'&&<Customers refreshKey={refreshKey}/>}
           {page==='recovery'&&user.role!=='cashier'&&<RecoveryQueue/>}
