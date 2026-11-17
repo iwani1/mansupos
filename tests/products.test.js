@@ -232,3 +232,27 @@ test('demo: add and edit a product with sizes, sell it from the catalogue', asyn
   assert.equal((await call('/catalog', { headers: auth })).data.products.find(p => p.id === listed.id).name, 'Renamed dress');
   assert.equal((await call('/products/7325/edit', { headers: auth })).data.code, 'DEMO_SAMPLE_FIXED');
 });
+
+test('options that inherit the parent SKU open empty and can be given their own SKUs', async t => {
+  const h = await harness(t);
+  // Woo reports an option with no SKU of its own using the parent's SKU.
+  const id = 7000;
+  h.api.state.products.set(id, { name: 'LYSA', type: 'variable', status: 'publish', sku: 'MT-GROUP-PILOT-05-1-1-1-1', description: '', categories: [], images: [],
+    attributes: [{ id: 1, name: 'Size', variation: true, options: ['M', 'S', 'L'] }], date_modified_gmt: '2026-11-17T05:00:00' });
+  h.api.state.variations.set(id, ['M', 'S', 'L'].map((size, i) => ({ id: 7001 + i, parent_id: id, sku: 'MT-GROUP-PILOT-05-1-1-1-1', regular_price: '490', sale_price: '',
+    price: '490', status: 'publish', stock_quantity: 5, manage_stock: true, attributes: [{ id: 1, name: 'Size', option: size }] })));
+  const p = (await h.request(`/products/${id}/edit`, { token: h.token })).data.product;
+  assert.deepEqual(p.variations.map(v => v.sku), ['', '', ''], 'inherited SKUs are shown as empty');
+  const base = { key: randomUUID(), name: 'LYSA', description: '', categoryIds: [], newCategory: '', images: [], sku: 'LYSA', regularPrice: '', salePrice: '', stock: 0,
+    hasOptions: true, expectedModified: p.modified, attributes: [{ name: 'Size', options: ['M', 'S', 'L'] }] };
+  // A name-only edit must not resend the inherited SKU (Woo would reject it as a duplicate).
+  const renamed = await h.request(`/products/${id}`, { method: 'PUT', token: h.token, body: { ...base, sku: p.sku, variations: p.variations } });
+  assert.equal(renamed.status, 200, JSON.stringify(renamed.data));
+  assert.ok(h.api.state.calls.filter(c => c[0] === 'batch').at(-1)[2].update.every(u => !('sku' in u)));
+  const reopened = (await h.request(`/products/${id}/edit`, { token: h.token })).data.product;
+  const fixed = await h.request(`/products/${id}`, { method: 'PUT', token: h.token, body: { ...base, key: randomUUID(), expectedModified: reopened.modified,
+    variations: reopened.variations.map(v => ({ ...v, sku: `LYSA-${v.attributes.Size}` })) } });
+  assert.equal(fixed.status, 200, JSON.stringify(fixed.data));
+  assert.deepEqual(h.api.state.calls.filter(c => c[0] === 'batch').at(-1)[2].update.map(u => u.sku), ['LYSA-M', 'LYSA-S', 'LYSA-L']);
+  assert.equal(h.api.state.calls.filter(c => c[0] === 'update').at(-1)[2].sku, 'LYSA');
+});
