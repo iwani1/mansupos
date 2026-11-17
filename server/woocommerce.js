@@ -184,29 +184,44 @@ function mapVariation(v, p) {
     purchasable: v.purchasable !== false && v.price !== '' && v.price != null,
   };
 }
-export async function fetchLiveCatalog(api, { maxPages = 100 } = {}) {
-  const products = [];
+// Run async jobs with a small concurrency limit, keeping results in order.
+async function pooled(items, limit, work) {
+  const results = new Array(items.length);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) { const index = next++; results[index] = await work(items[index], index); }
+  });
+  await Promise.all(runners);
+  return results;
+}
+// A large store (1,500+ products) needs one variations request per variable
+// product. Fetch pages and variations a few at a time so a full catalogue
+// load takes seconds-to-minutes instead of many minutes, without flooding Woo.
+export async function fetchLiveCatalog(api, { maxPages = 100, concurrency = 6 } = {}) {
   let unsupported = 0;
   let complete = true;
-  for (let page = 1; page <= maxPages; page++) {
-    const result = await api.products(page);
-    for (const raw of result.data) {
-      if (!['simple', 'variable'].includes(raw.type)) { unsupported++; continue; }
-      const p = mapProduct(raw);
-      if (p.type === 'variable') {
-        for (let vPage = 1; vPage <= maxPages; vPage++) {
-          const variations = await api.variations(p.id, vPage);
-          p.variations.push(...variations.data.map(v => mapVariation(v, raw)));
-          if (vPage >= variations.pages) break;
-          if (vPage === maxPages) complete = false;
-        }
-        p.purchasable = p.variations.some(v => v.purchasable);
-      }
-      products.push(p);
-    }
-    if (page >= result.pages) break;
-    if (page === maxPages) complete = false;
+  const first = await api.products(1);
+  const lastPage = Math.min(first.pages, maxPages);
+  if (first.pages > maxPages) complete = false;
+  const rest = await pooled(Array.from({ length: Math.max(0, lastPage - 1) }, (_, i) => i + 2), concurrency, page => api.products(page));
+  const raws = [first, ...rest].flatMap(result => result.data);
+  const products = [];
+  const variable = [];
+  for (const raw of raws) {
+    if (!['simple', 'variable'].includes(raw.type)) { unsupported++; continue; }
+    const p = mapProduct(raw);
+    if (p.type === 'variable') variable.push([p, raw]);
+    products.push(p);
   }
+  await pooled(variable, concurrency, async ([p, raw]) => {
+    for (let vPage = 1; vPage <= maxPages; vPage++) {
+      const variations = await api.variations(p.id, vPage);
+      p.variations.push(...variations.data.map(v => mapVariation(v, raw)));
+      if (vPage >= variations.pages) break;
+      if (vPage === maxPages) complete = false;
+    }
+    p.purchasable = p.variations.some(v => v.purchasable);
+  });
   return { products, unsupported, source: 'woocommerce', fetchedAt: new Date().toISOString(), complete };
 }
 export async function freshLine(api, productId, variationId) {

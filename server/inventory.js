@@ -156,7 +156,7 @@ export class InventoryService {
   }
 
   async overview({ refresh = false } = {}) {
-    const catalog = await this.catalog.get(refresh);
+    const catalog = await this.catalog.get(refresh, { maxWaitMs: 20000 });
     const threshold = this.config.lowStockThreshold;
     const sold = this.posUnitsSold(30);
     const lines = stockPools(catalog.products, threshold).map(line => {
@@ -304,6 +304,7 @@ export class InventoryService {
       this.record(user, 'inventory.stock_uncertain', { ...movement, confirmed, error: 'WooCommerce returned a different quantity' });
       throw new AppError(`WooCommerce now shows ${confirmed ?? 'no quantity'} instead of ${after}. Refresh inventory and review this item.`, 502, 'INVENTORY_UNCERTAIN');
     }
+    if (!target.demo) this.catalog.patchLine(input.productId, input.variationId, { stock: after });
     const action = input.type === 'count' ? 'inventory.stock_counted' : 'inventory.stock_adjusted';
     this.record(user, action, { ...movement, written: true });
     return { movement: { ...movement, written: true, action } };
@@ -347,6 +348,8 @@ export class InventoryService {
       const change = { key: input.key, productId: input.productId, variationId: input.variationId, name: target.name, label: target.label, sku: target.sku,
         type: 'price', note: input.note, before: { regular: target.regularPrice, sale: target.salePrice }, after: { regular: saved?.regular_price ?? body.regular_price, sale: saved?.sale_price ?? body.sale_price } };
       if (cents(change.after.regular) !== cents(body.regular_price)) throw new AppError('WooCommerce did not confirm the new price. Refresh and review this item.', 502, 'INVENTORY_UNCERTAIN');
+      const active = cents(saved?.price);
+      this.catalog.patchLine(input.productId, input.variationId, { price: Number.isSafeInteger(active) ? active : cents(body.sale_price || body.regular_price) });
       this.record(user, 'inventory.price_changed', change);
       return { change: { ...change, action: 'inventory.price_changed' } };
     });

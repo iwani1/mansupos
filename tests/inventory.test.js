@@ -227,3 +227,38 @@ test('demo inventory adjusts local sample stock only', async t => {
   const after = await call('/inventory', { headers: auth });
   assert.equal(after.data.lines.find(l => l.key === line.key).stock, line.stock + 3);
 });
+
+test('a slow WooCommerce catalogue never holds a screen request past the proxy timeout', async t => {
+  const { Catalog } = await import('../server/catalog.js');
+  const { openDatabase } = await import('../server/db.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mansu-slow-catalog-'));
+  const config = readConfig({ ...tradingEnv, NODE_ENV: 'test', POS_PUBLIC_ORIGIN: '', POS_DATA_DIR: dir });
+  const db = openDatabase(config);
+  t.after(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  let delay = 0;
+  let stock = 3;
+  const api = {
+    async products() { await new Promise(r => setTimeout(r, delay)); return { data: [{ id: 1, name: 'Tee', type: 'simple', sku: 'T', price: '10.00', manage_stock: true, stock_quantity: stock, stock_status: 'instock', backorders: 'no', purchasable: true }], pages: 1, total: 1 }; },
+    async variations() { return { data: [], pages: 1 }; },
+  };
+  const catalog = new Catalog(db, api, config);
+  delay = 300;
+  await assert.rejects(catalog.get(false, { maxWaitMs: 50 }), error => error.status === 503, 'no saved copy yet: a clear "still loading" error');
+  await new Promise(r => setTimeout(r, 400)); // the background load finishes and is saved
+  assert.equal(catalog.cache.products[0].stock, 3);
+  // A restarted service starts from the saved copy immediately.
+  const restarted = new Catalog(db, api, config);
+  assert.equal(restarted.cache.products[0].stock, 3);
+  // After a sale the copy is marked out of date, not discarded: the screen gets
+  // it back quickly while the slow refresh continues in the background.
+  stock = 2; delay = 5000;
+  restarted.invalidate();
+  const started = Date.now();
+  const shown = await restarted.get(false, { maxWaitMs: 20000 });
+  assert.ok(Date.now() - started < 4500);
+  assert.equal(shown.refreshing, true);
+  assert.equal(shown.stale, false);
+  assert.equal(shown.products[0].stock, 3);
+  restarted.patchLine(1, 0, { stock: 7 });
+  assert.equal(restarted.cache.products[0].stock, 7, 'a confirmed stock-control write shows at once');
+});

@@ -273,7 +273,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     res.json({ ok: true });
   });
 
-  app.get('/api/catalog', auth, async (req, res) => res.json(await catalog.get(req.query.refresh === '1')));
+  app.get('/api/catalog', auth, async (req, res) => res.json(await catalog.get(req.query.refresh === '1', { maxWaitMs: 20000 })));
 
   // Shared inventory management (website + shop share WooCommerce stock).
   app.get('/api/inventory', auth, role('owner', 'manager'), async (req, res) => res.json(await inventory.overview({ refresh: req.query.refresh === '1' })));

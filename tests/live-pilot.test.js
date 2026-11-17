@@ -205,7 +205,7 @@ test('standard WooCommerce pagination reads every product and variation page wit
   assert.equal(catalogue.products.length, 115, 'The second product page must not be silently omitted');
   assert.equal(catalogue.products[0].variations.length, 101, 'The second variation page must not be silently omitted');
   assert.equal(catalogue.complete, true);
-  assert.deepEqual(calls, ['products:1', 'variations:1', 'variations:2', 'products:2']);
+  assert.deepEqual(calls.sort(), ['products:1', 'products:2', 'variations:1', 'variations:2']);
 });
 
 test('WooCommerce infers a second product page when a proxy strips X-WP-TotalPages', async () => {
