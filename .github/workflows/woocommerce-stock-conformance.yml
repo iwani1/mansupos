@@ -31,7 +31,7 @@ jobs:
           --health-cmd="mysqladmin ping -h localhost -uroot -psynthetic_ci_root_only"
           --health-interval=10s --health-timeout=5s --health-retries=12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Prepare disposable PHP CLI with Woo requirements
         uses: shivammathur/setup-php@v2
         with:
