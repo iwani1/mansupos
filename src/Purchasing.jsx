@@ -119,7 +119,7 @@ function Suppliers({ suppliers, onEdit }) {
   return <section className="surface records-surface">
     <div className="section-heading"><div><h2>Suppliers</h2><p>Who you buy from. Used on purchase orders.</p></div><button className="button secondary" onClick={() => onEdit(null)}><Plus size={15} />Add supplier</button></div>
     {!suppliers?.length ? <Empty icon={Users} title="No suppliers yet">Add the people and companies you buy stock from.</Empty> :
-      <TableRegion label="Suppliers"><table className="responsive-table po-table"><thead><tr><th>Supplier</th><th>Phone</th><th>Email</th><th className="right">Orders</th><th>Status</th><th /></tr></thead><tbody>
+      <TableRegion label="Suppliers"><table className="responsive-table po-table"><thead><tr><th>Supplier</th><th>Phone</th><th>Email</th><th className="right">Orders</th><th>Status</th><th><span className="visually-hidden">Action</span></th></tr></thead><tbody>
         {suppliers.map(sp => <tr key={sp.id}>
           <td data-label="Supplier"><strong className="table-primary">{sp.name}</strong>{sp.reference && <small>Ref {sp.reference}</small>}</td>
           <td data-label="Phone">{sp.phone || '—'}</td><td data-label="Email">{sp.email || '—'}</td>
@@ -198,7 +198,7 @@ function OrderForm({ suppliers, lines, initial, notify, onClose, onSaved, onNewS
       <div className="po-picker"><label className="search-field compact"><Search size={18} aria-hidden="true" /><input aria-label="Add an item" placeholder="Add an item: name or SKU…" value={query} onChange={e => setQuery(e.target.value)} /></label>
         {matches.length > 0 && <div className="po-matches" role="listbox" aria-label="Matching items">{matches.map(l => <button type="button" role="option" aria-selected="false" key={l.key} onClick={() => { setItems(list => [...list, { ...l, qty: '1', cost: asCedis(l.lastCost ?? l.avgCost) }]); setQuery(''); }}>
           <strong>{l.name}</strong><span>{l.label}{l.sku ? ` · ${l.sku}` : ''} · {l.stock ?? '—'} in stock</span></button>)}</div>}</div>
-      {items.length > 0 && <div className="table-scroll" role="region" aria-label="Order lines" tabIndex={0}><table className="pe-table"><thead><tr><th>Item</th><th>Quantity</th><th>Unit cost (GH₵)</th><th className="right">Line total</th><th /></tr></thead><tbody>
+      {items.length > 0 && <div className="table-scroll" role="region" aria-label="Order lines" tabIndex={0}><table className="pe-table"><thead><tr><th>Item</th><th>Quantity</th><th>Unit cost (GH₵)</th><th className="right">Line total</th><th><span className="visually-hidden">Remove</span></th></tr></thead><tbody>
         {items.map(i => <tr key={i.key}>
           <td><strong>{i.name}</strong><small>{i.label}{i.sku ? ` · ${i.sku}` : ''}</small></td>
           <td><input className="input po-num" inputMode="numeric" aria-label={`Quantity for ${lineName(i)}`} value={i.qty} onChange={e => set(i.key, { qty: e.target.value.replace(/\D/g, '') })} /></td>

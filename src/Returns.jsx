@@ -104,7 +104,7 @@ function NewReturn({ canWrite, notify, onDone }) {
     <div className="section-heading"><div><h2>Find the sale</h2><p>Search the receipt or order number, or pick a recent paid sale.</p></div></div>
     <div className="table-toolbar"><label className="search-field compact"><Search size={18} aria-hidden="true" /><input aria-label="Search sales to return" placeholder="Receipt or order number, e.g. 4001" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
     {!sales ? <Spinner /> : !sales.length ? <Empty icon={Search} title="No paid sales found">Website orders are refunded in WooCommerce; this screen handles POS sales.</Empty> :
-      <TableRegion label="Sales"><table className="responsive-table po-table"><thead><tr><th>Receipt</th><th>Date</th><th>Payment</th><th className="right">Total</th><th className="right">Refunded</th><th /></tr></thead><tbody>
+      <TableRegion label="Sales"><table className="responsive-table po-table"><thead><tr><th>Receipt</th><th>Date</th><th>Payment</th><th className="right">Total</th><th className="right">Refunded</th><th><span className="visually-hidden">Action</span></th></tr></thead><tbody>
         {sales.map(s => <tr key={s.id}><td data-label="Receipt"><strong className="table-primary">{s.number}</strong><small>{s.items} item(s) · {s.cashierName}</small></td>
           <td data-label="Date">{dateTime(s.paidAt)}</td><td data-label="Payment">{s.paymentMethod || '—'}</td>
           <td data-label="Total" className="right tabular">{money(s.total)}</td><td data-label="Refunded" className="right tabular">{s.refunded ? money(s.refunded) : '—'}</td>
