@@ -44,6 +44,8 @@ import { financeReviewWritesAllowed, financeReviewHistory, createFinanceReviewRe
 import { DailyOperations } from './daily-operations.js';
 import { WeeklyOperations } from './weekly-operations.js';
 import { InventoryService, adjustSchema, countSchema, priceSchema, movementQuery } from './inventory.js';
+import { ProductService, productSchema, productUpdateSchema } from './products.js';
+import { WordPressMedia } from './wp-media.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -90,7 +92,7 @@ const passwordSchema = z.string().min(12).max(256);
 // reveal which staff usernames exist.
 const UNKNOWN_USER_HASH = hashPassword(randomBytes(24).toString('hex'));
 
-export function createApp({ env = process.env, api: injectedApi, bridge: injectedBridge, reservations: injectedReservations, logger: injectedLogger } = {}) {
+export function createApp({ env = process.env, api: injectedApi, bridge: injectedBridge, reservations: injectedReservations, logger: injectedLogger, media: injectedMedia } = {}) {
   const config = readConfig(env);
   const logger = injectedLogger || createLogger(config.logLevel);
   const db = openDatabase(config);
@@ -102,6 +104,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     config.writesEnabled = false;
     config.wholesaleWritesEnabled = false;
     config.inventoryWritesEnabled = false;
+    config.productWritesEnabled = false;
     config.paymentMethods = ['cash'];
   }
   const api = injectedApi || new WooCommerce(config, fetch, logger);
@@ -111,6 +114,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     injectedReservations || new OfflineReservations(config), wholesalePrices);
   const sales = new SalesService(db, catalog, api, config);
   const inventory = new InventoryService(db, catalog, api, config);
+  const products = new ProductService(db, catalog, api, config, injectedMedia || new WordPressMedia(config));
   // No bridge client, routes, plugin writes or new SQLite schema when OFF.
   const online = config.onlineBridgeEnabled
     ? new OnlineSalesService(db, catalog, injectedBridge || new OnlineBridgeClient(config), config)
@@ -155,7 +159,8 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-      if (!req.is('application/json')) return next(new AppError('Use application/json for API requests.', 415));
+      const photoUpload = req.method === 'POST' && req.path === '/products/media' && req.is(['image/jpeg', 'image/png', 'image/webp']);
+      if (!req.is('application/json') && !photoUpload) return next(new AppError('Use application/json for API requests.', 415));
       const origin = req.headers.origin;
       if (origin) {
         try {
@@ -286,6 +291,19 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   app.post('/api/inventory/adjust', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await inventory.adjust(req.user, adjustSchema.parse(req.body))));
   app.post('/api/inventory/count', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await inventory.count(req.user, countSchema.parse(req.body))));
   app.post('/api/inventory/price', auth, role('owner'), sensitiveLimit, async (req, res) => res.json(await inventory.price(req.user, priceSchema.parse(req.body))));
+
+  // Add / edit website product listings (owner and manager).
+  const productId = value => z.coerce.number().int().positive().max(2 ** 31).parse(value);
+  app.get('/api/products/setup', auth, role('owner', 'manager'), async (_req, res) => res.json(await products.setup()));
+  app.post('/api/products/media', auth, role('owner', 'manager'), sensitiveLimit,
+    express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '8mb' }),
+    async (req, res) => {
+      if (!Buffer.isBuffer(req.body) || !req.body.length) throw new AppError('Send one photo as JPEG, PNG or WebP.', 400);
+      res.status(201).json(await products.uploadImage(req.user, req.body, String(req.query.name || '').slice(0, 80)));
+    });
+  app.post('/api/products', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.status(201).json(await products.create(req.user, productSchema.parse(req.body))));
+  app.get('/api/products/:id/edit', auth, role('owner', 'manager'), async (req, res) => res.json({ product: await products.editable(productId(req.params.id)) }));
+  app.put('/api/products/:id', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await products.update(req.user, productId(req.params.id), productUpdateSchema.parse(req.body))));
   // Owner/Manager Phase 2 evidence, not permission to trade. This refreshes
   // Woo products/variations only and never calls an order or stock write API.
   app.get('/api/stock-safety/audit', auth, role('owner', 'manager'), async (_req, res) => {
@@ -1271,5 +1289,5 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     if (status >= 500) logger.error({ reqId: req.id, method: req.method, path: req.path, code: error.code || 'SERVER_ERROR', name: error.name || 'Error' });
     res.status(status).json({ error: error instanceof AppError ? error.message : 'An unexpected server error occurred. Check the sale history before retrying.', code: error.code || 'SERVER_ERROR', reqId: req.id });
   });
-  return { app, config, db, api, catalog, sales, inventory, desktop, inStore, shifts, logger };
+  return { app, config, db, api, catalog, sales, inventory, products, desktop, inStore, shifts, logger };
 }

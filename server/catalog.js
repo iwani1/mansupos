@@ -23,7 +23,9 @@ export class Catalog {
   }
   demo() {
     const stocks = new Map(this.db.prepare('SELECT * FROM demo_stock').all().map(row => [row.line_key, row.stock]));
-    return demoProducts.map(p => ({ ...p,
+    let added = [];
+    try { added = JSON.parse(this.db.prepare("SELECT value FROM app_meta WHERE key='demo_product_store'").get()?.value || '{}').products || []; } catch { added = []; }
+    return [...added.slice().reverse(), ...demoProducts].map(p => ({ ...p,
       stock: p.type === 'simple' ? stocks.get(`${p.id}:0`) : null,
       stockStatus: p.type === 'simple' && stocks.get(`${p.id}:0`) <= 0 ? 'outofstock' : 'instock',
       variations: p.variations.map(v => { const stock = stocks.get(`${p.id}:${v.id}`); return { ...v, stock, stockStatus: stock <= 0 ? 'outofstock' : 'instock' }; }),
@@ -98,6 +100,16 @@ export class Catalog {
   // Mark the saved copy as out of date (after a sale or stock change) without
   // discarding it, so a large catalogue is not reloaded from scratch.
   invalidate() { if (this.cache) this.cache = { ...this.cache, expired: true }; }
+  // Show a product created/edited from the POS straight away (newest first).
+  upsertProduct(product) {
+    if (!this.cache?.products) return;
+    const others = this.cache.products.filter(p => p.id !== product.id);
+    this.cache = { ...this.cache, products: this.cache.products.some(p => p.id === product.id)
+      ? this.cache.products.map(p => p.id === product.id ? product : p) : [product, ...others] };
+  }
+  removeProduct(productId) {
+    if (this.cache?.products) this.cache = { ...this.cache, products: this.cache.products.filter(p => p.id !== productId) };
+  }
   // Reflect a confirmed WooCommerce stock/price write in the saved copy now.
   patchLine(productId, variationId, { stock, price } = {}) {
     if (!this.cache?.products) return;

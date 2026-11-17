@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Download, ExternalLink, LayoutGrid, Package, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { ArrowRight, Download, ExternalLink, LayoutGrid, Package, Plus, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+const ProductEditor = lazy(() => import('./ProductEditor.jsx'));
 import { money } from './api.js';
 import { categoryGroups } from './catalog-insights.js';
 import { hasKnownStock, onBackorder, stockUnknown } from './stock.js';
@@ -42,13 +43,15 @@ function exportCatalogue(products, notify, requireSource, catalog, isDemo) {
       : 'Loaded catalogue downloaded without unverified stock figures. Refresh and verify before trading.');
 }
 
-export function ProductsPage({ catalog, config, category, onCategoryChange, refresh, notify, onNavigate }) {
+export function ProductsPage({ catalog, config, category, onCategoryChange, refresh, notify, onNavigate, user }) {
   const products = useMemo(() => catalog?.products || [], [catalog]);
   const categories = useMemo(() => categoryGroups(products), [products]);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('name');
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState(null);
+  const [editing, setEditing] = useState(null); // 'new' or a product id
+  const canManage = Boolean(user && user.role !== 'cashier' && !config.liveReadOnly);
   useEffect(() => setPage(1), [search, sort, category]);
   const filtered = useMemo(() => products.filter(product => {
     const text = `${product.name} ${product.sku} ${(product.variations || []).map(v => `${v.sku} ${v.label}`).join(' ')}`.toLowerCase();
@@ -61,7 +64,8 @@ export function ProductsPage({ catalog, config, category, onCategoryChange, refr
   const requireSource = config.mode !== 'demo';
   const stockStale = Boolean(catalog?.stale || catalog?.error);
   return <div className="catalogue-page">
-    <PageHeading eyebrow="The collection / WooCommerce" title="Products" description="The published online catalogue and its product options. Product editing stays in WooCommerce; this POS does not change website listings.">
+    <PageHeading eyebrow="The collection / WooCommerce" title="Products" description={canManage ? 'The published online catalogue. Add new products with photos, sizes and colours, or edit existing ones — changes go straight to the website.' : 'The published online catalogue and its product options.'}>
+      {canManage && <button className="button primary" onClick={() => setEditing('new')}><Plus size={16} />Add product</button>}
       <button className="button secondary" onClick={() => refresh(true)}><RefreshCw size={16} />Refresh catalogue</button>
       <button className="button secondary" onClick={() => exportCatalogue(filtered, notify, requireSource, catalog, config.mode === 'demo')} disabled={!filtered.length}><Download size={16} />Export shown</button>
     </PageHeading>
@@ -78,10 +82,11 @@ export function ProductsPage({ catalog, config, category, onCategoryChange, refr
             : !product.purchasable || !product.variations.some(line => line.purchasable && line.stockStatus !== 'outofstock')
               ? { label: 'No available options', tone: 'neutral' } : { label: 'See options', tone: 'neutral' }
           : availability(product, requireSource, stockStale);
-        return <tr key={product.id}><td data-label="Style"><div className="table-product"><ProductImage src={product.image} name={product.name} /><div><button className="product-name-button" onClick={() => setDetail(product)}>{product.name}</button><small>{config.mode === 'demo' ? 'Demo catalogue' : 'Published online'}</small></div></div></td><td data-label="Category">{product.category || 'Uncategorized'}</td><td data-label="SKU"><span className="sku-cell">{product.sku || 'No parent SKU'}</span></td><td data-label="Options">{product.type === 'variable' ? `${product.variations.length} options` : 'Single style'}</td><td data-label="Availability"><Badge dot tone={state.tone}>{state.label}</Badge></td><td data-label="Retail price" className="right"><strong>{product.type === 'variable' ? 'From ' : ''}{money(product.price)}</strong></td></tr>;
+        return <tr key={product.id}><td data-label="Style"><div className="table-product"><ProductImage src={product.image} name={product.name} /><div><button className="product-name-button" onClick={() => setDetail(product)}>{product.name}</button><small>{config.mode === 'demo' ? 'Demo catalogue' : 'Published online'}{canManage && <> · <button className="text-button" onClick={() => setEditing(product.id)} aria-label={`Edit ${product.name}`}>Edit</button></>}</small></div></div></td><td data-label="Category">{product.category || 'Uncategorized'}</td><td data-label="SKU"><span className="sku-cell">{product.sku || 'No parent SKU'}</span></td><td data-label="Options">{product.type === 'variable' ? `${product.variations.length} options` : 'Single style'}</td><td data-label="Availability"><Badge dot tone={state.tone}>{state.label}</Badge></td><td data-label="Retail price" className="right"><strong>{product.type === 'variable' ? 'From ' : ''}{money(product.price)}</strong></td></tr>;
       })}</tbody></table></TableRegion> : <Empty icon={Package} title={products.length ? 'No matching styles' : 'No products loaded'} action={products.length && <button className="button secondary" onClick={() => { setSearch(''); onCategoryChange('All products'); }}>Clear filters</button>}>{products.length ? 'Try another name, SKU or category.' : 'Refresh the catalogue to see the online collection.'}</Empty>}
       <div className="table-footer"><span>Showing {filtered.length ? (page - 1) * PAGE_SIZE + 1 : 0}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}</span><div className="pagination"><button className="button secondary small" disabled={page === 1} onClick={() => setPage(value => value - 1)}>Previous</button><span>Page {page} of {pages}</span><button className="button secondary small" disabled={page === pages} onClick={() => setPage(value => value + 1)}>Next</button></div></div></section>
     {config.mode !== 'demo' && !config.liveReadOnly && <p className="catalogue-hint">Private wholesale defaults are managed separately from website prices. <button className="text-button" onClick={() => onNavigate('inventory')}>View inventory <ArrowRight size={14} /></button></p>}
+    {editing && <Suspense fallback={null}><ProductEditor productId={editing === 'new' ? null : editing} config={config} notify={notify} onClose={() => setEditing(null)} onSaved={() => refresh()} /></Suspense>}
     {detail && <Modal title={detail.name} subtitle={`${detail.category || 'Uncategorized'} · ${detail.sku || 'No parent SKU'}`} onClose={() => setDetail(null)} wide className="product-detail-modal"><div className="modal-body"><div className="catalogue-detail"><ProductImage src={detail.image} name={detail.name} /><div><span className="eyebrow">{config.mode === 'demo' ? 'Demo listing' : 'Published online listing'}</span><strong>{detail.type === 'variable' ? 'From ' : ''}{money(detail.price)}</strong><p>Retail price from the catalogue. WooCommerce owns product editing, publishing and stock.</p>{detail.permalink && <a className="button secondary small" href={detail.permalink} target="_blank" rel="noreferrer">View on website <ExternalLink size={15} /></a>}</div></div><h3 className="detail-subheading">{detail.type === 'variable' ? 'Product options' : 'Stock information'}</h3><div className="option-list">{(detail.type === 'variable' ? detail.variations : [detail]).map(line => { const state = availability(line, requireSource, stockStale); return <div key={line.id}><div><strong>{line === detail ? 'Standard' : line.label || `Option #${line.id}`}</strong><small>{line.sku || 'No option SKU'} · {sourceLabel(line.stockSource)}</small></div><span>{money(line.price)}</span><Badge tone={state.tone} dot>{state.label}</Badge></div>; })}</div>{detail.type === 'variable' && <p className="field-hint">Options with parent-managed stock share a single pool; counts are not separate units per size.</p>}</div><div className="modal-footer" role="group" aria-label="Product details actions"><button className="button primary" onClick={() => setDetail(null)}>Done</button></div></Modal>}
   </div>;
 }

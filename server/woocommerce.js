@@ -71,6 +71,11 @@ export class WooCommerce {
       if (response.status === 404) throw new RemoteError('The WooCommerce REST endpoint was not found. Check the store URL and permalink settings.', 502);
       const error = new RemoteError(`WooCommerce rejected the request (HTTP ${response.status}). Review the order in WooCommerce before retrying.`, 502, method !== 'GET' && response.status >= 500);
       error.retryable = method === 'GET' && SAFE_RETRY_STATUS.has(response.status);
+      // Woo's own short reason (e.g. a duplicate SKU) for product forms. Plain text only.
+      error.wooStatus = response.status;
+      error.wooCode = typeof data?.code === 'string' ? data.code.slice(0, 80) : '';
+      error.wooMessage = typeof data?.message === 'string' ? data.message.replace(/<[^>]*>/g, '').replace(/&[a-z#0-9]+;/gi, ' ').trim().slice(0, 200) : '';
+      error.wooData = data?.data && typeof data.data === 'object' ? { resourceId: Number(data.data.resource_id) || null } : null;
       throw error;
     }
     const totalHeader = response.headers.get('x-wp-total');
@@ -97,6 +102,14 @@ export class WooCommerce {
   // Inventory management: stock quantity / retail price on one product or option.
   async updateProduct(id, body) { return (await this.request(`products/${id}`, { method: 'PUT', body })).data; }
   async updateVariation(productId, id, body) { return (await this.request(`products/${productId}/variations/${id}`, { method: 'PUT', body })).data; }
+  // Product management (create/edit listings from the POS).
+  async createProduct(body) { return (await this.request('products', { method: 'POST', body })).data; }
+  async batchVariations(productId, body) { return (await this.request(`products/${productId}/variations/batch`, { method: 'POST', body })).data; }
+  async categories(page = 1) { return this.request('products/categories', { query: { per_page: 100, page, hide_empty: false, orderby: 'name', order: 'asc' } }); }
+  async createCategory(body) { return (await this.request('products/categories', { method: 'POST', body })).data; }
+  async attributes() { return (await this.request('products/attributes')).data; }
+  async attributeTerms(attributeId, page = 1) { return this.request(`products/attributes/${attributeId}/terms`, { query: { per_page: 100, page, hide_empty: false } }); }
+  async createAttributeTerm(attributeId, body) { return (await this.request(`products/attributes/${attributeId}/terms`, { method: 'POST', body })).data; }
   // Orders created since `after` in any non-trash status (website checkout
   // holds and other tills' unpaid POS orders). Read-only; caller filters.
   async recentOrders(after) {
@@ -144,7 +157,7 @@ const backordersAllowed = (raw, policy) => typeof raw.backorders_allowed === 'bo
 const cleanImage = value => {
   try { const url = new URL(value); return url.protocol === 'https:' ? url.href : ''; } catch { return ''; }
 };
-function mapProduct(p) {
+export function mapProduct(p) {
   const stockSource = p.manage_stock === true ? 'product' : p.manage_stock === false ? 'untracked' : 'unknown';
   const backorders = p.backorders || 'no';
   return {
@@ -158,7 +171,7 @@ function mapProduct(p) {
     soldIndividually: Boolean(p.sold_individually), variations: [],
   };
 }
-function mapVariation(v, p) {
+export function mapVariation(v, p) {
   // Woo v3 can return the literal 'parent'. Its stock is shared by all such
   // variations, not a separate copy for each option. A contradictory parent
   // with no managed stock is unknown rather than a sellable backorder. Treat a

@@ -90,7 +90,7 @@ try {
   assert.equal(await page.locator('.catalogue-table tbody tr').count(), Math.min(12, catalog.products.length));
   const variable = catalog.products.find(product => product.type === 'variable' && product.variations.length);
   if (variable) {
-    await page.locator('.catalogue-table tbody tr').filter({ hasText: variable.name }).getByRole('button', { name: variable.name }).click();
+    await page.locator('.catalogue-table tbody tr').filter({ hasText: variable.name }).getByRole('button', { name: variable.name, exact: true }).click();
     const dialog = page.getByRole('dialog', { name: variable.name });
     assert.equal(await dialog.locator('.option-list > div').count(), variable.variations.length);
     await dialog.getByRole('button', { name: 'Done' }).click();
