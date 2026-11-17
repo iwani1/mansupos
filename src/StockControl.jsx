@@ -3,6 +3,7 @@ import { Search, RefreshCw, Download, PackagePlus, PackageMinus, ClipboardCheck,
 import { api, money, dateTime, authHeaders, uuid } from './api.js';
 import { PageHeading, Stat, Empty, Badge, ProductImage, Modal, Notice, Spinner, TableRegion } from './components.jsx';
 import './stock-control.css';
+import { usePhone } from './use-phone.js';
 const ProductEditor = lazy(() => import('./ProductEditor.jsx'));
 
 const STATUS = {
@@ -120,11 +121,32 @@ export default function StockControl({ user, notify, refreshCatalog, config }) {
 }
 
 function StockLevels({ duplicateSku, lines, total, canWrite, canPrice, onAdjust, onPrice, onHistory, onEditProduct, clear }) {
+  const phone = usePhone();
+  const page = phone ? 50 : 100;
+  const [limit, setLimit] = useState(page);
+  const [sheet, setSheet] = useState(null);
+  useEffect(() => setLimit(page), [lines, page]);
   if (!lines.length) return <section className="surface"><Empty icon={Boxes} title={total ? 'No matching stock' : 'No stock lines yet'} action={total ? <button className="button secondary" onClick={clear}>Clear filters</button> : null}>{total ? 'Try another search, status or category.' : 'Refresh to load products from WooCommerce.'}</Empty></section>;
+  const shown = lines.slice(0, limit);
+  const more = lines.length > shown.length && <button className="button secondary stock-more" onClick={() => setLimit(n => n + page)}>Show {Math.min(page, lines.length - shown.length)} more</button>;
+  const footer = <div className="table-footer"><span>{shown.length} of {lines.length} shown{lines.length !== total ? ` · ${total} in total` : ''}</span>{more}</div>;
+  if (phone) return <section className="surface records-surface">
+    <ul className="stock-mobile-list" aria-label="Stock levels">{shown.map(line => {
+      const state = STATUS[line.status];
+      return <li key={line.key}><button type="button" className="stock-mobile-row" onClick={() => setSheet(line)}>
+        <ProductImage src={line.image} name={line.name} />
+        <span className="stock-mobile-main"><strong>{line.name}</strong><small>{line.label}{line.sku ? ` · ${line.sku}` : ''}</small>{duplicateSku(line) && <small className="error-text">Duplicate SKU</small>}</span>
+        <span className="stock-mobile-qty"><strong>{line.manageStock && line.stock != null ? line.stock : '—'}</strong><Badge dot tone={state.tone}>{state.label}</Badge></span>
+      </button></li>;
+    })}</ul>
+    {footer}
+    {sheet && <StockActionSheet line={sheet} canWrite={canWrite} canPrice={canPrice} onClose={() => setSheet(null)}
+      run={fn => { setSheet(null); fn(); }} onAdjust={onAdjust} onPrice={onPrice} onHistory={onHistory} onEditProduct={onEditProduct} />}
+  </section>;
   return <section className="surface records-surface">
     <TableRegion label="Stock levels"><table className="responsive-table stock-table"><thead><tr>
       <th>Product</th><th>Option</th><th>SKU</th><th className="right">Price</th><th className="right">In stock</th><th>Status</th><th className="right">POS sold · 30 d</th><th className="right">Actions</th>
-    </tr></thead><tbody>{lines.map(line => {
+    </tr></thead><tbody>{shown.map(line => {
       const state = STATUS[line.status];
       return <tr key={line.key}>
         <td data-label="Product"><div className="table-product"><ProductImage src={line.image} name={line.name} /><div><strong className="table-primary">{line.name}</strong><small>{line.category}</small></div></div></td>
@@ -146,8 +168,29 @@ function StockLevels({ duplicateSku, lines, total, canWrite, canPrice, onAdjust,
         </div></td>
       </tr>;
     })}</tbody></table></TableRegion>
-    <div className="table-footer"><span>{lines.length} of {total} stock lines</span><span>Options that share one product quantity appear as a single “shared stock” line.</span></div>
+    {footer}
+    <p className="field-hint stock-count-hint">Options that share one product quantity appear as a single “shared stock” line.</p>
   </section>;
+}
+
+// Phone: one tap on a row opens the actions for that item.
+function StockActionSheet({ line, canWrite, canPrice, onClose, run, onAdjust, onPrice, onHistory, onEditProduct }) {
+  const state = STATUS[line.status];
+  return <Modal title={line.name} subtitle={`${line.label}${line.sku ? ` · ${line.sku}` : ''}`} onClose={onClose} className="action-sheet">
+    <div className="modal-body">
+      <div className="stock-sheet-summary"><div><span>In stock</span><strong>{line.manageStock && line.stock != null ? line.stock : '—'}</strong></div><div><span>Price</span><strong>{money(line.price)}</strong></div><div><span>Status</span><Badge dot tone={state.tone}>{state.label}</Badge></div></div>
+      <div className="action-sheet-buttons">
+        {line.manageStock ? <>
+          <button className="button secondary" disabled={!canWrite} onClick={() => run(() => onAdjust(line, 'receive'))}><PackagePlus size={17} />Receive stock</button>
+          <button className="button secondary" disabled={!canWrite || !(line.stock > 0)} onClick={() => run(() => onAdjust(line, 'remove'))}><PackageMinus size={17} />Remove stock</button>
+          <button className="button secondary" disabled={!canWrite} onClick={() => run(() => onAdjust(line, 'count'))}><ClipboardCheck size={17} />Count</button>
+        </> : <button className="button secondary" disabled={!canWrite || line.status === 'unknown'} onClick={() => run(() => onAdjust(line, 'count'))}><ClipboardCheck size={17} />Start tracking</button>}
+        {canPrice && line.priceEditable && <button className="button secondary" onClick={() => run(() => onPrice(line))}><Tag size={17} />Change price</button>}
+        <button className="button secondary" onClick={() => run(() => onHistory(line))}><History size={17} />History</button>
+        {onEditProduct && <button className="button secondary" onClick={() => run(() => onEditProduct(line))}>Edit product</button>}
+      </div>
+    </div>
+  </Modal>;
 }
 
 function AdjustModal({ line, type: initialType, reasons, labels, onClose, notify, onDone }) {

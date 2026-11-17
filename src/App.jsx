@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import { ClipboardCheck, ShoppingBag, ReceiptText, Package, ChartNoAxesCombined, Users, ArrowRight, Store, ShieldCheck, LockKeyhole, LoaderCircle, Banknote, ScrollText, Download, WifiOff, LayoutDashboard, Tags, Boxes, Settings2, Truck, Undo2 } from 'lucide-react';
+import { ClipboardCheck, ShoppingBag, ReceiptText, Package, ChartNoAxesCombined, Users, ArrowRight, Store, ShieldCheck, LockKeyhole, LoaderCircle, Banknote, ScrollText, Download, WifiOff, LayoutDashboard, Tags, Boxes, Settings2, Truck, Undo2, Menu } from 'lucide-react';
 import { api, setSessionToken } from './api.js';
 import Register from './Register.jsx';
 import Overview from './Overview.jsx';
@@ -61,6 +61,22 @@ const navigation = [
   { id:'audit', label:'Audit log', short:'Audit', icon:ScrollText, group:'Administration', roles:['owner'] },
   { id:'connection', label:'Settings & connection', short:'Settings', icon:Settings2, group:'Administration' },
 ];
+// Phone bottom bar: the four most-used pages the person may open, plus the full menu.
+function MobileTabBar({ allowed, page, navigate, onMore, hidden }) {
+  const has = id => allowed.some(n => n.id === id);
+  const tabs = [
+    has('register') && { id: 'register', label: 'Sell', icon: ShoppingBag },
+    has('sales') && { id: 'sales', label: 'Sales', icon: ReceiptText },
+    has('stockControl') ? { id: 'stockControl', label: 'Stock', icon: Boxes } : has('inventory') && { id: 'inventory', label: 'Stock', icon: Boxes },
+    has('returns') ? { id: 'returns', label: 'Returns', icon: Undo2 } : has('shifts') && { id: 'shifts', label: 'Drawer', icon: Banknote },
+  ].filter(Boolean);
+  const inTabs = tabs.some(t => t.id === page);
+  return <nav className="mobile-tabbar" aria-label="Main pages" hidden={hidden}>
+    {tabs.map(t => <button key={t.id} type="button" data-tab={t.id} className={page === t.id ? 'active' : ''} aria-current={page === t.id ? 'page' : undefined} onClick={() => navigate(t.id)}><t.icon size={21} strokeWidth={1.8} aria-hidden="true" /><span>{t.label}</span></button>)}
+    <button type="button" data-tab="more" className={inTabs ? '' : 'active'} onClick={onMore} aria-label="More pages"><Menu size={21} strokeWidth={1.8} aria-hidden="true" /><span>More</span></button>
+  </nav>;
+}
+
 export default function App() {
   const [session,setSession]=useState(null);const [page,setPage]=useState('register');const [catalog,setCatalog]=useState(null);const [sales,setSales]=useState([]);const [salesCursor,setSalesCursor]=useState('');const [salesHasMore,setSalesHasMore]=useState(false);const [salesLoadingMore,setSalesLoadingMore]=useState(false);const [catalogError,setCatalogError]=useState('');
   const [pending,setPending]=useState(null);const [receipt,setReceipt]=useState(null);const [help,setHelp]=useState(false);const [toast,setToast]=useState(null);const [sidebar,setSidebar]=useState(false);const [profile,setProfile]=useState(false);const [accountMenu,setAccountMenu]=useState(false);const [alertsOpen,setAlertsOpen]=useState(false);const [collapsed,setCollapsed]=useState(()=>{try{return localStorage.getItem('mansu-nav-collapsed')==='true';}catch{return false;}});const [productCategory,setProductCategory]=useState('All products');const [searchSignal,setSearchSignal]=useState(0);const [refreshing,setRefreshing]=useState(false);const [refreshKey,setRefreshKey]=useState(0);const [savedCarts,setSavedCarts]=useState([]);const [shift,setShift]=useState(null);const [login,setLogin]=useState({username:'',password:''});const [loginBusy,setLoginBusy]=useState(false);const [loginError,setLoginError]=useState('');const [passwordOpen,setPasswordOpen]=useState(false);const [passwordForm,setPasswordForm]=useState({currentPassword:'',newPassword:''});const [passwordBusy,setPasswordBusy]=useState(false);
@@ -233,7 +249,7 @@ export default function App() {
           {page==='connection'&&<Connection config={config} catalog={catalog} refresh={refresh} notify={notify} user={user}/>}
         </>)}
         </Suspense>
-      </main><footer className="app-footer"><span>MansuTRENDZGH <span>·</span> POS workspace</span><span><ShieldCheck size={12}/>{isDemo?'Isolated demo environment':config.liveReadOnly?'Live catalogue · checkout locked':`${config.mode} environment`}<span>·</span>GHS</span></footer>
+      </main><MobileTabBar allowed={allowed} page={page} navigate={navigate} onMore={()=>setSidebar(true)} hidden={sidebar}/><footer className="app-footer"><span>MansuTRENDZGH <span>·</span> POS workspace</span><span><ShieldCheck size={12}/>{isDemo?'Isolated demo environment':config.liveReadOnly?'Live catalogue · checkout locked':`${config.mode} environment`}<span>·</span>GHS</span></footer>
     </div>
     {commandOpen&&<WorkspaceCommandMenu allowed={allowed} onNavigate={navigate} onSearchProducts={openProductSearch} onClose={()=>setCommandOpen(false)}/>}
     {pending&&<Checkout sale={pending} config={config} onClose={()=>{setPending(null);refresh();if(config.onlineBridgeEnabled && pending.onlineBridge)notify('Inspect the original Woo attempt in Sales. Cash custody may be unresolved; never retry payment or issue a receipt without verification.', 'error');else if(config.mode!=='demo')notify('Unpaid order saved in Sales. Do not release goods until the full payment is verified and recorded.');}} onPaid={paid} notify={notify}/>}

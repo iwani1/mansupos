@@ -1,0 +1,113 @@
+/* Phone layout (iPhones held upright, 375–430px). Loaded last on purpose so
+   no earlier stylesheet can override it. Everything here is <=640px only. Selectors start with `html` so they also
+   beat page stylesheets that load later (lazy pages add their CSS at the end). */
+.mobile-tabbar { display: none; }
+
+@media (max-width: 640px) {
+  :root { --tabbar: 58px; }
+
+  /* 4. Bottom navigation bar */
+  html .mobile-tabbar {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    height: calc(var(--tabbar) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+    background: rgba(255, 255, 255, .97); border-top: 1px solid #e6e7e4; backdrop-filter: blur(8px);
+  }
+  html .mobile-tabbar[hidden] { display: none; }
+  html .mobile-tabbar button {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 44px;
+    color: #6b7275; font-size: 10.5px; font-weight: 600; letter-spacing: 0;
+  }
+  html .mobile-tabbar button.active { color: var(--brand); }
+  html .mobile-tabbar button:focus-visible { outline: 2px solid var(--brand); outline-offset: -4px; border-radius: 8px; }
+  html .main-content { padding-bottom: calc(var(--tabbar) + 32px + env(safe-area-inset-bottom)); }
+  html .app-footer { padding-bottom: calc(var(--tabbar) + 14px + env(safe-area-inset-bottom)); }
+  /* The register's sale bar sits just above the tab bar. */
+  html .mobile-cart-bar { left: 10px; right: 10px; bottom: calc(var(--tabbar) + 8px + env(safe-area-inset-bottom)); border-radius: 9px; padding: 11px 16px; min-height: 52px; }
+  html .register-main { padding-bottom: calc(var(--tabbar) + 84px + env(safe-area-inset-bottom)); }
+  html .toast { left: 10px; right: 10px; max-width: none; bottom: calc(var(--tabbar) + 70px + env(safe-area-inset-bottom)); }
+
+  /* 2. Section tabs wrap into pills instead of being cut off */
+  html .stock-tabs { flex-wrap: wrap; overflow: visible; gap: 6px; border-bottom: 0; padding: 0; }
+  html .stock-tabs button {
+    min-height: 38px; padding: 6px 12px; font-size: 12.5px; border: 1px solid #dfe1dd; border-bottom: 1px solid #dfe1dd;
+    border-radius: 999px; background: #fff; color: #3d4447;
+  }
+  html .stock-tabs button svg { width: 15px; height: 15px; }
+  html .stock-tabs button.selected { background: #2f3537; border-color: #2f3537; color: #fff; }
+
+  /* 3. Compact summaries: descriptions, diagrams and big stat cards */
+  html .stock-control .page-heading p, html .purchasing .page-heading p { display: none; }
+  html .stock-control .page-icon, html .purchasing .page-icon { display: none; }
+  html .stock-sync-strip { display: none; }
+  html .stock-control, html .purchasing { gap: 12px; }
+  html .stats-grid.four, html .stats-grid.three { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+  html .stats-grid.four .stat-card, html .stats-grid.three .stat-card { border: 0; border-radius: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  html .stats-grid.four .stat-card:nth-child(odd), html .stats-grid.three .stat-card:nth-child(odd) { border-right: 1px solid var(--line); }
+  html .stats-grid.four .stat-card:nth-last-child(-n+2) { border-bottom: 0; }
+  html .stats-grid .stat-card .stat-top { margin-bottom: 3px; font-size: 11px; }
+  html .stats-grid .stat-card > strong { font-size: 19px; letter-spacing: -.3px; }
+  html .stats-grid .stat-card > p { margin-top: 2px; font-size: 10.5px; line-height: 1.35; }
+  html .stats-grid .stat-card.featured { background: var(--surface); color: inherit; }
+  html .stats-grid .stat-card.featured .stat-top, html .stats-grid .stat-card.featured > p { color: var(--muted); }
+  html .heading-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  html .heading-actions .button { min-height: 40px; padding: 8px 12px; font-size: 12.5px; }
+  html .stock-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 10px; gap: 8px; }
+  html .stock-filters .search-field { grid-column: 1 / -1; }
+
+  /* 1. Stock control: one short row per item; tap for actions */
+  html .stock-mobile-list { list-style: none; margin: 0; padding: 0; }
+  html .stock-mobile-list li + li { border-top: 1px solid var(--line); }
+  html .stock-mobile-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 11px; align-items: center; width: 100%; padding: 10px 12px; text-align: left; min-height: 64px; }
+  html .stock-mobile-row:active { background: #f4f5f3; }
+  html .stock-mobile-row .product-image { width: 44px; height: 54px; border-radius: 5px; }
+  html .stock-mobile-row .product-image .image-fallback { width: 22px; height: 22px; }
+  html .stock-mobile-main { display: grid; gap: 2px; min-width: 0; }
+  html .stock-mobile-main strong { font-size: 13px; font-weight: 650; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  html .stock-mobile-main small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html .stock-mobile-qty { display: grid; justify-items: end; gap: 4px; }
+  html .stock-mobile-qty strong { font-size: 20px; font-variant-numeric: tabular-nums; line-height: 1; }
+  html .stock-mobile-qty .badge { font-size: 10px; padding: 2px 7px; }
+  html .records-surface > .table-footer { flex-wrap: wrap; gap: 8px; }
+  html .stock-more { width: 100%; justify-content: center; }
+
+  /* Action sheet: slides up from the bottom like an iOS sheet */
+  html .modal-backdrop:has(.action-sheet) { align-items: flex-end; padding: 0; }
+  html .modal.action-sheet { max-width: none; border-radius: 14px 14px 0 0; max-height: 88dvh; padding-bottom: env(safe-area-inset-bottom); }
+  html .action-sheet .modal-header { padding: 16px 18px 12px; }
+  html .action-sheet .modal-header h2 { font-size: 18px; }
+  html .action-sheet .modal-body { padding: 14px 18px 20px; }
+  html .action-sheet-buttons { display: grid; gap: 8px; }
+  html .action-sheet-buttons .button { width: 100%; justify-content: flex-start; min-height: 48px; font-size: 14px; gap: 10px; }
+  html .stock-sheet-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+  html .stock-sheet-summary > div { display: grid; gap: 3px; padding: 9px 10px; border-radius: 8px; background: #f6f6f4; font-size: 11px; color: var(--muted); }
+  html .stock-sheet-summary strong { font-size: 16px; color: var(--ink); }
+
+  /* Stock count sheet: name on the left, count box on the right */
+  html .count-table tbody tr { grid-template-columns: minmax(0, 1fr) 92px; gap: 4px 10px; padding: 10px 12px; }
+  html .count-table td { padding: 0 !important; border: 0 !important; }
+  html .count-table td::before { display: none !important; }
+  html .count-table td[data-label="Product"] { grid-column: 1; grid-row: 1; }
+  html .count-table td[data-label="Option"] { grid-column: 1; grid-row: 2; font-size: 11.5px; color: var(--muted); }
+  html .count-table td[data-label="SKU"] { display: none !important; }
+  html .count-table td[data-label="System"] { grid-column: 1; grid-row: 3; text-align: left !important; font-size: 11.5px; color: var(--muted); }
+  html .count-table td[data-label="System"]::after { content: ' in system'; }
+  html .count-table td[data-label="Counted"] { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  html .count-table td[data-label="Difference"] { grid-column: 2; grid-row: 3; text-align: right !important; }
+  html .count-table .count-input { width: 100%; min-height: 44px; font-size: 16px; }
+  html .stock-count-footer { grid-template-columns: 1fr 1fr; padding: 12px; }
+
+  /* Movement history: two short lines per change */
+  html .movement-table tbody tr { grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 10px 12px; }
+  html .movement-table td { padding: 0 !important; border: 0 !important; }
+  html .movement-table td::before { display: none !important; }
+  html .movement-table td[data-label="Product"] { grid-column: 1; grid-row: 1; }
+  html .movement-table td[data-label="Change"] { grid-column: 1; grid-row: 2; }
+  html .movement-table td[data-label="Qty"] { grid-column: 2; grid-row: 1; font-weight: 700; font-size: 15px; }
+  html .movement-table td[data-label="Stock after"] { grid-column: 2; grid-row: 2; font-size: 11px; color: var(--muted); }
+  html .movement-table td[data-label="When"] { grid-column: 1; grid-row: 3; font-size: 11px; color: var(--muted); }
+  html .movement-table td[data-label="By"] { grid-column: 2; grid-row: 3; font-size: 11px; color: var(--muted); text-align: right; }
+  html .movement-compact .movement-table td[data-label="Change"] { grid-row: 1; }
+
+  /* Any input must be 16px or iOS Safari zooms the page when it is tapped */
+  html input.input, html select.select, html textarea.input, html .search-field input { font-size: 16px; }
+}
