@@ -43,6 +43,7 @@ import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolu
 import { financeReviewWritesAllowed, financeReviewHistory, createFinanceReviewRequest, acknowledgeFinanceReview, reviewSteps } from './payment-review-workflow.js';
 import { DailyOperations } from './daily-operations.js';
 import { WeeklyOperations } from './weekly-operations.js';
+import { StockAdjustmentService, adjustmentRequestSchema, adjustmentReviewSchema } from './stock-adjustments.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -115,6 +116,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const shifts = new ShiftService(db, config);
   const operations = new DailyOperations(db);
   const weekly = new WeeklyOperations(db);
+  const stockAdjustments = new StockAdjustmentService(db, catalog, config);
   const countClaims = new PhysicalCountClaims(db);
   const countSupervision = new CountSupervisionEvidence(db,countClaims);
   const countFiles = new PrivateCountFileManifests(db,countSupervision);
@@ -802,6 +804,17 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   app.get('/api/desktop/bootstrap', auth, async (req, res) => res.json(await desktop.bootstrap(req.user, req.query.deviceId)));
   app.post('/api/desktop/allocate', auth, role('owner'), sensitiveLimit, async (req, res) => res.json(await desktop.allocate(req.user, req.body)));
   app.post('/api/desktop/sync', auth, sensitiveLimit, async (req, res) => res.json(await desktop.sync(req.user, req.body)));
+  // Staff may request a count correction; ONLY the Owner can approve it.
+  // On live/staging this is ledger-only, never a Woo product stock write.
+  app.get('/api/stock-adjustments', auth, role('owner','manager','cashier'), (req,res) =>
+    res.json(stockAdjustments.list(req.user)));
+  app.post('/api/stock-adjustments', auth, role('owner','manager','cashier'), sensitiveLimit, async (req,res) =>
+    res.status(201).json({ request: await stockAdjustments.request(req.user, adjustmentRequestSchema.parse(req.body)) }));
+  app.post('/api/stock-adjustments/:id/review', auth, role('owner'), sensitiveLimit, async (req,res) =>
+    res.json({ request: await stockAdjustments.review(req.user, z.string().uuid().parse(req.params.id), adjustmentReviewSchema.parse(req.body)) }));
+  app.post('/api/stock-adjustments/:id/verify', auth, role('owner'), sensitiveLimit, async (req,res) =>
+    res.json({ request: await stockAdjustments.verify(req.user, z.string().uuid().parse(req.params.id)) }));
+
   // Private wholesale defaults belong to the POS ledger, not Woo product
   // metadata. Cashiers/public catalogue callers never receive these prices.
   // The live catalogue pilot cannot manage or read them.
