@@ -2,16 +2,21 @@
 
 ## Current
 
+- [adr/0001-woocommerce-owns-stock.md](adr/0001-woocommerce-owns-stock.md) — Decision: WooCommerce is the only owner of stock
 - [ARCHITECTURE.md](ARCHITECTURE.md) — How checkout, WooCommerce and the ledger fit together
+- [BACKUP-AND-RESTORE-DRILL.md](BACKUP-AND-RESTORE-DRILL.md) — Monthly restore drill and encrypted off-server backup copies
 - [DAILY-STAFF-OPERATIONS.md](DAILY-STAFF-OPERATIONS.md) — Staff task checklists
 - [HARDWARE.md](HARDWARE.md) — Scanner, printer, drawer
-- [INVENTORY-MANAGEMENT.md](INVENTORY-MANAGEMENT.md) — Stock control: receive, remove, count and re-price shared website + shop stock
 - [INSTALLABLE-WEB-APP.md](INSTALLABLE-WEB-APP.md) — Installing the web app on a device
+- [INVENTORY-MANAGEMENT.md](INVENTORY-MANAGEMENT.md) — Stock control: receive, remove, count and re-price shared website + shop stock
+- [MONITORING.md](MONITORING.md) — Uptime alert for the POS and website
 - [OPERATIONS.md](OPERATIONS.md) — Daily use: shifts, sales, reconciliation
 - [OWNER-AUDIT-ACTIVITY.md](OWNER-AUDIT-ACTIVITY.md) — Owner audit history screen
 - [PRIVATE-WHOLESALE-PRICES.md](PRIVATE-WHOLESALE-PRICES.md) — Wholesale price defaults (feature locked)
+- [REFUND-PROCEDURE.md](REFUND-PROCEDURE.md) — How to refund a sale until the POS has a return screen
 - [RETAIL-CASH-GO-LIVE-RUNBOOK.md](RETAIL-CASH-GO-LIVE-RUNBOOK.md) — Install, update, switch-over, first sale and rollback for the live service
 - [SECURITY.md](SECURITY.md) — Accounts, sessions, secrets
+- [TAX-DECISION.md](TAX-DECISION.md) — Open tax question and checklist for the tax adviser
 - [UI-DESIGN.md](UI-DESIGN.md) — Visual design notes
 - [WEEKLY-STAFF-SCORECARD.md](WEEKLY-STAFF-SCORECARD.md) — Weekly staff review
 - [WORKSPACE-REDESIGN.md](WORKSPACE-REDESIGN.md) — Workspace layout

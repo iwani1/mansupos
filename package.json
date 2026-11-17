@@ -29,6 +29,7 @@
     "test:a11y": "node tests/browser-a11y.mjs",
     "backup": "node server/backup.js",
     "restore": "node server/restore.js",
+    "restore-drill": "node server/restore-drill.js",
     "preflight": "node server/preflight.js",
     "lint": "eslint ."
   },
