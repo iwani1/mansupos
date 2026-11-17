@@ -58,7 +58,6 @@ export default function StockAdjustments({ catalog, user, config, refresh }) {
   }
   async function act(row, operation, decision) {
     if (busy) return;
-    const actionName = decision === 'approve' ? 'approve' : decision === 'reject' ? 'reject' : 'check';
     const prompt = decision === 'approve'
       ? `Approve ${row.name} (${row.label || 'Standard'}) from ${row.expectedQuantity} to ${row.targetQuantity} units? This does NOT update the live website.`
       : decision === 'reject' ? 'Reject this stock adjustment request?' :
