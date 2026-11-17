@@ -25,7 +25,7 @@ export class Catalog {
     const stocks = new Map(this.db.prepare('SELECT * FROM demo_stock').all().map(row => [row.line_key, row.stock]));
     let added = [];
     try { added = JSON.parse(this.db.prepare("SELECT value FROM app_meta WHERE key='demo_product_store'").get()?.value || '{}').products || []; } catch { added = []; }
-    return [...added.slice().reverse(), ...demoProducts].map(p => ({ ...p,
+    return [...demoProducts, ...added].map(p => ({ ...p,
       stock: p.type === 'simple' ? stocks.get(`${p.id}:0`) : null,
       stockStatus: p.type === 'simple' && stocks.get(`${p.id}:0`) <= 0 ? 'outofstock' : 'instock',
       variations: p.variations.map(v => { const stock = stocks.get(`${p.id}:${v.id}`); return { ...v, stock, stockStatus: stock <= 0 ? 'outofstock' : 'instock' }; }),
