@@ -36,14 +36,15 @@ try {
   // Workspace redesign: keyboard page switching remains role-filtered, and
   // none of these UI actions may create a sale or write to WooCommerce.
   assert.equal(await page.locator('.sidebar').evaluate(el => getComputedStyle(el).backgroundColor),
-    'rgb(247, 247, 245)', 'neutral document-style sidebar must be applied to the entire workspace');
+    'rgb(29, 34, 36)', 'the Counter design system (ink side menu) must be applied to the entire workspace');
   await page.getByRole('button', { name: 'Find a page' }).click();
   const switcher = page.getByRole('dialog', { name: 'Find a page' });
   await switcher.getByRole('searchbox', { name: 'Search pages and actions' }).fill('inventory');
   await switcher.getByRole('option').filter({ hasText: 'Inventory' }).click();
   assert.equal(await page.locator('main h1:visible').innerText(), 'Inventory');
-  assert.equal(await page.locator('.page-title-row .page-icon:visible').count(), 1,
-    'business pages share a consistent document heading and page icon');
+  assert.match(await page.locator('main h1:visible').evaluate(el => getComputedStyle(el).fontFamily), /Bodoni Moda/,
+    'business pages share the Counter heading (Bodoni title, no page icon)');
+  assert.equal(await page.locator('.page-title-row .page-icon:visible').count(), 0);
   await page.keyboard.press('Control+k');
   await page.getByRole('dialog', { name: 'Find a page' }).waitFor();
   await page.keyboard.press('Escape');

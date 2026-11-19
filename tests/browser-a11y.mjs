@@ -49,9 +49,9 @@ try {
   await page.getByRole('heading', { name: 'Inventory', exact: true }).waitFor();
   await scan('inventory');
   await page.locator('[data-nav="stockControl"]').click();
-  await page.locator('.stock-table tbody tr').first().waitFor();
+  await page.locator('.stock-table tbody tr.stock-line').first().waitFor();
   await scan('stock-control');
-  await page.locator('.stock-table tbody tr').first().getByRole('button', { name: 'Receive' }).click();
+  await page.locator('.stock-table tbody tr.stock-line').first().getByRole('button', { name: 'Receive' }).click();
   await page.getByRole('dialog', { name: 'Receive stock' }).waitFor();
   await scan('stock-control-receive');
   await page.getByRole('dialog', { name: 'Receive stock' }).getByRole('button', { name: 'Cancel' }).click();

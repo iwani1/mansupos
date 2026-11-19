@@ -16,7 +16,7 @@ try {
   await page.locator('.product-card').first().waitFor();
   await navigate('stockControl');
   assert.equal(await page.locator('main h1:visible').innerText(), 'Stock control');
-  const firstRow = page.locator('.stock-table tbody tr').first();
+  const firstRow = page.locator('.stock-table tbody tr.stock-line').first();
   await firstRow.waitFor();
   const name = await firstRow.locator('.table-primary').innerText();
 
@@ -30,7 +30,7 @@ try {
   const toast = await page.locator('.toast').filter({ hasText: `${name}: stock` }).innerText();
   const [, was, now] = toast.match(/stock (\d+) → (\d+)/);
   assert.equal(Number(now), Number(was) + 4, toast);
-  const showsNew = () => page.waitForFunction(([n, expected]) => [...document.querySelectorAll('.stock-table tbody tr')].some(row =>
+  const showsNew = () => page.waitForFunction(([n, expected]) => [...document.querySelectorAll('.stock-table tbody tr.stock-line')].some(row =>
     row.querySelector('.table-primary')?.textContent === n && row.querySelector('.stock-qty')?.textContent === String(expected)), [name, Number(now)], { timeout: 10000 });
   try { await showsNew(); }
   catch { await page.getByRole('button', { name: 'Refresh', exact: true }).first().click(); await showsNew(); }

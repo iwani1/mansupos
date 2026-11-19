@@ -1,0 +1,233 @@
+/* "Counter" design system for the whole workspace: sign-in, side menu, top
+   bar, phone tab bar, every page and every dialog. The till has its own,
+   more detailed layer (register-studio.css); this file shares its tokens.
+
+   Rules: ink and white, Mansu pink only for money and the current selection,
+   Bodoni Moda only for titles and big figures, 12px radius on sheets,
+   pills for tabs and filters. Loaded last; selectors start with `html` so
+   lazily loaded page CSS cannot override them. No layout sizes that tests
+   or keyboard users rely on are changed, only how things look. */
+
+@import '@fontsource/bodoni-moda/latin-500-italic.css';
+
+:root {
+  --sys-ink: #1d2224;
+  --sys-ink-2: #2a3033;
+  --sys-on-ink: #eef0f0;
+  --sys-on-ink-muted: #a9b0b3;
+  --sys-sheet: #ffffff;
+  --sys-ground: #f7f5f1;
+  --sys-line: #e6e3de;
+  --sys-line-strong: #d7d2cb;
+  --sys-muted: #636a6d;
+  --sys-warn: #9a4a0c;
+  --manager-line-strong: #d7d2cb;
+}
+
+/* ============ Sign-in ============ */
+html .login-page { background: var(--sys-sheet); }
+html .login-story { background: var(--sys-ink); color: var(--sys-on-ink); border-right: 0; position: relative; overflow: hidden; }
+html .login-story::after { content: ""; position: absolute; left: 0; right: 0; bottom: 92px; border-top: 2px dashed rgb(255 255 255 / .14); }
+html .login-brand, html .login-brand span { color: var(--sys-on-ink); }
+html .login-brand small { color: var(--sys-on-ink-muted); }
+html .login-brand .brand-mark { background: var(--sys-sheet); color: var(--sys-ink); }
+html .login-brand .brand-mark span { color: var(--counter-accent); }
+html .login-editorial .eyebrow { color: var(--sys-on-ink-muted); text-transform: uppercase; letter-spacing: .14em; font-size: 11px; font-weight: 700; }
+html .login-story h1, html .login-editorial h1 { font-family: var(--counter-display); font-weight: 500; color: var(--sys-on-ink); letter-spacing: -.02em; line-height: 1.02; }
+html .login-story h1 em { font-style: italic; color: #f2a6cd; }
+html .login-story p, html .login-story-footer { color: var(--sys-on-ink-muted); }
+html .login-story-footer svg { color: var(--sys-on-ink-muted); }
+html .login-form-wrap { background: var(--sys-sheet); }
+html .login-form::before { border-top-color: var(--sys-ink) !important; }
+html .login-form .eyebrow { text-transform: uppercase; letter-spacing: .14em; font-size: 10.5px; font-weight: 700; color: var(--sys-muted); }
+html .login-form h2 { font-family: var(--counter-display); font-weight: 500; font-size: 34px; letter-spacing: -.02em; color: var(--sys-ink); }
+html .login-form p { color: var(--sys-muted); }
+html .login-form .input { min-height: 50px; border-radius: 12px; border-color: var(--sys-line-strong); font-size: 15px; }
+html .login-form .input:focus { border-color: var(--sys-ink); box-shadow: 0 0 0 3px rgb(29 34 36 / .08); }
+html .login-form .button.primary { min-height: 52px; border-radius: 12px; background: var(--sys-ink); border-color: var(--sys-ink); font-size: 14px; }
+html .login-form .button.secondary { border-radius: 12px; }
+html .boot-screen h1 { font-family: var(--counter-display); font-weight: 500; }
+
+/* ============ Side menu: an ink rail ============ */
+html .sidebar { background: var(--sys-ink); border-right: 0; color: var(--sys-on-ink); }
+html .sidebar nav { scrollbar-color: #4a5256 transparent; }
+html .app-brand:hover { background: rgb(255 255 255 / .06); }
+html .sidebar .brand-mark { background: var(--sys-sheet); color: var(--sys-ink); }
+html .sidebar .brand-mark span { color: var(--counter-accent); }
+html .rail-brand strong { font-family: var(--counter-display); font-weight: 600; letter-spacing: .02em; color: var(--sys-on-ink); }
+html .rail-brand small { color: var(--sys-on-ink-muted); }
+html .sidebar-collapse { color: var(--sys-on-ink-muted); }
+html .sidebar-collapse:hover { background: rgb(255 255 255 / .06); color: var(--sys-on-ink); }
+html .store-selector { background: rgb(255 255 255 / .05); border-color: rgb(255 255 255 / .08); color: var(--sys-on-ink); border-radius: 10px; }
+html .store-selector:hover { background: rgb(255 255 255 / .09); border-color: transparent; }
+html .store-selector .store-icon { background: rgb(255 255 255 / .1); color: var(--sys-on-ink); border-radius: 8px; }
+html .store-selector strong { color: var(--sys-on-ink); }
+html .store-selector small, html .store-selector svg { color: var(--sys-on-ink-muted); }
+html .sidebar-primary-action { background: var(--sys-sheet); border-color: var(--sys-sheet); color: var(--sys-ink); border-radius: 10px; font-weight: 700; }
+html .sidebar-primary-action:hover { background: #eceae6; border-color: #eceae6; }
+html .sidebar-primary-action svg { color: var(--sys-ink); }
+html .sidebar-primary-action kbd { background: var(--sys-ground); color: var(--sys-muted); border-color: var(--sys-line); }
+html .nav-section-label { color: var(--sys-on-ink-muted); text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 700; }
+html .nav-section-label:hover { background: rgb(255 255 255 / .05); color: var(--sys-on-ink); }
+html .nav-item { color: #d3d8d9; border-radius: 9px; }
+html .nav-item > svg { color: var(--sys-on-ink-muted); }
+html .nav-item:hover:not(.active) { background: rgb(255 255 255 / .06); color: #fff; }
+html .nav-item.active { background: var(--sys-sheet); color: var(--sys-ink); font-weight: 700; }
+html .nav-item.active > svg { color: var(--sys-ink); }
+html .nav-item kbd { background: rgb(255 255 255 / .08); border-color: rgb(255 255 255 / .1); color: var(--sys-on-ink-muted); }
+html .nav-item.active kbd { background: var(--sys-ground); color: var(--sys-muted); }
+html .nav-alert { background: var(--counter-accent); color: #fff; }
+html .sidebar-bottom { border-top-color: rgb(255 255 255 / .1); }
+html .sidebar-context { color: var(--sys-on-ink-muted); }
+html .sidebar-profile { border-top-color: rgb(255 255 255 / .1); }
+html .sidebar-profile > button { color: var(--sys-on-ink); }
+html .sidebar-profile strong { color: var(--sys-on-ink); }
+html .sidebar-profile small, html .sidebar-profile svg { color: var(--sys-on-ink-muted); }
+html .sidebar-profile .avatar { background: rgb(255 255 255 / .12); color: var(--sys-on-ink); }
+html .profile-menu { background: var(--sys-sheet); color: var(--sys-ink); border-radius: 12px; }
+html .sidebar-scrim { background: rgb(17 20 21 / .45); }
+
+/* ============ Top bar ============ */
+html .topbar { background: rgb(255 255 255 / .94); border-bottom-color: var(--sys-line); backdrop-filter: saturate(1.2) blur(8px); }
+html .breadcrumb .breadcrumb-page-icon { display: none; }
+html .breadcrumb strong { font-weight: 700; color: var(--sys-ink); }
+html .topbar-command, html .topbar-search { border-radius: 999px; border-color: var(--sys-line); background: var(--sys-sheet); }
+html .topbar-command:hover, html .topbar-search:hover { background: var(--sys-ground); border-color: var(--sys-line-strong); }
+html .topbar-command kbd, html .topbar-search kbd { border-radius: 6px; }
+html .topbar-right > .badge { border-radius: 999px; }
+html .topbar-popover-area .icon-button, html .topbar-account { border-radius: 999px; }
+html .top-avatar { background: var(--sys-ink); color: var(--sys-on-ink); }
+html .topbar-popover { border-radius: 14px; border-color: var(--sys-line); box-shadow: 0 18px 48px rgb(29 34 36 / .14); }
+html .notification-count.has-alerts { background: var(--counter-accent); color: #fff; }
+html .breadcrumb .topbar-wordmark { font-family: var(--counter-display); font-weight: 600; letter-spacing: .02em; color: var(--sys-ink); }
+
+/* Demo / read-only notice under the top bar: a quiet strip, no side rule. */
+html .demo-banner { border-left: 0; background: #fbf6e9; border-bottom-color: #efe5cc; }
+
+/* Command menu (Ctrl K) */
+html .command-dialog, html .command-menu { border-radius: 16px; }
+
+/* ============ Every page ============ */
+html main .page-heading { align-items: flex-end; padding: 2px 0 16px; border-bottom: 1px solid var(--sys-line); }
+html main .page-heading .page-icon { display: none; }
+html main .page-heading .eyebrow { margin: 0 0 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--sys-muted); }
+html main .page-heading h1 { font-family: var(--counter-display); font-size: 34px; font-weight: 500; letter-spacing: -.3px; line-height: 1.05; color: var(--sys-ink); }
+html main .page-heading h1:focus { outline: none; }
+html main .page-heading p { max-width: 64ch; margin-top: 6px; font-size: 13px; line-height: 1.55; color: var(--sys-muted); }
+html main .page-heading .button { min-height: 42px; border-radius: 10px; }
+
+/* Buttons, fields, chips. Low specificity (:where) so the till keeps its own buttons. */
+:where(html main, html .modal) .button { border-radius: 10px; }
+:where(html main, html .modal) .button.primary { background: var(--sys-ink); border-color: var(--sys-ink); color: #fff; }
+:where(html main, html .modal) .button.secondary { background: var(--sys-sheet); border-color: var(--sys-line-strong); color: var(--sys-ink); }
+:where(html main, html .modal) .button.secondary:hover:not(:disabled) { border-color: var(--sys-ink); }
+html main .search-field { min-height: 48px; border-radius: 12px; border-color: var(--sys-line); background: var(--sys-sheet); }
+html main .search-field.compact { min-height: 46px; }
+html main .search-field:focus-within { border-color: var(--sys-ink); box-shadow: 0 0 0 3px rgb(29 34 36 / .08); }
+html main .search-field input { font-size: 14px; }
+html :is(main, .modal) .select, html :is(main, .modal) .input, html .modal textarea, html main textarea { border-radius: 10px; border-color: var(--sys-line-strong); }
+html :is(main, .modal) .select { min-height: 46px; }
+html :is(main, .modal) .input:focus, html :is(main, .modal) .select:focus, html :is(main, .modal) textarea:focus { border-color: var(--sys-ink); box-shadow: 0 0 0 3px rgb(29 34 36 / .08); outline: none; }
+html :is(main, .modal) .badge { border-radius: 999px; }
+
+/* Figures: Bodoni tiles */
+html main .stats-grid { border: 1px solid var(--sys-line); border-radius: var(--counter-radius); background: var(--sys-sheet); }
+html main .stats-grid .stat-card { padding: 16px 18px; background: var(--sys-sheet); border-top: 0; border-right-color: var(--sys-line); }
+html main .stats-grid .stat-card .stat-top { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--sys-muted); }
+html main .stats-grid .stat-card > strong { font-family: var(--counter-display); font-size: 32px; font-weight: 500; letter-spacing: -.4px; line-height: 1.1; color: var(--sys-ink); }
+html main .stats-grid .stat-card.featured, html main .stats-grid .stat-card.warm { background: var(--sys-sheet); }
+html main .stats-grid .stat-card.featured > strong { color: var(--counter-accent-deep); }
+html main .stats-grid .stat-card.warm > strong { color: var(--sys-warn); }
+html main .stats-grid .stat-card > p { font-size: 12px; color: var(--sys-muted); }
+html main .catalogue-strip { border: 1px solid var(--sys-line); border-radius: var(--counter-radius); background: var(--sys-sheet); }
+html main .catalogue-strip span { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--sys-muted); }
+html main .catalogue-strip strong { font-family: var(--counter-display); font-size: 30px; font-weight: 500; color: var(--sys-ink); }
+
+/* Section tabs: the till's category pills */
+html main :is(.stock-tabs, .instore-tabs) { gap: 8px; border-bottom: 0; padding: 2px 0; }
+html main :is(.stock-tabs, .instore-tabs) button { min-height: 42px; padding: 0 16px; border: 1px solid var(--sys-line); border-radius: 999px; background: var(--sys-sheet); color: var(--counter-ink-soft); font-size: 13px; }
+html main :is(.stock-tabs, .instore-tabs) button:hover { border-color: var(--counter-ink-soft); color: var(--sys-ink); }
+html main :is(.stock-tabs, .instore-tabs) button.selected { background: var(--sys-ink); border-color: var(--sys-ink); color: #fff; }
+
+/* Sheets and tables */
+html main .stock-control .stock-filters { padding: 0; border: 0; background: none; box-shadow: none; }
+html main .surface { border-color: var(--sys-line); border-radius: var(--counter-radius); box-shadow: none; }
+html main .records-surface { overflow: hidden; }
+html main .surface .section-heading h2 { font-family: var(--counter-display); font-size: 24px; font-weight: 500; letter-spacing: -.2px; }
+html main .surface .section-heading .eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 700; color: var(--sys-muted); }
+html main .table-toolbar { background: var(--sys-sheet); }
+html main th { background: var(--sys-sheet); font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--sys-muted); padding-block: 12px; border-bottom-color: var(--sys-line); }
+html main td { border-bottom-color: var(--sys-line); }
+html main tbody tr:hover { background: var(--sys-ground); }
+html main .table-product .product-image { width: 40px; height: 50px; border-radius: 6px; }
+html main .sku-cell { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--sys-muted); }
+html main .table-footer { border-top-color: var(--sys-line); }
+html main .empty-state h3, html main .empty-state strong { font-family: var(--counter-display); font-weight: 500; font-size: 20px; }
+
+/* Overview */
+html main .overview-intro { background: var(--sys-ink); color: var(--sys-on-ink); border: 0; border-radius: var(--counter-radius); }
+html main .overview-intro .eyebrow { color: var(--sys-on-ink-muted); text-transform: uppercase; letter-spacing: .12em; font-size: 10.5px; font-weight: 700; }
+html main .overview-intro h2 { font-family: var(--counter-display); font-weight: 500; font-size: 30px; color: var(--sys-on-ink); letter-spacing: -.2px; }
+html main .overview-intro p, html main .overview-intro > span { color: var(--sys-on-ink-muted); }
+html main .overview-metrics { border: 1px solid var(--sys-line); border-radius: var(--counter-radius); background: var(--sys-sheet); overflow: hidden; }
+html main .overview-metric { background: var(--sys-sheet); border-top: 0; }
+html main .overview-metric > span { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--sys-muted); }
+html main .overview-metric > strong { font-family: var(--counter-display); font-weight: 500; letter-spacing: -.4px; color: var(--sys-ink); }
+html main .overview-metric-lead > strong { color: var(--counter-accent-deep); }
+html main .overview-metric > small { color: var(--sys-muted); }
+html main .overview-operational { border-color: var(--sys-line); border-radius: var(--counter-radius); }
+html main .overview-operational strong { font-family: var(--counter-display); font-weight: 500; font-size: 24px; }
+
+/* Notices: a soft card, no side rule */
+html :is(main, .modal) .notice { border-radius: 12px; border-left-width: 1px; }
+
+/* ============ Dialogs and toasts ============ */
+html .modal { border-radius: 18px; border: 0; box-shadow: 0 30px 80px rgb(17 20 21 / .28); }
+html .modal-header h2 { font-family: var(--counter-display); font-weight: 500; font-size: 26px; letter-spacing: -.2px; }
+html .modal-footer { border-top-color: var(--sys-line); }
+html .modal-backdrop { background: rgb(17 20 21 / .5); backdrop-filter: blur(2px); }
+html .toast { border-radius: 14px; background: var(--sys-ink); color: var(--sys-on-ink); box-shadow: 0 18px 40px rgb(17 20 21 / .25); }
+html .toast > svg { color: #7fd6a6; }
+html .toast.error > svg { color: #ff9ab8; }
+html .toast button { color: var(--sys-on-ink-muted); }
+
+/* Stock levels: one block per product, its sizes/colours underneath. */
+html .stock-control .stock-table tbody td { border-bottom: 0; border-top: 1px dashed #ece9e4; padding-block: 9px; }
+html .stock-control .stock-table tbody + tbody .stock-product-head th { border-top: 1px solid var(--sys-line-strong); }
+html .stock-control .stock-table .stock-product-head th { padding: 14px 14px 8px; background: #fff; border-bottom: 0; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--counter-ink); white-space: normal; text-align: left; }
+html .stock-control .stock-table .stock-product-head:hover { background: none; }
+html .stock-control .stock-product-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+html .stock-control .stock-product-title strong { font-size: 14px; font-weight: 700; }
+html .stock-control .stock-product-title small { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: var(--counter-muted); }
+html .stock-control .stock-product-title .text-button { font-size: 12px; white-space: nowrap; }
+html .stock-control .stock-table .stock-option { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; min-height: 30px; padding: 0 10px; border: 1px solid var(--counter-line); border-radius: 8px; background: #fff; font-size: 12px; font-weight: 700; color: var(--counter-ink); white-space: nowrap; }
+html .stock-control .stock-qty { font-family: var(--counter-display); font-size: 24px; font-weight: 500; color: var(--counter-ink); }
+html .stock-control .stock-actions { flex-wrap: nowrap; gap: 6px; }
+html .stock-control .stock-actions .button.small { min-height: 34px; padding: 0 10px; border-radius: 8px; font-size: 12px; }
+html .stock-control .stock-actions .text-button { white-space: nowrap; font-size: 12px; padding: 0 4px; }
+html .stock-control .stock-table td small.stock-cover { margin-top: 2px; font-size: 11px; }
+
+/* Adjust / count dialogs: the before → after preview in Bodoni. */
+html .stock-preview { border-radius: var(--counter-radius); background: var(--counter-paper); }
+html .stock-preview strong { font-family: var(--counter-display); font-weight: 500; }
+html .stock-type-switch { border-radius: 10px; }
+html .stock-type-switch button.selected { background: var(--counter-ink); }
+
+
+/* ============ iPhone held upright ============ */
+@media (max-width: 640px) {
+  html main .page-heading { padding-bottom: 12px; }
+  html main .page-heading h1 { font-size: 28px; }
+  html main .page-heading p { display: none; }
+  html main .stats-grid .stat-card > strong { font-size: 22px; }
+  html main .catalogue-strip strong { font-size: 22px; }
+  html main :is(.stock-tabs, .instore-tabs) { flex-wrap: wrap; overflow: visible; }
+  html main :is(.stock-tabs, .instore-tabs) button { min-height: 40px; padding: 0 14px; }
+  html .stock-control .stock-sync-strip { display: none; }
+  html .stock-control .stock-mobile-qty strong { font-family: var(--counter-display); font-size: 22px; font-weight: 500; }
+  html .modal-header h2 { font-size: 22px; }
+  html .mobile-tabbar { background: rgb(255 255 255 / .96); border-top-color: var(--sys-line); backdrop-filter: blur(10px); }
+  html .mobile-tabbar button { color: var(--sys-muted); }
+  html .mobile-tabbar button.active { color: var(--sys-ink); font-weight: 700; }
+  html .mobile-tabbar button.active svg { background: var(--sys-ink); color: #fff; border-radius: 999px; padding: 4px 12px; box-sizing: content-box; }
+}
