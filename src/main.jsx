@@ -5,6 +5,7 @@ import './styles.css';
 import './studio.css';
 import './workspace-redesign.css';
 import './mobile.css';
+import './register-studio.css';
 
 const root = createRoot(document.getElementById('root'));
 if (window.mansuDesktop) {

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, ScanLine, RefreshCw, Plus, Minus, Trash2, ShoppingBag, ArrowRight, X, Pause, Play, UserRound, StickyNote, Check, WifiOff, LayoutGrid, List, Banknote, ShieldCheck } from 'lucide-react';
 import { api, money, uuid } from './api.js';
-import { IconButton, Badge, ProductImage, Empty, Modal, Notice, PageHeading, NoResults, SellingModeSwitch } from './components.jsx';
+import { IconButton, Badge, ProductImage, Empty, Modal, Notice, NoResults, SellingModeSwitch } from './components.jsx';
 import { available, physicallyInStock, allowsBackorders, hasKnownStock, stockUnknown, ownershipUnknown, onBackorder, takesLastUnit } from './stock.js';
 
 const parentAllowsSale = p => Boolean(p?.purchasable && p.stockStatus !== 'outofstock');
@@ -214,10 +214,15 @@ export default function Register({ active = true, catalog, config, checkoutScope
   return <div className="register-page">
     <div className="register-layout">
       <section className="catalog-panel" inert={mobileCart}>
-        <PageHeading eyebrow="In-store · MansutRENDZGH" title="Point of sale" description="Search, scan or select products.">
-          <button className="button secondary held-button" onClick={() => setHeldOpen(true)}><Pause size={16} />Held sales <span className="count-pill">{savedCarts.length}</span></button>
-        </PageHeading>
-        <SellingModeSwitch mode="retail" onRetail={() => {}} onWholesale={onOpenWholesale} canWholesale={canWholesale} />
+        {/* Counter bar: one slim row with the title, shift, selling mode and held sales. */}
+        <header className="counter-bar">
+          <div className="counter-title"><span className="eyebrow">In-store · {config.businessName || 'MansutRENDZGH'}</span><h1 tabIndex={-1}>Point of sale</h1></div>
+          <div className="counter-actions">
+            {shiftRequired && shift && <button type="button" className="counter-shift" onClick={onOpenShift} title="Manage shift"><span className="status-dot" aria-hidden="true" /><span>Shift open · {shift.userName}</span><small>float {money(shift.openingFloat)}</small></button>}
+            <SellingModeSwitch mode="retail" onRetail={() => {}} onWholesale={onOpenWholesale} canWholesale={canWholesale} />
+            <button className="button secondary held-button" onClick={() => setHeldOpen(true)}><Pause size={16} />Held sales <span className="count-pill">{savedCarts.length}</span></button>
+          </div>
+        </header>
         {config.onlineBridgeLocalTest && <Notice tone="warning"><strong>Isolated local development fixture only.</strong> No real cash, customer, live Woo inventory/order or receipt. Every attempt must use its own verified Woo hold; stop and reconcile the original key if its response is uncertain.</Notice>}
         {config.liveReadOnly && <Notice tone="warning">Live WooCommerce catalogue. Cart amounts are references, not verified payable totals. Checkout and payment recording are disabled; do not collect money or release goods through this POS.</Notice>}
         {config.liveRetailCashDirect && <Notice tone="warning">Live till · cash-only retail. Each sale creates a real WooCommerce order and lowers website stock. Count the cash before confirming; never release goods until the sale shows Paid.</Notice>}
@@ -226,7 +231,6 @@ export default function Register({ active = true, catalog, config, checkoutScope
         {!online && <Notice tone="warning" icon={WifiOff}>{desktop ? 'Internet is unavailable. Only a valid, previously reserved Woo stock allocation can be sold; the committed receipt stays in the protected local sync queue.' : 'You’re offline. Checkout is disabled; no offline payment queue is stored. Reconnect and refresh before selling.'}</Notice>}
         {desktop && <Notice tone={config.writesEnabled ? 'success' : 'warning'}>Desktop till · stock numbers show only this device’s reserved units, not public website stock. {config.writesEnabled ? 'Cash sales commit locally before goods leave; sync is shown separately.' : 'Shared-stock checkout is locked until the owner completes Woo reservation and website last-unit acceptance.'}</Notice>}
         {shiftRequired && !shift && <Notice tone="warning" icon={Banknote}>Open a shift before selling. This keeps cash, refunds, and day-end totals accountable. <button className="text-button" onClick={onOpenShift}>Open shift</button></Notice>}
-        {shiftRequired && shift && <div className="shift-strip"><Banknote size={16}/><span>Shift open · {shift.userName} · opening float {money(shift.openingFloat)}</span><button className="text-button" onClick={onOpenShift}>Manage shift</button></div>}
         <div className="catalog-controls"><div className="catalog-controls-heading"><h2>The collection</h2><span>Find by name, SKU or scan</span></div>
         <div className="catalog-search-row"><form className="search-field" onSubmit={searchSubmit}><Search size={20} /><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="Name or SKU" aria-label="Search by product name, SKU or barcode" />{query ? <button type="button" aria-label="Clear search" onClick={() => setQuery('')}><X size={16} /></button> : <kbd>/</kbd>}</form><button className="button secondary scanner-button" aria-label="Scan product F2" title="Scan product (F2)" onClick={() => setScanner(true)}><ScanLine size={18} /><span>Scan product{' '}</span><kbd>F2</kbd></button><IconButton icon={RefreshCw} label="Refresh catalogue" onClick={refresh} /></div>
         <div className="category-tabs" role="group" aria-label="Filter products by category">{categories.map(c => <button aria-pressed={category === c} className={category === c ? 'active' : ''} key={c} onClick={() => setCategory(c)}>{c}{c === 'All products' && <span>{products.length}</span>}</button>)}</div>

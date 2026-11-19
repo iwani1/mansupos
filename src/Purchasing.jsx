@@ -76,6 +76,7 @@ function Orders({ orders, onOpen }) {
   const [filter, setFilter] = useState('open');
   const shown = (orders || []).filter(o => filter === 'all' || (filter === 'open' ? !['received', 'cancelled'].includes(o.status) : o.status === filter));
   return <section className="surface records-surface">
+    <div className="section-heading"><div><h2>Purchase orders</h2><p>Orders to suppliers, from draft to received.</p></div></div>
     <div className="table-toolbar"><select className="select" aria-label="Filter purchase orders" value={filter} onChange={e => setFilter(e.target.value)}>
       <option value="open">Open orders</option><option value="pending_approval">Awaiting approval</option><option value="partially_received">Partly received</option><option value="received">Received</option><option value="cancelled">Cancelled</option><option value="all">All orders</option>
     </select></div>
