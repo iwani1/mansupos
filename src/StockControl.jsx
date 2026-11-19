@@ -145,32 +145,50 @@ function StockLevels({ duplicateSku, lines, total, canWrite, canPrice, onAdjust,
   </section>;
   return <section className="surface records-surface">
     <TableRegion label="Stock levels"><table className="responsive-table stock-table"><thead><tr>
-      <th>Product</th><th>Option</th><th>SKU</th><th className="right">Price</th><th className="right">In stock</th><th>Status</th><th className="right">POS sold · 30 d</th><th className="right">Actions</th>
-    </tr></thead><tbody>{shown.map(line => {
-      const state = STATUS[line.status];
-      return <tr key={line.key}>
-        <td data-label="Product"><div className="table-product"><ProductImage src={line.image} name={line.name} /><div><strong className="table-primary">{line.name}</strong><small>{line.category}</small></div></div></td>
-        <td data-label="Option">{line.label}</td>
-        <td data-label="SKU"><span className="sku-cell">{line.sku || '—'}</span>{duplicateSku(line) && <small className="error-text">Duplicate SKU</small>}</td>
-        <td data-label="Price" className="right tabular">{money(line.price)}</td>
-        <td data-label="In stock" className="right"><strong className="stock-qty">{line.manageStock && line.stock != null ? line.stock : '—'}</strong></td>
-        <td data-label="Status"><Badge dot tone={state.tone}>{state.label}</Badge>{line.daysOfCover != null && line.manageStock && <small className="stock-cover">≈ {line.daysOfCover} days left</small>}</td>
-        <td data-label="POS sold · 30 d" className="right tabular">{line.posSold30}</td>
-        <td data-label="Actions"><div className="row-actions stock-actions">
-          {line.manageStock ? <>
-            <button className="button secondary small" disabled={!canWrite} onClick={() => onAdjust(line, 'receive')}><PackagePlus size={14} />Receive</button>
-            <button className="button secondary small" disabled={!canWrite || !(line.stock > 0)} onClick={() => onAdjust(line, 'remove')}><PackageMinus size={14} />Remove</button>
-            <button className="button secondary small" disabled={!canWrite} onClick={() => onAdjust(line, 'count')}><ClipboardCheck size={14} />Count</button>
-          </> : <button className="button secondary small" disabled={!canWrite || line.status === 'unknown'} onClick={() => onAdjust(line, 'count')}><ClipboardCheck size={14} />Start tracking</button>}
-          {canPrice && line.priceEditable && <button className="button secondary small" onClick={() => onPrice(line)}><Tag size={14} />Price</button>}
-          <button className="text-button" onClick={() => onHistory(line)}>History</button>
-          {onEditProduct && <button className="text-button" onClick={() => onEditProduct(line)} aria-label={`Edit product ${line.name}`}>Edit product</button>}
-        </div></td>
-      </tr>;
-    })}</tbody></table></TableRegion>
+      <th>Option</th><th>SKU</th><th className="right">Price</th><th className="right">In stock</th><th>Status</th><th className="right">POS sold · 30 d</th><th className="right">Actions</th>
+    </tr></thead>{groupByProduct(shown).map(group => {
+      const first = group[0];
+      // One block per product: the product is named once, its sizes/colours below.
+      return <tbody key={first.key}>
+        <tr className="stock-product-head"><th scope="rowgroup" colSpan={7}><div className="stock-product-title">
+          <div className="table-product"><ProductImage src={first.image} name={first.name} /><div><strong>{first.name}</strong><small>{first.category}{group.length > 1 ? ` · ${group.length} options` : ''}</small></div></div>
+          {onEditProduct && <button className="text-button" onClick={() => onEditProduct(first)} aria-label={`Edit product ${first.name}`}>Edit product</button>}
+        </div></th></tr>
+        {group.map(line => {
+          const state = STATUS[line.status];
+          return <tr key={line.key} className="stock-line">
+            <td data-label="Option"><span className="stock-option">{line.label}</span><span className="table-primary sr-only">{line.name}</span></td>
+            <td data-label="SKU"><span className="sku-cell" title={line.sku || undefined}>{line.sku || '—'}</span>{duplicateSku(line) && <small className="error-text">Duplicate SKU</small>}</td>
+            <td data-label="Price" className="right tabular">{money(line.price)}</td>
+            <td data-label="In stock" className="right"><strong className="stock-qty">{line.manageStock && line.stock != null ? line.stock : '—'}</strong></td>
+            <td data-label="Status"><Badge dot tone={state.tone}>{state.label}</Badge>{line.daysOfCover != null && line.manageStock && <small className="stock-cover">≈ {line.daysOfCover} days left</small>}</td>
+            <td data-label="POS sold · 30 d" className="right tabular">{line.posSold30}</td>
+            <td data-label="Actions"><div className="row-actions stock-actions">
+              {line.manageStock ? <>
+                <button className="button secondary small" disabled={!canWrite} onClick={() => onAdjust(line, 'receive')}><PackagePlus size={14} />Receive</button>
+                <button className="button secondary small" disabled={!canWrite || !(line.stock > 0)} onClick={() => onAdjust(line, 'remove')}><PackageMinus size={14} />Remove</button>
+                <button className="button secondary small" disabled={!canWrite} onClick={() => onAdjust(line, 'count')}><ClipboardCheck size={14} />Count</button>
+              </> : <button className="button secondary small" disabled={!canWrite || line.status === 'unknown'} onClick={() => onAdjust(line, 'count')}><ClipboardCheck size={14} />Start tracking</button>}
+              {canPrice && line.priceEditable && <button className="button secondary small" onClick={() => onPrice(line)}><Tag size={14} />Price</button>}
+              <button className="text-button" onClick={() => onHistory(line)}>History</button>
+            </div></td>
+          </tr>;
+        })}
+      </tbody>;
+    })}</table></TableRegion>
     {footer}
     <p className="field-hint stock-count-hint">Options that share one product quantity appear as a single “shared stock” line.</p>
   </section>;
+}
+
+// Consecutive lines of the same product (the list is sorted by product).
+function groupByProduct(lines) {
+  const groups = [];
+  for (const line of lines) {
+    const last = groups.at(-1);
+    if (last && last[0].productId === line.productId) last.push(line); else groups.push([line]);
+  }
+  return groups;
 }
 
 // Phone: one tap on a row opens the actions for that item.

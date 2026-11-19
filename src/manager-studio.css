@@ -1,0 +1,96 @@
+/* "Counter" design carried into the manager screens: Products, Stock control,
+   Purchasing and Customer returns (Returns shares the .purchasing root).
+   Same rules as the till (register-studio.css, whose tokens this reuses):
+   ink on white, Mansu pink only for money and selection, Bodoni Moda only
+   for big figures. Loaded last; selectors start with `html` so lazily
+   loaded page CSS cannot override them. Layout and labels are unchanged. */
+
+:root { --manager-line-strong: #d7d2cb; --manager-warn: #9a4a0c; }
+
+/* ---------- Heading: the counter-bar treatment ---------- */
+html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading { align-items: flex-end; padding: 2px 0 16px; margin-bottom: 0; border-bottom: 1px solid var(--counter-line); }
+html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading .page-icon { display: none; }
+html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading .eyebrow { margin: 0 0 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--counter-muted); }
+html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading h1 { font-family: var(--counter-display); font-size: 34px; font-weight: 500; letter-spacing: -.3px; line-height: 1.05; color: var(--counter-ink); }
+html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading h1:focus { outline: none; }
+html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading p { max-width: 64ch; margin-top: 6px; font-size: 13px; line-height: 1.55; color: var(--counter-muted); }
+html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading .button { min-height: 42px; border-radius: 10px; }
+html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading .button.primary { background: var(--counter-ink); border-color: var(--counter-ink); }
+html .catalogue-page { display: grid; gap: 18px; min-width: 0; }
+html .catalogue-page > * { margin-bottom: 0; }
+
+/* ---------- "How stock is shared": one quiet line ---------- */
+html .stock-control .stock-sync-strip { padding: 0; border: 0; background: none; font-size: 12px; }
+html .stock-control .stock-sync-strip strong { background: #fff; border: 1px solid var(--counter-line); color: var(--counter-ink); }
+html .stock-control .stock-sync-strip svg { color: var(--counter-ink-soft); }
+
+/* ---------- Figures: Bodoni tiles ---------- */
+html :is(.stock-control, .purchasing) .stats-grid { border: 1px solid var(--counter-line); border-radius: var(--counter-radius); background: #fff; }
+html :is(.stock-control, .purchasing) .stats-grid .stat-card { padding: 16px 18px; background: #fff; border-top: 0; border-right-color: var(--counter-line); }
+html :is(.stock-control, .purchasing) .stats-grid .stat-card .stat-top { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--counter-muted); }
+html :is(.stock-control, .purchasing) .stats-grid .stat-card > strong { font-family: var(--counter-display); font-size: 32px; font-weight: 500; letter-spacing: -.4px; line-height: 1.1; color: var(--counter-ink); }
+html :is(.stock-control, .purchasing) .stats-grid .stat-card.featured > strong { color: var(--counter-accent-deep); }
+html :is(.stock-control, .purchasing) .stats-grid .stat-card.warm > strong { color: var(--manager-warn); }
+html :is(.stock-control, .purchasing) .stats-grid .stat-card > p { font-size: 12px; color: var(--counter-muted); }
+html .catalogue-page .catalogue-strip { border: 1px solid var(--counter-line); border-radius: var(--counter-radius); background: #fff; }
+html .catalogue-page .catalogue-strip span { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--counter-muted); }
+html .catalogue-page .catalogue-strip strong { font-family: var(--counter-display); font-size: 30px; font-weight: 500; color: var(--counter-ink); }
+
+/* ---------- Section tabs: the till's category pills ---------- */
+html :is(.stock-control, .purchasing) .stock-tabs { gap: 8px; border-bottom: 0; padding: 2px 0; flex-wrap: nowrap; scrollbar-width: none; }
+html :is(.stock-control, .purchasing) .stock-tabs::-webkit-scrollbar { display: none; }
+html :is(.stock-control, .purchasing) .stock-tabs button { min-height: 42px; padding: 0 16px; border: 1px solid var(--counter-line); border-radius: 999px; background: #fff; color: var(--counter-ink-soft); font-size: 13px; }
+html :is(.stock-control, .purchasing) .stock-tabs button:hover { border-color: var(--counter-ink-soft); color: var(--counter-ink); }
+html :is(.stock-control, .purchasing) .stock-tabs button.selected { background: var(--counter-ink); border-color: var(--counter-ink); color: #fff; }
+
+/* ---------- Search and filters ---------- */
+html .stock-control .stock-filters { padding: 0; border: 0; background: none; box-shadow: none; }
+html :is(.stock-control, .purchasing, .catalogue-page) .search-field { min-height: 48px; border-radius: 12px; border-color: var(--counter-line); background: #fff; }
+html :is(.stock-control, .purchasing, .catalogue-page) .search-field:focus-within { border-color: var(--counter-ink); box-shadow: 0 0 0 3px rgb(29 34 36 / .08); }
+html :is(.stock-control, .purchasing, .catalogue-page) .search-field input { font-size: 14px; }
+html :is(.stock-control, .purchasing, .catalogue-page) .select { min-height: 48px; border-radius: 12px; border-color: var(--counter-line); }
+
+/* ---------- Tables: one sheet with quiet rules ---------- */
+html :is(.stock-control, .purchasing, .catalogue-page) .records-surface { border: 1px solid var(--counter-line); border-radius: var(--counter-radius); overflow: hidden; box-shadow: none; }
+html :is(.stock-control, .purchasing, .catalogue-page) .records-surface th { background: #fff; font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--counter-muted); padding: 12px 14px; border-bottom: 1px solid var(--counter-line); }
+html :is(.stock-control, .purchasing, .catalogue-page) .records-surface td { padding: 12px 14px; border-bottom-color: var(--counter-line); }
+html :is(.stock-control, .purchasing, .catalogue-page) .records-surface tbody tr:hover { background: var(--counter-paper); }
+html :is(.stock-control, .purchasing, .catalogue-page) .records-surface .section-heading h2 { font-family: var(--counter-display); font-size: 24px; font-weight: 500; }
+html :is(.stock-control, .purchasing, .catalogue-page) .table-product .product-image { width: 40px; height: 50px; border-radius: 6px; }
+html :is(.stock-control, .purchasing, .catalogue-page) .sku-cell { display: block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--counter-muted); }
+html .catalogue-page .catalogue-table td.right { font-weight: 600; color: var(--counter-ink); }
+
+/* Stock levels: one block per product, its sizes/colours underneath. */
+html .stock-control .stock-table tbody td { border-bottom: 0; border-top: 1px dashed #ece9e4; padding-block: 9px; }
+html .stock-control .stock-table tbody + tbody .stock-product-head th { border-top: 1px solid var(--manager-line-strong); }
+html .stock-control .stock-table .stock-product-head th { padding: 14px 14px 8px; background: #fff; border-bottom: 0; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--counter-ink); white-space: normal; text-align: left; }
+html .stock-control .stock-table .stock-product-head:hover { background: none; }
+html .stock-control .stock-product-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+html .stock-control .stock-product-title strong { font-size: 14px; font-weight: 700; }
+html .stock-control .stock-product-title small { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: var(--counter-muted); }
+html .stock-control .stock-product-title .text-button { font-size: 12px; white-space: nowrap; }
+html .stock-control .stock-table .stock-option { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; min-height: 30px; padding: 0 10px; border: 1px solid var(--counter-line); border-radius: 8px; background: #fff; font-size: 12px; font-weight: 700; color: var(--counter-ink); white-space: nowrap; }
+html .stock-control .stock-qty { font-family: var(--counter-display); font-size: 24px; font-weight: 500; color: var(--counter-ink); }
+html .stock-control .stock-actions { flex-wrap: nowrap; gap: 6px; }
+html .stock-control .stock-actions .button.small { min-height: 34px; padding: 0 10px; border-radius: 8px; font-size: 12px; }
+html .stock-control .stock-actions .text-button { white-space: nowrap; font-size: 12px; padding: 0 4px; }
+html .stock-control .stock-table td small.stock-cover { margin-top: 2px; font-size: 11px; }
+
+/* Adjust / count dialogs: the before → after preview in Bodoni. */
+html .stock-preview { border-radius: var(--counter-radius); background: var(--counter-paper); }
+html .stock-preview strong { font-family: var(--counter-display); font-weight: 500; }
+html .stock-type-switch { border-radius: 10px; }
+html .stock-type-switch button.selected { background: var(--counter-ink); }
+
+/* ---------- iPhone held upright ---------- */
+@media (max-width: 640px) {
+  html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading { padding-bottom: 12px; }
+  html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading h1 { font-size: 28px; }
+  html :is(.stock-control, .purchasing, .catalogue-page) > .page-heading p { display: none; }
+  html :is(.stock-control, .purchasing) .stats-grid .stat-card > strong { font-size: 22px; }
+  html .catalogue-page .catalogue-strip strong { font-size: 22px; }
+  html :is(.stock-control, .purchasing) .stock-tabs { flex-wrap: wrap; overflow: visible; }
+  html :is(.stock-control, .purchasing) .stock-tabs button { min-height: 40px; padding: 0 14px; }
+  html .stock-control .stock-sync-strip { display: none; }
+  html .stock-control .stock-mobile-qty strong { font-family: var(--counter-display); font-size: 22px; font-weight: 500; }
+}
