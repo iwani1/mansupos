@@ -1283,6 +1283,10 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     if (config.mode !== 'demo' && config.configured) {
       try { const products = await api.request('products', { query: { per_page: 1, status: 'publish' } }); checks.push({ name: 'WooCommerce catalogue read', ok: true, detail: `${products.total} published products` }); }
       catch (error) { checks.push({ name: 'WooCommerce catalogue read', ok: false, detail: error.message }); }
+      if (config.productWritesEnabled) {
+        const photo = await products.media.check();
+        checks.push({ name: 'WordPress photo upload login', ok: photo.ok, detail: photo.detail });
+      }
       if (!config.liveReadOnly && config.writesEnabled) {
         try { await api.request('orders', { query: { per_page: 1 } }); checks.push({ name: 'WooCommerce orders read', ok: true }); }
         catch (error) { checks.push({ name: 'WooCommerce orders read', ok: false, detail: error.message }); }
