@@ -12,7 +12,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
 SITE = "https://www.mansutrendzgh.com"
-DEMOS = ["maison", "rail", "tudu", "atelier", "edit", "rose"]
+DEMOS = ["maison", "rail", "tudu", "atelier", "edit", "rose", "finder"]
 
 products = json.loads((ROOT / "products.json").read_text())
 core = (ROOT / "src/core.js").read_text()

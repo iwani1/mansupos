@@ -12,6 +12,7 @@ Open any `<name>.html` file directly in a browser.
 | **4 · Atelier** | Swiss 12-column grid, every filter visible, grid/list (table) view toggle | Comparing many styles at once, wholesale buyers |
 | **5 · Edit** | Brutalist editorial bento, hard borders, inline search tile, one-tap filter bar | A bold, fashion-forward brand image |
 | **6 · Rosé** | Soft boutique, 3-step Style Finder (occasion → size → budget), saved styles | Undecided shoppers; guided discovery |
+| **7 · Rail + Finder** | Rail's search page with Rosé's Style Finder above the results; both drive one filter state | Serving shoppers who search and shoppers who browse, on one page |
 
 Demos 4–6 follow design systems from the UI/UX Pro Max skill: "Minimalism & Swiss" (near-black + gold
 `#A16207`, Cormorant/Montserrat), "Brutalism" editorial black + pink (Syne/Manrope "Fashion Forward"),
