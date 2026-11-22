@@ -1,0 +1,907 @@
+[
+{
+"id": 10669,
+"name": "Liya Shirt Dress",
+"cat": "Dresses",
+"occ": [
+"Office",
+"Church & Events"
+],
+"price": 399,
+"sizes": [
+"Free"
+],
+"colours": [
+"Green",
+"White",
+"Yellow"
+],
+"img": "img/10669.webp",
+"img2": "img/10669b.webp",
+"isNew": true,
+"url": "https://www.mansutrendzgh.com/product/liya-dress/"
+},
+{
+"id": 10612,
+"name": "Coco Polka Dot Dress",
+"cat": "Dresses",
+"occ": [
+"Church & Events"
+],
+"price": 380,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Black"
+],
+"img": "img/10612.webp",
+"img2": "img/10612b.webp",
+"isNew": true,
+"url": "https://www.mansutrendzgh.com/product/coco-elegance-polka-dot/"
+},
+{
+"id": 10622,
+"name": "Lysa Peplum Skirt Set",
+"cat": "Two-Piece Sets",
+"occ": [
+"Church & Events",
+"Evening"
+],
+"price": 490,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Black",
+"Red",
+"White"
+],
+"img": "img/10622.webp",
+"img2": "img/10622b.webp",
+"isNew": true,
+"url": "https://www.mansutrendzgh.com/product/lysa/"
+},
+{
+"id": 10600,
+"name": "Golden Mandarin Set",
+"cat": "Two-Piece Sets",
+"occ": [
+"Evening",
+"Church & Events"
+],
+"price": 450,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Gold"
+],
+"img": "img/10600.webp",
+"img2": "img/10600b.webp",
+"isNew": true,
+"url": "https://www.mansutrendzgh.com/product/golden-mandarin/"
+},
+{
+"id": 10617,
+"name": "Soleil Butter Yellow Set",
+"cat": "Two-Piece Sets",
+"occ": [
+"Weekend"
+],
+"price": 399,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Butter Yellow"
+],
+"img": "img/10617.webp",
+"img2": "img/10617b.webp",
+"isNew": true,
+"url": "https://www.mansutrendzgh.com/product/soleil-butter-yellow-set/"
+},
+{
+"id": 10638,
+"name": "Dora Pleated Pant",
+"cat": "Trousers & Skirts",
+"occ": [
+"Office",
+"Weekend"
+],
+"price": 430,
+"sizes": [
+"Free size"
+],
+"colours": [
+"Black",
+"Brown",
+"Green",
+"Wine"
+],
+"img": "img/10638.webp",
+"img2": null,
+"isNew": true,
+"url": "https://www.mansutrendzgh.com/product/dora-pant/"
+},
+{
+"id": 10647,
+"name": "Kylie Wide-Leg Pant",
+"cat": "Trousers & Skirts",
+"occ": [
+"Office"
+],
+"price": 280,
+"sizes": [
+"L",
+"XL",
+"2XL",
+"3XL"
+],
+"colours": [
+"Black",
+"Coffee",
+"Navy Blue",
+"White"
+],
+"img": "img/10647.webp",
+"img2": "img/10647b.webp",
+"isNew": true,
+"url": "https://www.mansutrendzgh.com/product/kylie/"
+},
+{
+"id": 10661,
+"name": "Kylie Blouse Top",
+"cat": "Tops & Shirts",
+"occ": [
+"Office",
+"Church & Events"
+],
+"price": 330,
+"sizes": [
+"M",
+"L",
+"XL",
+"2XL"
+],
+"colours": [
+"Black"
+],
+"img": "img/10661.webp",
+"img2": "img/10661b.webp",
+"isNew": true,
+"url": "https://www.mansutrendzgh.com/product/kylie-blouse-top/"
+},
+{
+"id": 7280,
+"name": "Ruffle Maxi Dress",
+"cat": "Dresses",
+"occ": [
+"Evening",
+"Church & Events"
+],
+"price": 480,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Blush"
+],
+"img": "img/7280.webp",
+"img2": "img/7280b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/ruffle-maxi-dress/"
+},
+{
+"id": 7307,
+"name": "Celine Pleated Midi Dress",
+"cat": "Dresses",
+"occ": [
+"Office",
+"Church & Events"
+],
+"price": 390,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Chocolate"
+],
+"img": "img/7307.webp",
+"img2": "img/7307b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/celine-luxe-pleated-dress/"
+},
+{
+"id": 7303,
+"name": "Mila Belted Midi Dress",
+"cat": "Dresses",
+"occ": [
+"Office"
+],
+"price": 399,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Chocolate"
+],
+"img": "img/7303.webp",
+"img2": "img/7303b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/mila-chocolate-brown/"
+},
+{
+"id": 7315,
+"name": "Red Chiffon Asymmetric Set",
+"cat": "Two-Piece Sets",
+"occ": [
+"Evening",
+"Weekend"
+],
+"price": 450,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Blue",
+"Red"
+],
+"img": "img/7315.webp",
+"img2": "img/7315b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/red-chiffon-asymmetric-set/"
+},
+{
+"id": 7298,
+"name": "Zuri Patchwork Set",
+"cat": "Two-Piece Sets",
+"occ": [
+"Weekend"
+],
+"price": 450,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Multi"
+],
+"img": "img/7298.webp",
+"img2": "img/7298b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/zuri-patchwork-set/"
+},
+{
+"id": 7268,
+"name": "Mosaic Luxe Set",
+"cat": "Two-Piece Sets",
+"occ": [
+"Evening"
+],
+"price": 450,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Multi"
+],
+"img": "img/7268.webp",
+"img2": "img/7268b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/mosaic-luxe-set/"
+},
+{
+"id": 7239,
+"name": "Serena Flow Two-Piece Set",
+"cat": "Two-Piece Sets",
+"occ": [
+"Weekend"
+],
+"price": 450,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Blue",
+"Red"
+],
+"img": "img/7239.webp",
+"img2": "img/7239b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/serena-flow-two-piece-set/"
+},
+{
+"id": 7246,
+"name": "Embroidered Peplum Skirt Set",
+"cat": "Two-Piece Sets",
+"occ": [
+"Church & Events"
+],
+"price": 399,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Floral"
+],
+"img": "img/7246.webp",
+"img2": "img/7246b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/serena-flow-two-piece-set-copy/"
+},
+{
+"id": 7259,
+"name": "Zahra Ruffle Kaftan",
+"cat": "Kaftans & Abayas",
+"occ": [
+"Evening",
+"Weekend"
+],
+"price": 399,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Orange"
+],
+"img": "img/7259.webp",
+"img2": "img/7259b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/zahra-luxe-ruffle-kaftan-copy/"
+},
+{
+"id": 6010,
+"name": "Sky Blue Embellished Abaya",
+"cat": "Kaftans & Abayas",
+"occ": [
+"Church & Events"
+],
+"price": 599,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Sky Blue"
+],
+"img": "img/6010.webp",
+"img2": "img/6010b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/abaya/"
+},
+{
+"id": 7293,
+"name": "Naya Knit Polo Top",
+"cat": "Tops & Shirts",
+"occ": [
+"Weekend",
+"Office"
+],
+"price": 260,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Navy"
+],
+"img": "img/7293.webp",
+"img2": "img/7293b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/naya-classic-knit-polo-top/"
+},
+{
+"id": 7230,
+"name": "Naya Embellished Knit Polo",
+"cat": "Tops & Shirts",
+"occ": [
+"Weekend"
+],
+"price": 250,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Blue",
+"Pink",
+"Yellow"
+],
+"img": "img/7230.webp",
+"img2": "img/7230b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/naya-rmbellished-knit-polo-top-copy/"
+},
+{
+"id": 7325,
+"name": "Pearl Button Shirt",
+"cat": "Tops & Shirts",
+"occ": [
+"Office"
+],
+"price": 280,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Pink",
+"White"
+],
+"img": "img/7325.webp",
+"img2": "img/7325b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/red-chiffon-asymmetric-set-copy/"
+},
+{
+"id": 6920,
+"name": "Emerald Grace Bandage Dress",
+"cat": "Dresses",
+"occ": [
+"Evening"
+],
+"price": 430,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Black",
+"Yellow",
+"Green"
+],
+"img": "img/6920.webp",
+"img2": "img/6920b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/emerald-grace-bandage-dress/"
+},
+{
+"id": 6415,
+"name": "Muse Halter Maxi",
+"cat": "Dresses",
+"occ": [
+"Evening",
+"Weekend"
+],
+"price": 320,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Yellow"
+],
+"img": "img/6415.webp",
+"img2": "img/6415b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/muse-maxi-yellow/"
+},
+{
+"id": 6413,
+"name": "Elora Jacket Top",
+"cat": "Tops & Shirts",
+"occ": [
+"Evening",
+"Office"
+],
+"price": 300,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Black",
+"White",
+"Red"
+],
+"img": "img/6413.webp",
+"img2": "img/6413b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/the-elora-jacket-top-black/"
+},
+{
+"id": 6397,
+"name": "Zaya Bubble Dress",
+"cat": "Dresses",
+"occ": [
+"Evening"
+],
+"price": 250,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Taupe"
+],
+"img": "img/6397.webp",
+"img2": "img/6397b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/the-zaya-bubble-dress/"
+},
+{
+"id": 6389,
+"name": "Mansu Oversized Shirt",
+"cat": "Tops & Shirts",
+"occ": [
+"Weekend",
+"Office"
+],
+"price": 270,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Yellow",
+"Nude",
+"Coffee",
+"Brown",
+"White",
+"Red"
+],
+"img": "img/6389.webp",
+"img2": "img/6389b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/mansu-shirt-top/"
+},
+{
+"id": 6285,
+"name": "Oversized Linen Shirt",
+"cat": "Tops & Shirts",
+"occ": [
+"Weekend"
+],
+"price": 250,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"White"
+],
+"img": "img/6285.webp",
+"img2": "img/6285b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/oversized-linen-top-white/"
+},
+{
+"id": 6250,
+"name": "Denim Shirt & Jean Set",
+"cat": "Two-Piece Sets",
+"occ": [
+"Weekend"
+],
+"price": 420,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Denim Blue"
+],
+"img": "img/6250.webp",
+"img2": "img/6250b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/denim-set-blue/"
+},
+{
+"id": 6232,
+"name": "Polka Dot Flare Skirt",
+"cat": "Trousers & Skirts",
+"occ": [
+"Weekend",
+"Church & Events"
+],
+"price": 299,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Brown"
+],
+"img": "img/6232.webp",
+"img2": "img/6232b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/flaire-skirt-brown-polka-dot/"
+},
+{
+"id": 6229,
+"name": "Wine Waistcoat Trouser Set",
+"cat": "Two-Piece Sets",
+"occ": [
+"Office"
+],
+"price": 420,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Wine"
+],
+"img": "img/6229.webp",
+"img2": "img/6229b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/wine-blazer-sleeve-set-wine/"
+},
+{
+"id": 6225,
+"name": "Double Buckle Trousers",
+"cat": "Trousers & Skirts",
+"occ": [
+"Office"
+],
+"price": 360,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Brown",
+"Black"
+],
+"img": "img/6225.webp",
+"img2": "img/6225b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/double-buckle-pants-2/"
+},
+{
+"id": 6218,
+"name": "Cropped Pinstripe Jacket",
+"cat": "Tops & Shirts",
+"occ": [
+"Office"
+],
+"price": 299,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Grey"
+],
+"img": "img/6218.webp",
+"img2": "img/6218b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/crop-jacketgray/"
+},
+{
+"id": 6189,
+"name": "Butter Yellow Shirt Dress",
+"cat": "Dresses",
+"occ": [
+"Office",
+"Weekend"
+],
+"price": 350,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Butter Yellow"
+],
+"img": "img/6189.webp",
+"img2": "img/6189b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/sleeveless-dress-butter-yellow/"
+},
+{
+"id": 6175,
+"name": "Fuchsia Shirt Dress",
+"cat": "Dresses",
+"occ": [
+"Church & Events",
+"Weekend"
+],
+"price": 350,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Fuchsia"
+],
+"img": "img/6175.webp",
+"img2": "img/6175b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/sleeveless-dress-fuchsia-hot-pink/"
+},
+{
+"id": 6170,
+"name": "York Floral Maxi Dress",
+"cat": "Dresses",
+"occ": [
+"Church & Events"
+],
+"price": 420,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Lilac"
+],
+"img": "img/6170.webp",
+"img2": "img/6170b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/york-purple-floral-dress-purple/"
+},
+{
+"id": 6114,
+"name": "Lace-Back Apron Dress",
+"cat": "Dresses",
+"occ": [
+"Weekend"
+],
+"price": 399,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Pink"
+],
+"img": "img/6114.webp",
+"img2": "img/6114b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/apron-dress/"
+},
+{
+"id": 6003,
+"name": "Chika Wrap Dress",
+"cat": "Dresses",
+"occ": [
+"Evening"
+],
+"price": 350,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Red"
+],
+"img": "img/6003.webp",
+"img2": "img/6003b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/chika-dress/"
+},
+{
+"id": 5969,
+"name": "Saha Belted Shirt Dress",
+"cat": "Dresses",
+"occ": [
+"Office",
+"Church & Events"
+],
+"price": 350,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Blue",
+"Red",
+"Pink"
+],
+"img": "img/5969.webp",
+"img2": "img/5969b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/saha-dress-blue/"
+},
+{
+"id": 5828,
+"name": "Luna Corset Skirt Dress",
+"cat": "Dresses",
+"occ": [
+"Evening",
+"Church & Events"
+],
+"price": 400,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Black/Silver"
+],
+"img": "img/5828.webp",
+"img2": "img/5828b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/luna-dress/"
+},
+{
+"id": 5813,
+"name": "Barrel Leg Pant",
+"cat": "Trousers & Skirts",
+"occ": [
+"Weekend",
+"Office"
+],
+"price": 270,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Red"
+],
+"img": "img/5813.webp",
+"img2": "img/5813b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/barrel-pant-2/"
+},
+{
+"id": 6929,
+"name": "Kiki Denim Jorts",
+"cat": "Trousers & Skirts",
+"occ": [
+"Weekend"
+],
+"price": 350,
+"sizes": [
+"S",
+"M",
+"L"
+],
+"colours": [
+"Denim Blue"
+],
+"img": "img/6929.webp",
+"img2": "img/6929b.webp",
+"isNew": false,
+"url": "https://www.mansutrendzgh.com/product/kiki-denim-jorts/"
+}
+]
