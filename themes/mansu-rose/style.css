@@ -2,8 +2,8 @@
 Theme Name: Mansu Rosé
 Theme URI: https://www.mansutrendzgh.com/
 Author: Mansutrendzgh
-Description: Soft boutique WooCommerce theme for Mansutrendzgh, built around a 3-step Style Finder (occasion, size, budget) with live counts. Category circles, filters by size, colour, occasion and price, predictive search, quick view, a bag drawer, wishlist and WhatsApp ordering. Server-rendered product lists, light and dark themes, WCAG-minded.
-Version: 1.0.0
+Description: Soft boutique WooCommerce theme for Mansutrendzgh, built around a 3-step Style Finder (occasion, size, budget) with live counts. Category circles, filters by size, colour, occasion and price, predictive search, quick view, a bag drawer that leads straight to checkout, and a wishlist. Server-rendered product lists, light and dark themes, WCAG-minded.
+Version: 1.0.1
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
@@ -26,7 +26,8 @@ Tags: e-commerce, woocommerce, custom-logo, custom-menu, featured-images, transl
   --gut:max(16px,env(safe-area-inset-left,0px)); --gutr:max(16px,env(safe-area-inset-right,0px)); --max:1320px; --hdr:117px;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#170b11;--card:#22131a;--wash:#2c1822;--ink:#fbeff4;--mute:#c9aebb;--line:#3a2330;--gold:#f472b6;--on-gold:#170b11;--amber:#f59e0b;--on-amber:#000000;--on-ink:#170b11;--danger:#fca5a5;--ok:#86efac;color-scheme:dark}}
+/* The shop always shows the Rosé light palette, whatever the visitor's phone is set to, so the brand
+   looks the same for everyone. The dark palette is kept for an explicit data-theme="dark" only. */
 :root[data-theme="dark"]{--paper:#170b11;--card:#22131a;--wash:#2c1822;--ink:#fbeff4;--mute:#c9aebb;--line:#3a2330;--gold:#f472b6;--on-gold:#170b11;--amber:#f59e0b;--on-amber:#000000;--on-ink:#170b11;--danger:#fca5a5;--ok:#86efac;color-scheme:dark}
 
 *,*::before,*::after{box-sizing:border-box}
@@ -578,6 +579,25 @@ dialog.qv-d{border-radius:28px}
 .sugg img{border-radius:var(--r-sm)}
 .toast{border-radius:999px;background:var(--ink);color:var(--paper)}
 .toast button{color:inherit;font-weight:700}
+
+/* Bag drawer: Checkout is the main action */
+.woocommerce-mini-cart__buttons{grid-template-columns:1fr;gap:.75rem;justify-items:center}
+.woocommerce-mini-cart__buttons .checkout{display:inline-flex;align-items:center;justify-content:center;width:100%;min-height:52px;padding:0 1.5rem;border-radius:999px;border:1.5px solid var(--gold);background:var(--gold);color:var(--on-gold);font:600 1rem/1 var(--body);text-decoration:none;box-shadow:0 8px 20px -12px var(--gold)}
+.woocommerce-mini-cart__buttons .checkout:hover{transform:translateY(-1px)}
+.woocommerce-mini-cart__buttons .view-bag{font-weight:600;color:var(--gold);text-underline-offset:4px}
+.wc-proceed-to-checkout .checkout-button{min-height:52px;font-size:1rem!important}
+.atc-msg{width:100%}
+
+/* Dropdown menus (one level) in the header, nested lists in the phone menu */
+.main-nav .menu > li{position:relative}
+.main-nav .menu-item-has-children > a{display:flex;align-items:center;gap:.35rem}
+.main-nav .menu-item-has-children > a::after{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px)}
+.main-nav .sub-menu{position:absolute;left:-1rem;top:100%;z-index:60;min-width:240px;list-style:none;margin:0;padding:.5rem;background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:0 20px 40px -24px rgba(0,0,0,.35);opacity:0;visibility:hidden;transform:translateY(6px);transition:opacity .15s,transform .15s,visibility .15s}
+.main-nav .menu > li:hover > .sub-menu,.main-nav .menu > li:focus-within > .sub-menu{opacity:1;visibility:visible;transform:none}
+.main-nav .sub-menu a{display:block;padding:.65rem .75rem!important;border-radius:10px;border:0!important;white-space:nowrap}
+.main-nav .sub-menu a:hover,.main-nav .sub-menu .current-menu-item > a{background:var(--wash);color:var(--gold)}
+.mob-nav .sub-menu{list-style:none;margin:0 0 .5rem;padding:0 0 0 1rem;display:grid;gap:.1rem}
+.mob-nav .sub-menu a{font:500 1.05rem/2 var(--body)}
 
 /* Elementor pages keep full width inside the theme */
 .elementor-page .page-main{padding-block:0}

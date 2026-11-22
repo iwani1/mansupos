@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MANSU_ROSE_VERSION', '1.0.0' );
+define( 'MANSU_ROSE_VERSION', '1.0.1' );
 define( 'MANSU_ROSE_DIR', get_template_directory() );
 define( 'MANSU_ROSE_URI', get_template_directory_uri() );
 

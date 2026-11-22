@@ -62,7 +62,7 @@ function mansu_defaults() {
 				'Can I buy wholesale for my boutique? | Yes. Mansutrendzgh sells wholesale and retail. Message us on WhatsApp with the styles and quantities you want and we send wholesale prices.',
 				'Where is your showroom? | Amu Wrist Ln 35, Accra, near Tudu Market. You can see and try current stock in person.',
 				'How do I choose my size? | Each product lists the sizes we stock. If you are between sizes, ask us on WhatsApp for the garment measurements.',
-				'How do I pay? | Check out on the website with Paystack, or send your bag to us on WhatsApp and we confirm payment and delivery with you.',
+				'How do I pay? | Add your pieces to the bag and check out on the website. Payment is by Paystack, and the delivery cost for your area is shown at checkout.',
 			)
 		),
 	);

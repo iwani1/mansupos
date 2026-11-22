@@ -115,41 +115,56 @@
   });
 
   /* Add to cart from quick view, keeping the shopper on the page. */
-  if (qv) {
-    qv.addEventListener('submit', (e) => {
-      const form = e.target.closest('form.cart');
-      if (!form || !M.ajax) return;
-      e.preventDefault();
-      const msg = $('.qv-msg', qv);
-      const btn = $('button[type=submit]', form);
-      const vid = $('input[name=variation_id]', form);
-      if (vid && !Number(vid.value)) { if (msg) msg.textContent = M.i18n.choose; return; }
-      const data = new FormData(form);
-      const pid = form.querySelector('[name=add-to-cart]');
-      if (!data.get('product_id') && pid) data.set('product_id', pid.value);
-      data.delete('add-to-cart');
-      if (btn) { btn.disabled = true; btn.classList.add('loading'); }
-      fetch(ajax('mansu_add_to_cart'), { method: 'POST', body: data, credentials: 'same-origin' })
-        .then((r) => r.json())
-        .then((res) => {
-          if (res.error) { if (msg) msg.textContent = res.message || M.i18n.error; return; }
-          if (window.jQuery) window.jQuery(document.body).trigger('added_to_cart', [res.fragments, res.cart_hash, window.jQuery(btn)]);
-          else applyFragments(res.fragments);
-          qv.close();
-          toast(M.i18n.added);
-        })
-        .catch(() => { if (msg) msg.textContent = M.i18n.error; })
-        .finally(() => { if (btn) { btn.disabled = false; btn.classList.remove('loading'); } });
-    });
-  }
+  /* Add to bag from quick view or a product page without leaving it, then open the bag
+     drawer, whose main button is Checkout. Grouped products and failures fall back to
+     WooCommerce's normal form submit. */
   const applyFragments = (frags) => {
     Object.keys(frags || {}).forEach((sel) => $$(sel).forEach((el) => { el.outerHTML = frags[sel]; }));
   };
+  const showBag = () => {
+    $$('dialog[open]').forEach((d) => d.id !== 'bagD' && d.close());
+    if (!open('bagD')) toast(M.i18n.added);
+  };
+  document.addEventListener('submit', (e) => {
+    const form = e.target.closest('form.cart');
+    if (!form || !M.ajax) return;
+    const inQv = !!form.closest('#qvD');
+    if (!inQv && !form.closest('.single-product div.product')) return;
+    if (form.querySelector('input[name^="quantity["]')) return; /* grouped product */
+    e.preventDefault();
+    let msg = inQv ? $('.qv-msg', qv) : form.parentNode.querySelector('.atc-msg');
+    if (!msg && !inQv) {
+      msg = document.createElement('p');
+      msg.className = 'atc-msg qv-msg';
+      msg.setAttribute('role', 'status');
+      form.after(msg);
+    }
+    const btn = $('button[type=submit]', form);
+    const vid = $('input[name=variation_id]', form);
+    if (vid && !Number(vid.value)) { if (msg) msg.textContent = M.i18n.choose; return; }
+    const data = new FormData(form);
+    const pid = form.querySelector('[name=add-to-cart]');
+    if (!data.get('product_id') && pid) data.set('product_id', pid.value);
+    data.delete('add-to-cart');
+    if (msg) msg.textContent = '';
+    if (btn) { btn.disabled = true; btn.classList.add('loading'); }
+    fetch(ajax('mansu_add_to_cart'), { method: 'POST', body: data, credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.error) { if (msg) msg.textContent = res.message || M.i18n.error; return; }
+        applyFragments(res.fragments);
+        if (window.jQuery) window.jQuery(document.body).trigger('added_to_cart', [res.fragments, res.cart_hash, window.jQuery(btn)]);
+        showBag();
+      })
+      .catch(() => { if (!inQv) form.submit(); else if (msg) msg.textContent = M.i18n.error; })
+      .finally(() => { if (btn) { btn.disabled = false; btn.classList.remove('loading'); } });
+  });
 
-  /* Any AJAX add to cart on the site (including WooCommerce's own buttons) confirms with a toast. */
+  /* WooCommerce's own AJAX add-to-cart buttons (e.g. on simple products in lists) also open the bag. */
   if (window.jQuery) {
     window.jQuery(document.body).on('added_to_cart', (_e, _f, _h, $btn) => {
-      if (!$btn || !$btn.closest || !$btn.closest('#qvD').length) toast(M.i18n.added);
+      const fromUs = $btn && $btn.closest && ($btn.closest('#qvD').length || $btn.closest('.single-product div.product').length);
+      if (!fromUs) showBag();
     });
   }
 

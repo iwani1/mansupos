@@ -1,6 +1,6 @@
 <?php
 /**
- * WooCommerce integration: layout, product cards, bag drawer, WhatsApp ordering.
+ * WooCommerce integration: layout, product cards, bag drawer and checkout-first buying.
  *
  * Uses hooks rather than copies of WooCommerce templates wherever it can, so
  * WooCommerce updates keep working. Only archive-product.php and
@@ -150,24 +150,29 @@ function mansu_cart_wa_link() {
 	return mansu_wa_link( html_entity_decode( implode( "\n", $lines ), ENT_QUOTES, 'UTF-8' ) );
 }
 
-/* Keep the header count and the drawer's WhatsApp link in sync after AJAX cart changes. */
+/* Keep the header count in sync after AJAX cart changes. */
 add_filter(
 	'woocommerce_add_to_cart_fragments',
 	function ( $fragments ) {
 		$count = WC()->cart ? WC()->cart->get_cart_contents_count() : 0;
-		$fragments['span.bag-count']   = '<span class="bag-count" aria-live="polite">' . (int) $count . '</span>';
-		$fragments['#bagD a.bag-wa']   = '<a class="btn-ghost bag-wa" href="' . esc_url( mansu_cart_wa_link() ) . '" target="_blank" rel="noopener">' . esc_html__( 'Order on WhatsApp', 'mansu-rose' ) . '</a>';
+		$fragments['span.bag-count'] = '<span class="bag-count" aria-live="polite">' . (int) $count . '</span>';
 		return $fragments;
 	}
 );
 
-/* Cart page: offer WhatsApp ordering next to Proceed to checkout. */
+/*
+ * Checkout is the one way to buy: the bag drawer and cart lead to it, with no WhatsApp ordering alternative.
+ * Bag drawer buttons: Checkout first (full width), View bag as a secondary link.
+ */
+remove_action( 'woocommerce_widget_shopping_cart_buttons', 'woocommerce_widget_shopping_cart_button_view_cart', 10 );
+remove_action( 'woocommerce_widget_shopping_cart_buttons', 'woocommerce_widget_shopping_cart_proceed_to_checkout', 20 );
 add_action(
-	'woocommerce_proceed_to_checkout',
+	'woocommerce_widget_shopping_cart_buttons',
 	function () {
-		echo '<a class="btn-ghost bag-wa wide" href="' . esc_url( mansu_cart_wa_link() ) . '" target="_blank" rel="noopener">' . esc_html__( 'Or order on WhatsApp', 'mansu-rose' ) . '</a>';
+		echo '<a href="' . esc_url( wc_get_checkout_url() ) . '" class="button checkout wc-forward">' . esc_html__( 'Checkout', 'mansu-rose' ) . '</a>';
+		echo '<a href="' . esc_url( wc_get_cart_url() ) . '" class="view-bag">' . esc_html__( 'View bag', 'mansu-rose' ) . '</a>';
 	},
-	30
+	10
 );
 
 /* ---------- Single product ---------- */
@@ -175,19 +180,9 @@ add_action(
 add_action(
 	'woocommerce_single_product_summary',
 	function () {
-		global $product;
-		$msg = sprintf(
-			/* translators: 1: product name, 2: product URL */
-			__( 'Hello Mansutrendzgh, I have a question about %1$s: %2$s', 'mansu-rose' ),
-			$product->get_name(),
-			get_permalink( $product->get_id() )
-		);
-		echo '<div class="pdp-extra">';
-		echo '<a class="btn-ghost wide" href="' . esc_url( mansu_wa_link( $msg ) ) . '" target="_blank" rel="noopener">' . esc_html__( 'Ask about this on WhatsApp', 'mansu-rose' ) . '</a>';
-		echo '<ul class="pdp-notes">';
+		echo '<div class="pdp-extra"><ul class="pdp-notes">';
 		echo '<li>' . esc_html__( 'Delivery across Ghana, or collect from our Accra showroom', 'mansu-rose' ) . '</li>';
-		echo '<li>' . esc_html__( 'Wholesale prices for boutiques on request', 'mansu-rose' ) . '</li>';
-		echo '<li>' . esc_html__( 'Between sizes? Ask us for the garment measurements', 'mansu-rose' ) . '</li>';
+		echo '<li>' . esc_html__( 'Pay securely at checkout with Paystack', 'mansu-rose' ) . '</li>';
 		echo '</ul></div>';
 	},
 	35

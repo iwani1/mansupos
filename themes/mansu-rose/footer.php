@@ -50,7 +50,7 @@ $wc = class_exists( 'WooCommerce' );
 					echo '<li><a href="' . esc_url( wc_get_page_permalink( 'myaccount' ) ) . '">' . esc_html__( 'Your account', 'mansu-rose' ) . '</a></li>';
 					echo '<li><a href="' . esc_url( wc_get_cart_url() ) . '">' . esc_html__( 'Your bag', 'mansu-rose' ) . '</a></li>';
 				}
-				echo '<li><a href="' . esc_url( mansu_wa_link() ) . '" target="_blank" rel="noopener">' . esc_html__( 'Order on WhatsApp', 'mansu-rose' ) . '</a></li>';
+				echo '<li><a href="' . esc_url( wc_get_checkout_url() ) . '">' . esc_html__( 'Checkout', 'mansu-rose' ) . '</a></li>';
 				echo '</ul>';
 			}
 			?>
@@ -74,8 +74,7 @@ $wc = class_exists( 'WooCommerce' );
 	<div class="side-head"><h2 id="bagH"><?php esc_html_e( 'Your bag', 'mansu-rose' ); ?></h2><button class="icon-btn" type="button" data-close aria-label="<?php esc_attr_e( 'Close bag', 'mansu-rose' ); ?>"><?php echo mansu_icon( 'close' ); // phpcs:ignore WordPress.Security.EscapeOutput ?></button></div>
 	<div class="side-body"><div class="widget_shopping_cart_content"><?php woocommerce_mini_cart(); ?></div></div>
 	<div class="side-foot">
-		<a class="btn-ghost bag-wa" href="<?php echo esc_url( mansu_cart_wa_link() ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Order on WhatsApp', 'mansu-rose' ); ?></a>
-		<small><?php esc_html_e( 'Delivery cost for your area is confirmed at checkout or on WhatsApp.', 'mansu-rose' ); ?></small>
+		<small><?php esc_html_e( 'Delivery cost for your area is added at checkout. Pay securely with Paystack.', 'mansu-rose' ); ?></small>
 	</div>
 </dialog>
 <dialog class="qv-d" id="qvD" aria-labelledby="qv-title"><div class="qv-body"></div></dialog>
@@ -105,7 +104,7 @@ $wc = class_exists( 'WooCommerce' );
 	<div class="side-head"><span class="brand"><?php echo esc_html( preg_replace( '/gh$/i', '', get_bloginfo( 'name' ) ) ); ?><small>gh</small></span><button class="icon-btn" type="button" data-close aria-label="<?php esc_attr_e( 'Close menu', 'mansu-rose' ); ?>"><?php echo mansu_icon( 'close' ); // phpcs:ignore WordPress.Security.EscapeOutput ?></button></div>
 	<div class="side-body mob-nav">
 		<?php get_search_form(); ?>
-		<?php wp_nav_menu( array( 'theme_location' => 'primary', 'container' => false, 'depth' => 1, 'fallback_cb' => 'mansu_menu_fallback' ) ); ?>
+		<?php wp_nav_menu( array( 'theme_location' => 'primary', 'container' => false, 'depth' => 2, 'fallback_cb' => 'mansu_menu_fallback' ) ); ?>
 		<?php if ( mansu_occasions() ) : ?>
 			<p class="eyebrow"><?php esc_html_e( 'Occasions', 'mansu-rose' ); ?></p>
 			<ul class="menu">

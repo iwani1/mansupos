@@ -55,7 +55,7 @@ $notices  = array_filter( array_map( 'trim', preg_split( '/\r\n|\r|\n/', (string
 					'theme_location' => 'primary',
 					'container'      => false,
 					'menu_class'     => 'menu',
-					'depth'          => 1,
+					'depth'          => 2,
 					'fallback_cb'    => 'mansu_menu_fallback',
 				)
 			);
