@@ -1,7 +1,10 @@
 import { scrypt, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
-import { promisify } from 'node:util';
 
-const scryptAsync = promisify(scrypt);
+// No node:util import: this file is shared with the practice till, whose
+// build allows only a short list of Node modules.
+const scryptAsync = (password, salt, length, options) => new Promise((resolve, reject) => {
+  scrypt(password, salt, length, options, (error, key) => (error ? reject(error) : resolve(key)));
+});
 
 // Current parameters: OWASP's scrypt recommendation (N=2^15, r=8, p=3;
 // about 32 MB). Stored as scrypt2:N:r:p:salt:hash so they can be raised later.

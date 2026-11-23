@@ -28,7 +28,7 @@ try {
   const preload = content('preload.cjs');
   assert.equal((preload.match(/exposeInMainWorld/g) || []).length, 1);
   assert.match(preload, /printReceipt: \(\) => ipcRenderer\.invoke\('mansu-till:print-receipt'\)/);
-  assert.match(preload, /receiptReady: saleId => ipcRenderer\.invoke\('mansu-till:receipt-ready'/);
+  assert.match(preload, /receiptReady: \(saleId, paymentMethod\) => ipcRenderer\.invoke\('mansu-till:receipt-ready'/);
   assert.equal((preload.match(/ipcRenderer\./g) || []).length, 2);
   const drawer = content('drawer.cjs');
   assert.match(drawer, /0x1b, 0x70/);
