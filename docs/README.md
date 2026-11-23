@@ -13,7 +13,7 @@
 - [OPERATIONS.md](OPERATIONS.md) — Daily use: shifts, sales, reconciliation
 - [OWNER-AUDIT-ACTIVITY.md](OWNER-AUDIT-ACTIVITY.md) — Owner audit history screen
 - [CUSTOMER-RETURNS.md](CUSTOMER-RETURNS.md) — Returns from POS sales: Woo refund, cash out on the shift, restock choice
-- [PLATFORM.md](PLATFORM.md) — Multi-shop SaaS platform (phases 1–4): isolation, sign-up, store connection, billing, console, multi-shop Windows till, backups
+- [PLATFORM.md](PLATFORM.md) — Multi-shop SaaS platform (phases 1–5): isolation, sign-up, store connection, billing, console, multi-shop Windows till, backups, invitations, email, reminders, feedback, pilot health, deployment
 - [PURCHASING.md](PURCHASING.md) — Suppliers, purchase orders, receiving deliveries, reorder list and stock value at cost
 - [PRODUCT-MANAGEMENT.md](PRODUCT-MANAGEMENT.md) — Add and edit website products (photos, sizes, colours) from the POS
 - [PRIVATE-WHOLESALE-PRICES.md](PRIVATE-WHOLESALE-PRICES.md) — Wholesale price defaults (feature locked)

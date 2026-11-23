@@ -40,7 +40,7 @@ async function harness(t) {
     async createOrder(b) { return { ...b, id: 9, number: '9', total: '100.00', total_tax: '0.00', currency: 'GHS', status: 'pending', line_items: b.line_items.map(i => ({ ...i, name: 'Dress', sku: 'D-M', price: 100, subtotal: '100.00', total: '100.00', total_tax: '0.00', meta_data: [] })), refunds: [] }; },
     async findOrderByKey() { return null; } };
   const platform = createPlatform({
-    env: { NODE_ENV: 'test', PLATFORM_BASE_DOMAIN: BASE, PLATFORM_DATA_DIR: dir, PLATFORM_MASTER_KEY: randomBytes(32).toString('hex'), PLATFORM_SIGNUPS_PER_HOUR: '50' },
+    env: { NODE_ENV: 'test', PLATFORM_BASE_DOMAIN: BASE, PLATFORM_DATA_DIR: dir, PLATFORM_MASTER_KEY: randomBytes(32).toString('hex'), PLATFORM_SIGNUPS_PER_HOUR: '50', PLATFORM_SIGNUP_MODE: 'open' },
     logger: quiet, paystack, mailer: { async send(m) { sent.push(m); }, list: () => sent },
     appFactory: ({ env, logger, extend }) => createApp({ env, logger, extend, api }),
   });

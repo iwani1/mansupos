@@ -23,6 +23,14 @@
   if (!form) return;
   const host = location.hostname.replace(/^www\./, '');
   document.getElementById('slug-suffix').textContent = `.${host}`;
+  const inviteField = document.getElementById('invite-field'), invite = form.elements.inviteCode;
+  const fromLink = new URLSearchParams(location.search).get('invite');
+  if (fromLink) { invite.value = fromLink.toUpperCase().slice(0, 40); history.replaceState(null, '', '/'); }
+  fetch('/api/signup/config').then(r => r.json()).then(cfg => {
+    if (cfg.mode === 'invite') { inviteField.hidden = false; invite.required = true; }
+    else if (invite.value) { inviteField.hidden = false; document.getElementById('invite-hint').textContent = 'Your invitation gives you a founding price.'; }
+  }).catch(() => { inviteField.hidden = false; });
+  invite.addEventListener('input', () => { invite.value = invite.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); });
   const slug = form.elements.slug, hint = document.getElementById('slug-hint'), error = document.getElementById('error');
   let timer;
   slug.addEventListener('input', () => {

@@ -24,6 +24,7 @@ const signupSchema = z.object({
   username: z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{3,40}$/, 'Username: 3 to 40 letters, numbers, dots, hyphens or underscores'),
   password: z.string().min(12, 'Use a password of at least 12 characters').max(256),
   acceptTerms: z.literal(true, { message: 'Accept the terms to continue' }),
+  inviteCode: z.string().trim().toUpperCase().max(40).optional().transform(v => v || undefined),
 }).strict();
 
 export function createSignupApp({ config, registry, provisionShop, mailer, logger, mount }) {
@@ -59,6 +60,7 @@ export function createSignupApp({ config, registry, provisionShop, mailer, logge
     if (!release) return res.status(404).json({ error: 'No release published.' });
     res.set('Cache-Control', 'public, max-age=300').json(release);
   });
+  app.get('/api/signup/config', (_req, res) => res.json({ mode: config.signupMode, baseDomain: config.baseDomain }));
   app.get('/api/signup/check', checkLimit, (req, res) => {
     const slug = String(req.query.slug || '').trim().toLowerCase();
     const problem = slugProblem(slug) || (registry.bySlug(slug) ? 'That address is already taken.' : '');
@@ -71,15 +73,28 @@ export function createSignupApp({ config, registry, provisionShop, mailer, logge
     if (slugIssue) throw new AppError(slugIssue, 400, 'SLUG');
     let storeUrl;
     try { storeUrl = normaliseStoreUrl(input.storeUrl); } catch (error) { throw new AppError(error.message, 400, 'STORE_URL'); }
+    // Pilot: sign-up by invitation only (PLATFORM_SIGNUP_MODE=invite).
+    let invite = null;
+    // In open mode a code is optional, but still applies its founding price.
+    if (config.signupMode === 'invite' || input.inviteCode) {
+      invite = registry.invite(input.inviteCode || '', input.email);
+      if (!invite) throw new AppError('That invite code is not valid for this email. Ask Mansu POS for an invitation.', 400, 'INVITE');
+    }
     const pwIssue = passwordProblem(input.password, input.username);
     if (pwIssue) throw new AppError(pwIssue, 400, 'PASSWORD');
     const { password, ...rest } = input;
     delete rest.acceptTerms;
+    delete rest.inviteCode;
+    if (invite) rest.inviteId = invite.id;
     const { token } = registry.createSignup({ email: input.email, payload: { ...rest, storeUrl }, passwordHash: await hashPasswordAsync(password) });
-    await mailer.send({
-      to: input.email, subject: 'Confirm your Mansu POS sign-up',
-      text: `Hello ${input.ownerName},\n\nConfirm your email to create ${input.shopName} on Mansu POS:\n${baseOrigin}/verify#token=${token}\n\nThe link works for 24 hours. If you did not sign up, ignore this email.`,
-    });
+    try {
+      await mailer.send({
+        to: input.email, subject: 'Confirm your Mansu POS sign-up',
+        text: `Hello ${input.ownerName},\n\nConfirm your email to create ${input.shopName} on Mansu POS:\n${baseOrigin}/verify#token=${token}\n\nThe link works for 24 hours. If you did not sign up, ignore this email.`,
+      });
+    } catch {
+      throw new AppError('We could not send the confirmation email. Check the address and try again in a few minutes.', 502, 'MAIL_FAILED');
+    }
     registry.audit('signup', 'signup.requested', null, input.slug);
     res.status(202).json({ ok: true, email: input.email });
   });
@@ -97,23 +112,32 @@ export function createSignupApp({ config, registry, provisionShop, mailer, logge
     if (!registry.claimSignup(signup.id)) throw new AppError('This link has already been used.', 409, 'LINK_USED');
     const p = signup.payload;
     if (registry.bySlug(p.slug)) throw new AppError('Someone took that shop address before you confirmed. Sign up again with another address.', 409, 'SLUG_TAKEN');
+    let invite = null;
+    if (p.inviteId) {
+      invite = registry.db.prepare('SELECT * FROM invites WHERE id=?').get(p.inviteId);
+      if (!registry.claimInvite(p.inviteId, null)) throw new AppError('That invitation has already been used or has expired. Ask Mansu POS for a new one.', 409, 'INVITE_USED');
+    } else if (config.signupMode === 'invite') throw new AppError('Sign-up is by invitation only.', 403, 'INVITE');
     const { shop } = provisionShop({
       slug: p.slug, name: p.shopName, storeUrl: p.storeUrl, ownerUsername: p.username, trialDays: TRIAL_DAYS,
       owner: { name: p.ownerName, email: signup.email, phone: p.phone, passwordHash: signup.passwordHash }, actor: `signup:${signup.email}`,
     });
     registry.attachSignupShop(signup.id, shop.id);
+    if (invite) {
+      registry.db.prepare('UPDATE invites SET shop_id=? WHERE id=?').run(shop.id, invite.id);
+      if (invite.discount_percent) registry.setDiscount(shop.id, { percent: invite.discount_percent, months: invite.discount_months }, `invite:${invite.id}`);
+    }
     const shopUrl = config.shopOrigin(shop.slug);
     await mailer.send({
       to: signup.email, subject: `${shop.name} is ready on Mansu POS`,
       text: `Your shop is at ${shopUrl}\nSign in as "${p.username}" with the password you chose, then follow Shop setup to connect your WooCommerce store.\nYour free trial runs for ${TRIAL_DAYS} days.`,
-    });
+    }).catch(() => logger.warn({ msg: 'platform.welcome_mail_failed', shop: shop.slug }));
     logger.info({ msg: 'platform.signup_verified', shop: shop.slug });
     res.status(201).json({ ok: true, shopUrl });
   });
 
   if (mount) mount(app);
   app.use('/api', (_req, _res, next) => next(new AppError('Not found.', 404)));
-  const pages = { '/': 'index.html', '/verify': 'verify.html', '/console': 'console.html' };
+  const pages = { '/': 'index.html', '/verify': 'verify.html', '/console': 'console.html', '/terms': 'terms.html', '/privacy': 'privacy.html' };
   app.get(Object.keys(pages), (req, res) => res.sendFile(pages[req.path], { root: publicDir, headers: { 'Cache-Control': 'no-cache' } }));
   app.use('/static', express.static(publicDir, { index: false, maxAge: '1h' }));
   app.use((error, req, res, _next) => {

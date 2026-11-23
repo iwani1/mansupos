@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import { ClipboardCheck, ShoppingBag, ReceiptText, Package, ChartNoAxesCombined, Users, ArrowRight, Store, ShieldCheck, LockKeyhole, LoaderCircle, Banknote, ScrollText, Download, WifiOff, LayoutDashboard, Tags, Boxes, Settings2, Truck, Undo2, Menu } from 'lucide-react';
+import { ClipboardCheck, ShoppingBag, ReceiptText, Package, ChartNoAxesCombined, Users, ArrowRight, Store, ShieldCheck, LockKeyhole, LoaderCircle, Banknote, ScrollText, Download, WifiOff, LayoutDashboard, Tags, Boxes, Settings2, Truck, Undo2, Menu, MessageSquareText } from 'lucide-react';
 import { api, setSessionToken } from './api.js';
 import Register from './Register.jsx';
 import Overview from './Overview.jsx';
@@ -24,6 +24,7 @@ const Purchasing = lazy(() => import('./Purchasing.jsx'));
 const Returns = lazy(() => import('./Returns.jsx'));
 const Setup = lazy(() => import('./Setup.jsx'));
 const Billing = lazy(() => import('./Billing.jsx'));
+const Feedback = lazy(() => import('./Feedback.jsx'));
 const DailyOperations = lazy(() => import('./DailyOperations.jsx'));
 const WeeklyScorecard = lazy(() => import('./WeeklyScorecard.jsx'));
 const PhysicalCountWorkspace = lazy(() => import('./PhysicalCountWorkspace.jsx'));
@@ -64,6 +65,7 @@ const navigation = [
   { id:'audit', label:'Audit log', short:'Audit', icon:ScrollText, group:'Administration', roles:['owner'] },
   { id:'billing', label:'Billing', short:'Billing', icon:Banknote, group:'Administration', roles:['owner'], platformOnly:true },
   { id:'setup', label:'Shop setup', short:'Setup', icon:Settings2, group:'Administration', roles:['owner'], platformOnly:true },
+  { id:'feedback', label:'Feedback & support', short:'Feedback', icon:MessageSquareText, group:'Administration', platformOnly:true },
   { id:'connection', label:'Settings & connection', short:'Settings', icon:Settings2, group:'Administration' },
 ];
 // Phone bottom bar: the four most-used pages the person may open, plus the full menu.
@@ -229,6 +231,7 @@ export default function App() {
         {catalogError&&page!=='instore'&&page!=='setup'&&page!=='billing'&&<Notice tone="error">{catalogError}<button className="text-button" onClick={()=>refresh(true)}>Try again</button></Notice>}
         {page==='setup'&&config.platformShop&&user.role==='owner'&&<Setup notify={notify}/>}
         {page==='billing'&&config.platformShop&&user.role==='owner'&&<Billing notify={notify}/>}
+        {page==='feedback'&&config.platformShop&&<Feedback notify={notify}/>}
         {page==='operations'&&<DailyOperations user={user}/>}
         {page==='physicalCounts'&&config.mode==='live'&&<PhysicalCountWorkspace user={user}/>}
         {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<CountSupervisionEvidence/>}

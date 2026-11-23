@@ -35,7 +35,7 @@ async function harness(t, { woo = wooFixture(), env = {} } = {}) {
   const sent = [];
   const mailer = { driver: 'memory', async send(message) { sent.push(message); }, list: () => sent };
   const platform = createPlatform({
-    env: { NODE_ENV: 'test', PLATFORM_BASE_DOMAIN: BASE, PLATFORM_DATA_DIR: dir, PLATFORM_MASTER_KEY: randomBytes(32).toString('hex'), PLATFORM_SIGNUPS_PER_HOUR: '50', ...env },
+    env: { NODE_ENV: 'test', PLATFORM_BASE_DOMAIN: BASE, PLATFORM_DATA_DIR: dir, PLATFORM_MASTER_KEY: randomBytes(32).toString('hex'), PLATFORM_SIGNUPS_PER_HOUR: '50', PLATFORM_SIGNUP_MODE: 'open', ...env },
     logger: quiet, mailer, setupFetch: (...args) => woo.fetch(...args),
     appFactory: ({ env, logger, extend }) => createApp({ env, logger, extend, api: { async products() { return { data: [], total: 0, pages: 1 }; }, async request() { return { data: [], total: 0, pages: 1 }; } } }),
   });

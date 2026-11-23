@@ -37,7 +37,8 @@ function shopView(row) {
     trialEndsAt: row.trial_ends_at || null, connectedAt: row.connected_at || null,
     health: json(row.health), healthAt: row.health_at || null,
     billing: { plan: row.plan || null, status: row.billing_status || null, paidUntil: row.paid_until || null, autoRenew: Boolean(row.auto_renew),
-      customerCode: row.paystack_customer || null, subscriptionCode: row.paystack_subscription || null },
+      customerCode: row.paystack_customer || null, subscriptionCode: row.paystack_subscription || null,
+      discount: row.discount_percent > 0 && row.discount_until && Date.parse(row.discount_until) > Date.now() ? { percent: row.discount_percent, until: row.discount_until } : null },
   };
 }
 
@@ -87,6 +88,16 @@ export class PlatformRegistry {
         reference TEXT, amount INTEGER, at TEXT NOT NULL, detail TEXT NOT NULL DEFAULT ''
       );
       CREATE TABLE IF NOT EXISTS platform_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS invites (
+        id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, hint TEXT NOT NULL, email TEXT, note TEXT NOT NULL DEFAULT '',
+        discount_percent INTEGER NOT NULL DEFAULT 0, discount_months INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at TEXT, shop_id TEXT, revoked_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, shop_id TEXT NOT NULL REFERENCES shops(id), kind TEXT NOT NULL CHECK (kind IN ('problem','idea','question')),
+        message TEXT NOT NULL, from_user TEXT NOT NULL, from_role TEXT NOT NULL, page TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')), resolved_by TEXT, resolved_at TEXT, reply TEXT NOT NULL DEFAULT ''
+      );
       CREATE TABLE IF NOT EXISTS admins (
         id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, totp_sealed TEXT NOT NULL,
         last_totp_step INTEGER NOT NULL DEFAULT 0, failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until INTEGER,
@@ -105,7 +116,8 @@ export class PlatformRegistry {
     const columns = new Set(this.db.prepare('PRAGMA table_info(shops)').all().map(c => c.name));
     for (const [name, type] of [['owner_name', 'TEXT'], ['owner_email', 'TEXT'], ['owner_phone', 'TEXT'], ['trial_ends_at', 'TEXT'],
       ['connected_at', 'TEXT'], ['health', 'TEXT'], ['health_at', 'TEXT'], ['plan', 'TEXT'], ['billing_status', 'TEXT'], ['paid_until', 'TEXT'],
-      ['auto_renew', 'INTEGER'], ['paystack_customer', 'TEXT'], ['paystack_subscription', 'TEXT'], ['paystack_email_token', 'TEXT']]) {
+      ['auto_renew', 'INTEGER'], ['paystack_customer', 'TEXT'], ['paystack_subscription', 'TEXT'], ['paystack_email_token', 'TEXT'],
+      ['discount_percent', 'INTEGER'], ['discount_until', 'TEXT']]) {
       if (!columns.has(name)) this.db.exec(`ALTER TABLE shops ADD COLUMN ${name} ${type}`);
     }
   }
@@ -244,6 +256,79 @@ export class PlatformRegistry {
   }
 
   attachSignupShop(id, shopId) { this.db.prepare('UPDATE signups SET shop_id=? WHERE id=?').run(shopId, id); }
+
+  // ---- Invites (pilot: sign-up by invitation only) --------------------------
+  createInvite({ email = '', note = '', discountPercent = 0, discountMonths = 0, days = 30 }, actor) {
+    if (!Number.isInteger(discountPercent) || discountPercent < 0 || discountPercent > 90) throw new Error('Discount must be 0 to 90 percent.');
+    if (!Number.isInteger(discountMonths) || discountMonths < 0 || discountMonths > 24) throw new Error('Discount months must be 0 to 24.');
+    if (Boolean(discountPercent) !== Boolean(discountMonths)) throw new Error('Give both a discount percent and a number of months, or neither.');
+    const raw = [...randomBytes(8)].map(byte => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[byte % 32]).join('');
+    const code = `MANSU-${raw.slice(0, 4)}-${raw.slice(4)}`;
+    const id = `inv_${randomBytes(6).toString('hex')}`;
+    const mail = oneLine(email, 120).toLowerCase();
+    if (mail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) throw new Error('That email address does not look right.');
+    this.db.prepare(`INSERT INTO invites(id,code_hash,hint,email,note,discount_percent,discount_months,created_by,created_at,expires_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, tokenHash(code), code.slice(-4), mail || null, oneLine(note, 200), discountPercent, discountMonths, actor, now(), Date.now() + days * 86400000);
+    this.audit(actor, 'invite.created', null, `${id} ${mail || 'any email'}${discountPercent ? ` ${discountPercent}% x${discountMonths}m` : ''}`);
+    return { id, code };
+  }
+
+  // A usable invite for this code (and email, when the invite names one).
+  invite(code, email) {
+    const row = this.db.prepare('SELECT * FROM invites WHERE code_hash=?').get(tokenHash(String(code || '').trim().toUpperCase()));
+    if (!row || row.used_at || row.revoked_at || row.expires_at < Date.now()) return null;
+    if (row.email && row.email !== String(email || '').toLowerCase()) return null;
+    return { id: row.id, email: row.email, discountPercent: row.discount_percent, discountMonths: row.discount_months };
+  }
+
+  claimInvite(id, shopId) {
+    return this.db.prepare('UPDATE invites SET used_at=?, shop_id=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?')
+      .run(now(), shopId, id, Date.now()).changes === 1;
+  }
+
+  revokeInvite(id, actor) {
+    const changed = this.db.prepare('UPDATE invites SET revoked_at=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL').run(now(), id).changes === 1;
+    if (changed) this.audit(actor, 'invite.revoked', null, id);
+    return changed;
+  }
+
+  invites() {
+    return this.db.prepare('SELECT id, hint, email, note, discount_percent AS discountPercent, discount_months AS discountMonths, created_by AS createdBy, created_at AS createdAt, expires_at AS expiresAt, used_at AS usedAt, shop_id AS shopId, revoked_at AS revokedAt FROM invites ORDER BY created_at DESC LIMIT 200').all()
+      .map(row => ({ ...row, status: row.revokedAt ? 'revoked' : row.usedAt ? 'used' : row.expiresAt < Date.now() ? 'expired' : 'open', expiresAt: new Date(row.expiresAt).toISOString() }));
+  }
+
+  setDiscount(shopId, { percent, months }, actor) {
+    if (!Number.isInteger(percent) || percent < 0 || percent > 90 || !Number.isInteger(months) || months < 0 || months > 24) throw new Error('Discount 0 to 90 percent for 0 to 24 months.');
+    const until = percent && months ? new Date(addMonths(Date.now(), months)).toISOString() : null;
+    this.db.prepare('UPDATE shops SET discount_percent=?, discount_until=?, version=version+1, updated_at=? WHERE id=?').run(percent || null, until, now(), shopId);
+    this.audit(actor, 'billing.discount', shopId, percent ? `${percent}% until ${until}` : 'removed');
+    return this.byId(shopId);
+  }
+
+  // ---- Feedback from shops ----------------------------------------------------
+  addFeedback({ shopId, kind, message, fromUser, fromRole, page = '' }) {
+    if (!['problem', 'idea', 'question'].includes(kind)) throw new Error('Unknown feedback kind.');
+    const text = String(message || '').replace(/\r/g, '').trim().slice(0, 2000);
+    if (text.length < 5) throw new Error('Write a little more so we can help.');
+    const recent = this.db.prepare("SELECT COUNT(*) AS n FROM feedback WHERE shop_id=? AND created_at>?").get(shopId, new Date(Date.now() - 3600000).toISOString()).n;
+    if (recent >= 20) throw new Error('Too much feedback from this shop in the last hour. Please try later.');
+    const id = this.db.prepare('INSERT INTO feedback(shop_id,kind,message,from_user,from_role,page,created_at) VALUES (?,?,?,?,?,?,?) RETURNING id')
+      .get(shopId, kind, text, oneLine(fromUser, 80), oneLine(fromRole, 20), oneLine(page, 60), now()).id;
+    this.audit(`staff:${oneLine(fromUser, 80)}`, 'feedback.sent', shopId, `${kind} #${id}`);
+    return id;
+  }
+  feedback({ status = 'open', shopId = null, limit = 200 } = {}) {
+    const where = [], args = [];
+    if (status !== 'all') { where.push('status=?'); args.push(status); }
+    if (shopId) { where.push('shop_id=?'); args.push(shopId); }
+    return this.db.prepare(`SELECT id, shop_id AS shopId, kind, message, from_user AS fromUser, from_role AS fromRole, page, created_at AS createdAt, status, resolved_by AS resolvedBy, resolved_at AS resolvedAt, reply
+      FROM feedback ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`).all(...args, limit);
+  }
+  resolveFeedback(id, reply, actor) {
+    const changed = this.db.prepare("UPDATE feedback SET status='resolved', resolved_by=?, resolved_at=?, reply=? WHERE id=? AND status='open'").run(actor, now(), oneLine(reply, 500), id).changes === 1;
+    if (changed) this.audit(actor, 'feedback.resolved', null, `#${id}`);
+    return changed;
+  }
 
   // ---- Billing -------------------------------------------------------------
   setting(key) { return this.db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key)?.value ?? null; }

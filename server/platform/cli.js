@@ -26,7 +26,11 @@ const usage = `Usage: npm run platform -- <command> [options]
   extend-trial --slug <slug> --days <1-90>
   set-plan --slug <slug> --plan ${Object.keys(PLANS).join('|')}
   comp --slug <slug> --on|--off --note "<reason>"
-  till-release --version 2.0.0 --url https://... --sha256 <64 hex> [--notes "..."]   (tills show it under Check for updates)`;
+  till-release --version 2.0.0 --url https://... --sha256 <64 hex> [--notes "..."]   (tills show it under Check for updates)
+  invite-create [--email owner@shop.com] [--note "..."] [--discount 50 --months 6] [--days 30]   (prints the code once)
+  invites                                 (list invitations and their status)
+  run-jobs                                (send due billing reminders and take the scheduled backup now)
+  feedback [--status open|resolved|all]`;
 
 function options(args) {
   const out = {};
@@ -168,6 +172,19 @@ try {
       console.log(`Published Windows till ${release.version}: ${release.url}`);
       break;
     }
+    case 'invite-create': {
+      const made = registry.createInvite({ email: opt.email || '', note: opt.note || '', discountPercent: Number(opt.discount || 0), discountMonths: Number(opt.months || 0), days: Number(opt.days || 30) }, actor);
+      console.log(`Invite code (shown once): ${made.code}`);
+      console.log(`Sign-up link: https://${platform.config.baseDomain}/?invite=${encodeURIComponent(made.code)}`);
+      break;
+    }
+    case 'invites':
+      for (const i of registry.invites()) console.log([i.status, `…${i.hint}`, i.email || 'any email', i.discountPercent ? `${i.discountPercent}% x${i.discountMonths}m` : '-', i.note].join('\t'));
+      break;
+    case 'run-jobs': await platform.runJobs(Date.now()); console.log('Reminders and scheduled backup checked.'); break;
+    case 'feedback':
+      for (const f of registry.feedback({ status: opt.status || 'open' })) console.log(`#${f.id} ${f.createdAt} ${f.kind} ${f.fromUser} (${f.fromRole}) [${f.status}]\n  ${f.message.replace(/\n/g, '\n  ')}`);
+      break;
     case 'suspend': registry.update(shop().id, { status: 'suspended' }, actor); console.log('Suspended.'); break;
     case 'resume': registry.update(shop().id, { status: 'active' }, actor); console.log('Active.'); break;
     default: throw new Error(`Unknown command.\n${usage}`);

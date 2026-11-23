@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AppError } from '../errors.js';
-import { PLANS, INTERVALS, planPrice, computeAccess } from './billing.js';
+import { PLANS, INTERVALS, planPrice, shopPrice, computeAccess } from './billing.js';
 import { validPaystackSignature } from './paystack.js';
 
 // Subscriptions through Paystack. The amount charged always comes from our
@@ -20,9 +20,11 @@ export function createBillingService({ registry, config, paystack, logger }) {
     return {
       access: access(shop), billing: { plan: shop.billing.plan, status: shop.billing.status, paidUntil: shop.billing.paidUntil, autoRenew: shop.billing.autoRenew, subscription: Boolean(shop.billing.subscriptionCode) },
       trialEndsAt: shop.trialEndsAt, configured: Boolean(paystack), testMode: Boolean(paystack?.testMode),
+      discount: shop.billing.discount,
       plans: Object.values(PLANS).map(p => ({ key: p.key, name: p.name, summary: p.summary, maxStaff: p.maxStaff,
-        prices: Object.fromEntries(Object.keys(INTERVALS).map(i => [i, planPrice(p.key, i)])),
-        autoRenew: Object.fromEntries(Object.keys(INTERVALS).map(i => [i, Boolean(registry.planCode(p.key, i))])) })),
+        prices: Object.fromEntries(Object.keys(INTERVALS).map(i => [i, shopPrice(shop, p.key, i)])),
+        fullPrices: Object.fromEntries(Object.keys(INTERVALS).map(i => [i, planPrice(p.key, i)])),
+        autoRenew: Object.fromEntries(Object.keys(INTERVALS).map(i => [i, !shop.billing.discount && Boolean(registry.planCode(p.key, i))])) })),
       events: registry.billingEvents(shop.id, 20),
     };
   }
@@ -101,9 +103,10 @@ export function createBillingService({ registry, config, paystack, logger }) {
         const s = shop();
         const email = s.owner.email || input.email;
         if (!email) throw new AppError('Enter the email address for receipts.', 400, 'EMAIL_REQUIRED');
+        if (input.autoRenew && s.billing.discount) throw new AppError('Your founding price is paid per period. Automatic renewal starts after it ends.', 400, 'DISCOUNT_ONE_OFF');
         const planCode = input.autoRenew ? registry.planCode(input.plan, input.interval) : null;
         if (input.autoRenew && !planCode) throw new AppError('Automatic renewal is not available for that plan yet. Pay for a period instead.', 400, 'NO_PLAN_CODE');
-        const amount = planPrice(input.plan, input.interval);
+        const amount = shopPrice(s, input.plan, input.interval);
         const reference = registry.createCheckout({ shopId: s.id, plan: input.plan, interval: input.interval, amount, autoRenew: input.autoRenew });
         const data = await paystack.initialize({ email, amount, reference, callbackUrl: `${origin}/?billing=return`, plan: planCode || undefined,
           channels: input.autoRenew ? ['card'] : ['card', 'mobile_money'],

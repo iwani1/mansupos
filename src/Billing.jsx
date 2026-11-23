@@ -58,6 +58,7 @@ export default function Billing({ notify }) {
     {error && <Notice tone="error">{error}</Notice>}
     {!data.configured && <Notice>Online payment is not set up yet. Contact Mansu POS support to pay by invoice.</Notice>}
     {data.testMode && <Notice tone="warning">Paystack TEST mode: no real money is charged.</Notice>}
+    {data.discount && <Notice tone="success">Founding price: {data.discount.percent}% off every payment until {day(data.discount.until)}. Thank you for helping us build Mansu POS. Automatic card renewal starts after the founding price ends.</Notice>}
     <section className="surface setup-step">
       <div className="setup-step-head"><CheckCircle2 size={18} aria-hidden="true" /><h2>{label}</h2><span className={`badge ${tone}`}>{(data.plans.find(p => p.key === access.plan) || {}).name || ''} plan</span></div>
       <div className="setup-step-body"><p>{statusLine}</p>
@@ -71,7 +72,8 @@ export default function Billing({ notify }) {
     <div className="billing-plans">
       {data.plans.map(plan => <section key={plan.key} className={`surface billing-plan${plan.key === access.plan ? ' current' : ''}`} aria-labelledby={`plan-${plan.key}`}>
         <h2 id={`plan-${plan.key}`}>{plan.name}{plan.key === access.plan && <small> · current</small>}</h2>
-        <p className="billing-price"><strong>{cedis(plan.prices[interval])}</strong> / {interval === 'annually' ? 'year' : 'month'}</p>
+        <p className="billing-price"><strong>{cedis(plan.prices[interval])}</strong> / {interval === 'annually' ? 'year' : 'month'}
+          {plan.fullPrices && plan.fullPrices[interval] !== plan.prices[interval] && <span className="billing-was"><span className="sr-only">usually </span>{cedis(plan.fullPrices[interval])}</span>}</p>
         <p className="billing-summary">{plan.summary}</p>
         <button type="button" className="button primary" onClick={pay(plan.key, false)} disabled={!data.configured || !!busy}>
           <Smartphone size={15} /> {busy === `${plan.key}-false` ? 'Opening Paystack…' : `Pay for one ${interval === 'annually' ? 'year' : 'month'}`}</button>

@@ -20,6 +20,14 @@ export function planPrice(plan, interval) {
   return interval === 'annually' ? p.monthly * 10 : p.monthly;
 }
 
+// The price this shop pays now: a founding discount applies until its end
+// date (one-off payments only; automatic renewals use the standard plans).
+export function shopPrice(shop, plan, interval) {
+  const full = planPrice(plan, interval);
+  const discount = shop?.billing?.discount;
+  return discount ? Math.round(full * (100 - discount.percent) / 100) : full;
+}
+
 export function addMonths(fromMs, months) {
   const date = new Date(fromMs);
   const day = date.getUTCDate();

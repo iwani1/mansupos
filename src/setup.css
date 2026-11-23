@@ -45,3 +45,8 @@
 .billing-banner.info{background:#eef4fb;color:#1d4f86}
 .billing-banner .text-button{color:inherit;font-weight:700;text-decoration:underline}
 @media (max-width:900px){.billing-plans{grid-template-columns:1fr}}
+.feedback-field{display:grid;gap:6px;font-weight:600}
+.feedback-field textarea{width:100%;box-sizing:border-box;font:inherit;font-weight:400;resize:vertical}
+.feedback-text{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink,inherit)!important}
+.feedback-reply{display:block;margin-top:4px;padding:6px 8px;border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);overflow-wrap:anywhere}
+.billing-was{text-decoration:line-through;opacity:.65;font-size:.9em;margin-left:6px}
