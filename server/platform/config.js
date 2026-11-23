@@ -22,10 +22,16 @@ export function readPlatformConfig(env = process.env) {
   if (!Number.isInteger(idleMinutes) || idleMinutes < 1 || idleMinutes > 1440) throw new Error('PLATFORM_SHOP_IDLE_MINUTES must be 1 to 1440.');
   const signupsPerHour = Number(env.PLATFORM_SIGNUPS_PER_HOUR || 5);
   if (!Number.isInteger(signupsPerHour) || signupsPerHour < 1 || signupsPerHour > 1000) throw new Error('PLATFORM_SIGNUPS_PER_HOUR must be 1 to 1000.');
+  const paystackSecretKey = String(env.PLATFORM_PAYSTACK_SECRET_KEY || '').trim();
+  if (production && paystackSecretKey.startsWith('sk_test_') && env.PLATFORM_ALLOW_TEST_BILLING !== 'true') {
+    throw new Error('A Paystack TEST key in production needs PLATFORM_ALLOW_TEST_BILLING=true (staging only).');
+  }
+  const graceDays = Number(env.PLATFORM_GRACE_DAYS || 7);
+  if (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 30) throw new Error('PLATFORM_GRACE_DAYS must be 0 to 30.');
   const mailDriver = env.PLATFORM_MAIL_DRIVER || 'outbox';
   if (!['outbox'].includes(mailDriver)) throw new Error('PLATFORM_MAIL_DRIVER must be outbox (provider drivers come later).');
   return {
-    mailDriver, signupsPerHour,
+    mailDriver, signupsPerHour, paystackSecretKey, graceDays,
     production, nodeEnv: env.NODE_ENV || 'development', baseDomain, masterKey, dataDir,
     shopsDir: path.join(dataDir, 'shops'), registryFile: path.join(dataDir, 'platform.db'),
     port, bindHost, maxOpenShops, idleMs: idleMinutes * 60000,

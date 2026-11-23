@@ -11,6 +11,11 @@ import { createMailer } from './mailer.js';
 import { createSignupApp } from './signup.js';
 import { handleWooCallback, setupRoutes } from './setup.js';
 import { createGuardedFetch } from '../net-guard.js';
+import { computeAccess, entitlements } from './billing.js';
+import { createBillingService } from './billing-service.js';
+import { Paystack } from './paystack.js';
+import { AdminAuth } from './admin-auth.js';
+import { consoleRouter } from './console.js';
 
 // One process, many shops. Every request is matched to exactly one shop by its
 // web address BEFORE any shop code runs; that shop's own POS app (its own
@@ -33,7 +38,7 @@ export function temporaryPassword() {
   return chars.match(/.{4}/g).join('-');
 }
 
-export function createPlatform({ env = process.env, appFactory, mountUi, logger: injectedLogger, setupFetch: injectedSetupFetch, mailer: injectedMailer } = {}) {
+export function createPlatform({ env = process.env, appFactory, mountUi, logger: injectedLogger, setupFetch: injectedSetupFetch, mailer: injectedMailer, paystack: injectedPaystack } = {}) {
   const config = readPlatformConfig(env);
   const logger = injectedLogger || createLogger(config.logLevel);
   const registry = new PlatformRegistry(config);
@@ -43,13 +48,24 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
   // Store checks during set-up use the same private-network guard as the shops.
   const setupFetch = injectedSetupFetch || createGuardedFetch();
   const mailer = injectedMailer || createMailer(config, logger);
+  const paystack = injectedPaystack || (config.paystackSecretKey ? new Paystack({ secretKey: config.paystackSecretKey }) : null);
+  const billing = createBillingService({ registry, config, paystack, logger });
+  billing.configured = Boolean(paystack);
+  const adminAuth = new AdminAuth(registry, config.masterKey);
+  const accessOf = shop => computeAccess(shop, { graceDays: config.graceDays });
+  // An open shop must reopen when its settings OR its access change (trial
+  // ending, payment lapsing) even though nothing was written to the registry.
+  const versionOf = shop => { const a = accessOf(shop); return `${shop.version}|${a.state}|${a.plan}`; };
 
   function startShop(shop, { owner } = {}) {
-    const shopEnv = buildShopEnv(shop, registry.secretsFor(shop.id), view, { owner });
+    const access = accessOf(shop);
+    const shopEnv = buildShopEnv(shop, registry.secretsFor(shop.id), view, { owner, access, entitlements: entitlements(shop, access) });
     const shopConfig = readConfig(shopEnv); // validate before touching the data folder
     const lease = acquireInstanceLease(shopConfig);
     let instance;
-    const extend = setupRoutes({ registry, shopId: shop.id, origin: config.shopOrigin(shop.slug), fetchImpl: setupFetch });
+    const setupExtend = setupRoutes({ registry, shopId: shop.id, origin: config.shopOrigin(shop.slug), fetchImpl: setupFetch });
+    const billingExtend = billing.routes(shop.id, config.shopOrigin(shop.slug));
+    const extend = (app, ctx) => { setupExtend(app, ctx); billingExtend(app, ctx); };
     try { instance = factory({ env: shopEnv, logger: logger.child({ shop: shop.slug }), extend }); }
     catch (error) { lease.release(); throw error; }
     if (mountUi) mountUi(instance.app, instance.config);
@@ -68,7 +84,7 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
       try { instance.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now()); } catch { /* closed */ }
     }, 15 * 60000));
     for (const timer of timers) timer.unref();
-    return { shopId: shop.id, slug: shop.slug, version: shop.version, app: instance.app, db: instance.db, outboundFetch: instance.outboundFetch,
+    return { shopId: shop.id, slug: shop.slug, version: versionOf(shop), app: instance.app, db: instance.db, outboundFetch: instance.outboundFetch,
       config: instance.config, lease, timers, active: 0, lastUsed: Date.now() };
   }
 
@@ -91,7 +107,7 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
   function acquire(shop) {
     let entry = open.get(shop.id);
     // Settings or credentials changed: reopen once nothing is in flight.
-    if (entry && entry.version !== shop.version && entry.active === 0) { closeEntry(entry); entry = null; }
+    if (entry && entry.version !== versionOf(shop) && entry.active === 0) { closeEntry(entry); entry = null; }
     if (!entry) {
       makeRoom();
       entry = startShop(shop);
@@ -104,7 +120,15 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
 
   function handler(req, res) {
     const slug = slugFromHost(req.headers.host, config.baseDomain);
-    if (slug === '') return signupApp(req, res);
+    if (slug === '') {
+      if (req.method === 'POST' && String(req.url).split('?')[0] === '/api/paystack/webhook') {
+        return billing.handleWebhook(req, res).catch(error => {
+          logger.error({ msg: 'billing.webhook_error', name: error.name });
+          if (!res.headersSent) reply(req, res, 500, 'Could not process.');
+        });
+      }
+      return signupApp(req, res);
+    }
     if (!slug) return reply(req, res, 404, 'Shop not found.');
     const shop = registry.bySlug(slug);
     if (!shop || shop.status === 'closed') return reply(req, res, 404, 'Shop not found.');
@@ -149,7 +173,8 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
     registry.audit(actor, 'shop.owner_created', shop.id, username);
     return { shop: registry.byId(shop.id), ownerUsername: username, ownerPassword: password };
   }
-  const signupApp = createSignupApp({ config, registry, provisionShop, mailer, logger });
+  const signupApp = createSignupApp({ config, registry, provisionShop, mailer, logger,
+    mount: app => app.use('/api/console', consoleRouter({ registry, auth: adminAuth, config, billing })) });
 
   function evictIdle(maxIdleMs = config.idleMs) {
     const cutoff = Date.now() - maxIdleMs;
@@ -169,7 +194,7 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
   }
 
   return {
-    config, registry, logger, mailer, handler, provisionShop, evictIdle, close,
+    config, registry, logger, mailer, billing, adminAuth, paystack, handler, provisionShop, evictIdle, close,
     openShops: () => [...open.values()].map(entry => ({ shopId: entry.shopId, slug: entry.slug, active: entry.active })),
   };
 }

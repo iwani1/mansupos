@@ -5,6 +5,7 @@ import path from 'node:path';
 import { slugProblem } from './slug.js';
 import { normaliseStoreUrl } from './store-url.js';
 import { sealSecret, openSecret } from './secrets.js';
+import { PLANS, INTERVALS, addMonths } from './billing.js';
 
 // The central database: which shops exist, their settings and their encrypted
 // credentials. Each shop's sales, staff and history stay in that shop's own
@@ -35,6 +36,8 @@ function shopView(row) {
     owner: { name: row.owner_name || '', email: row.owner_email || '', phone: row.owner_phone || '' },
     trialEndsAt: row.trial_ends_at || null, connectedAt: row.connected_at || null,
     health: json(row.health), healthAt: row.health_at || null,
+    billing: { plan: row.plan || null, status: row.billing_status || null, paidUntil: row.paid_until || null, autoRenew: Boolean(row.auto_renew),
+      customerCode: row.paystack_customer || null, subscriptionCode: row.paystack_subscription || null },
   };
 }
 
@@ -75,6 +78,24 @@ export class PlatformRegistry {
         id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, email TEXT NOT NULL, payload TEXT NOT NULL,
         password_hash TEXT NOT NULL, created_at TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at TEXT, shop_id TEXT
       );
+      CREATE TABLE IF NOT EXISTS billing_checkouts (
+        reference TEXT PRIMARY KEY, shop_id TEXT NOT NULL REFERENCES shops(id), plan TEXT NOT NULL, interval TEXT NOT NULL,
+        amount INTEGER NOT NULL, auto_renew INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, paid_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS billing_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, event_key TEXT NOT NULL UNIQUE, shop_id TEXT, kind TEXT NOT NULL,
+        reference TEXT, amount INTEGER, at TEXT NOT NULL, detail TEXT NOT NULL DEFAULT ''
+      );
+      CREATE TABLE IF NOT EXISTS platform_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS admins (
+        id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, totp_sealed TEXT NOT NULL,
+        last_totp_step INTEGER NOT NULL DEFAULT 0, failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until INTEGER,
+        disabled INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_login TEXT
+      );
+      CREATE TABLE IF NOT EXISTS admin_sessions (
+        token_hash TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES admins(id), created_at INTEGER NOT NULL,
+        last_seen INTEGER NOT NULL, expires_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS platform_audit (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, shop_id TEXT, detail TEXT NOT NULL DEFAULT ''
@@ -83,7 +104,8 @@ export class PlatformRegistry {
     // Columns added after phase 1: upgrade an existing registry in place.
     const columns = new Set(this.db.prepare('PRAGMA table_info(shops)').all().map(c => c.name));
     for (const [name, type] of [['owner_name', 'TEXT'], ['owner_email', 'TEXT'], ['owner_phone', 'TEXT'], ['trial_ends_at', 'TEXT'],
-      ['connected_at', 'TEXT'], ['health', 'TEXT'], ['health_at', 'TEXT']]) {
+      ['connected_at', 'TEXT'], ['health', 'TEXT'], ['health_at', 'TEXT'], ['plan', 'TEXT'], ['billing_status', 'TEXT'], ['paid_until', 'TEXT'],
+      ['auto_renew', 'INTEGER'], ['paystack_customer', 'TEXT'], ['paystack_subscription', 'TEXT'], ['paystack_email_token', 'TEXT']]) {
       if (!columns.has(name)) this.db.exec(`ALTER TABLE shops ADD COLUMN ${name} ${type}`);
     }
   }
@@ -222,6 +244,80 @@ export class PlatformRegistry {
   }
 
   attachSignupShop(id, shopId) { this.db.prepare('UPDATE signups SET shop_id=? WHERE id=?').run(shopId, id); }
+
+  // ---- Billing -------------------------------------------------------------
+  setting(key) { return this.db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key)?.value ?? null; }
+  setSetting(key, value) {
+    this.db.prepare('INSERT INTO platform_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, String(value));
+  }
+  planCode(plan, interval) { return this.setting(`paystack_plan:${plan}:${interval}`); }
+  planForCode(code) {
+    const row = this.db.prepare("SELECT key FROM platform_settings WHERE key LIKE 'paystack_plan:%' AND value=?").get(String(code || ''));
+    if (!row) return null;
+    const [, plan, interval] = row.key.split(':');
+    return { plan, interval };
+  }
+
+  createCheckout({ shopId, plan, interval, amount, autoRenew }) {
+    const reference = `mp_${shopId.slice(4, 12)}_${randomBytes(9).toString('hex')}`;
+    this.db.prepare('INSERT INTO billing_checkouts(reference,shop_id,plan,interval,amount,auto_renew,created_at) VALUES (?,?,?,?,?,?,?)')
+      .run(reference, shopId, plan, interval, amount, autoRenew ? 1 : 0, now());
+    return reference;
+  }
+  checkout(reference) { return this.db.prepare('SELECT * FROM billing_checkouts WHERE reference=?').get(String(reference || '')) || null; }
+
+  // Records a billing event once (Paystack retries webhooks; owners refresh the
+  // return page). Returns false when this event was already handled.
+  billingEvent({ key, shopId, kind, reference = null, amount = null, detail = '' }) {
+    return this.db.prepare('INSERT OR IGNORE INTO billing_events(event_key,shop_id,kind,reference,amount,at,detail) VALUES (?,?,?,?,?,?,?)')
+      .run(String(key), shopId, kind, reference, amount, now(), oneLine(detail, 300)).changes === 1;
+  }
+  billingEvents(shopId, limit = 50) {
+    return this.db.prepare('SELECT kind, reference, amount, at, detail FROM billing_events WHERE shop_id=? ORDER BY id DESC LIMIT ?').all(shopId, limit);
+  }
+
+  // One verified payment extends access by its period, starting after any time
+  // already covered (remaining trial or an earlier payment). Idempotent by
+  // reference.
+  recordPayment({ shopId, plan, interval, reference, amount, actor = 'paystack', customerCode, autoRenew }) {
+    if (!PLANS[plan] || !INTERVALS[interval]) throw new Error('Unknown plan or billing period.');
+    const shop = this.byId(shopId);
+    if (!shop) throw new Error('Shop not found.');
+    if (!this.billingEvent({ key: `payment:${reference}`, shopId, kind: 'payment', reference, amount, detail: `${plan}/${interval} by ${actor}` })) return false;
+    const start = Math.max(Date.now(), shop.trialEndsAt ? Date.parse(shop.trialEndsAt) : 0, shop.billing.paidUntil ? Date.parse(shop.billing.paidUntil) : 0);
+    const paidUntil = new Date(addMonths(start, INTERVALS[interval].months)).toISOString();
+    this.db.prepare(`UPDATE shops SET plan=?, billing_status='active', paid_until=?, auto_renew=COALESCE(?, auto_renew),
+      paystack_customer=COALESCE(?, paystack_customer), version=version+1, updated_at=? WHERE id=?`)
+      .run(plan, paidUntil, autoRenew === undefined ? null : (autoRenew ? 1 : 0), customerCode || null, now(), shopId);
+    this.db.prepare('UPDATE billing_checkouts SET paid_at=? WHERE reference=?').run(now(), reference);
+    this.audit(actor, 'billing.payment', shopId, `${plan}/${interval} ${amount} until ${paidUntil}`);
+    return true;
+  }
+
+  setBilling(shopId, change, actor) {
+    const fields = { plan: 'plan', status: 'billing_status', paidUntil: 'paid_until', autoRenew: 'auto_renew', subscriptionCode: 'paystack_subscription', emailToken: 'paystack_email_token', customerCode: 'paystack_customer', trialEndsAt: 'trial_ends_at' };
+    const sets = [], values = [];
+    for (const [key, value] of Object.entries(change)) {
+      if (!(key in fields)) throw new Error(`Unknown billing field: ${key}.`);
+      if (key === 'plan' && !PLANS[value]) throw new Error('Unknown plan.');
+      sets.push(`${fields[key]}=?`);
+      values.push(typeof value === 'boolean' ? (value ? 1 : 0) : value);
+    }
+    if (!sets.length) return this.byId(shopId);
+    this.db.prepare(`UPDATE shops SET ${sets.join(',')}, version=version+1, updated_at=? WHERE id=?`).run(...values, now(), shopId);
+    this.audit(actor, 'billing.updated', shopId, Object.keys(change).join(','));
+    return this.byId(shopId);
+  }
+
+  byCustomer(code) { return shopView(this.db.prepare('SELECT * FROM shops WHERE paystack_customer=?').get(String(code || ''))); }
+  bySubscription(code) { return shopView(this.db.prepare('SELECT * FROM shops WHERE paystack_subscription=?').get(String(code || ''))); }
+  emailToken(shopId) { return this.db.prepare('SELECT paystack_email_token AS t FROM shops WHERE id=?').get(shopId)?.t || null; }
+
+  recentAudit(limit = 100, shopId = null) {
+    return shopId
+      ? this.db.prepare('SELECT at, actor, action, shop_id AS shopId, detail FROM platform_audit WHERE shop_id=? ORDER BY id DESC LIMIT ?').all(shopId, limit)
+      : this.db.prepare('SELECT at, actor, action, shop_id AS shopId, detail FROM platform_audit ORDER BY id DESC LIMIT ?').all(limit);
+  }
 
   hasSecret(id, kind) { return Boolean(this.db.prepare('SELECT 1 FROM shop_secrets WHERE shop_id=? AND kind=?').get(id, kind)); }
 
