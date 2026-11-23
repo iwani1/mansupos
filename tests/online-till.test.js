@@ -8,7 +8,8 @@ const require = createRequire(import.meta.url);
 const { kickBytes, openDrawer, WINDOWS_SCRIPT } = require('../desktop/online/drawer.cjs');
 const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed, validSaleId } = require('../desktop/online/policy.cjs');
 const directory = path.resolve('desktop/online');
-const read = name => fs.readFileSync(path.join(directory, name), 'utf8');
+// Windows checkouts use CRLF; compare source text with LF line endings.
+const read = name => fs.readFileSync(path.join(directory, name), 'utf8').replace(/\r\n/g, '\n');
 const request = (url, method = 'GET', resourceType = 'xhr') => requestAllowed({ url, method, resourceType });
 
 function healthResponse({ url = `${POS_ORIGIN}/api/health`, status = 200, contentType = 'application/json',

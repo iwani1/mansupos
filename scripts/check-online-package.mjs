@@ -9,7 +9,8 @@ try {
   const entries = listPackage(file).map(name => name.replaceAll('\\', '/').replace(/^\/+/, '')).sort();
   const expected = ['main.cjs', 'policy.cjs', 'preload.cjs', 'drawer.cjs', 'package.json'].sort();
   assert.deepEqual(entries, expected, 'Unexpected Windows online package contents (offline ledger, web bundle or secrets?).');
-  const content = name => extractFile(file, name.split('/').join(path.sep)).toString();
+  // Files packed on a Windows checkout have CRLF line endings.
+  const content = name => extractFile(file, name.split('/').join(path.sep)).toString().replace(/\r\n/g, '\n');
   const manifest = JSON.parse(content('package.json'));
   assert.equal(manifest.private, true);
   assert.equal(manifest.main, 'main.cjs');
