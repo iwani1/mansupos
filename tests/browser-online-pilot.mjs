@@ -2,7 +2,7 @@ import { openBrowser, recordFailure, testBase as base } from './browser-helpers.
 
 // UI fixture ONLY: a local demo server, re-labelled in Chromium as a read-only
 // pilot, with demo-only barcodes. No live pilot, Woo write or physical device.
-// Native HTTPS allowlist/health verification are tested in online-pilot.test.js.
+// Native HTTPS allowlist/health verification are tested in online-till.test.js.
 const { browser, page, pageErrors } = await openBrowser();
 let attempts = 0;
 try {
