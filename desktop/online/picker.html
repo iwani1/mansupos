@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'none'; base-uri 'none'">
+<title>Mansu POS — Choose your shop</title>
+<link rel="stylesheet" href="picker.css">
+<script src="picker.js" defer></script>
+</head>
+<body>
+<main>
+  <p class="brand"><span class="mark">M</span> Mansu POS</p>
+  <h1>Which shop is this till for?</h1>
+  <p class="lead">Type your shop's address. You only do this once: the till then opens your shop every time.</p>
+  <form id="choose" novalidate>
+    <label for="address">Shop address</label>
+    <div class="field"><input id="address" name="address" autocomplete="off" spellcheck="false" autofocus aria-describedby="hint error"><span id="suffix"></span></div>
+    <p class="hint" id="hint">For example <strong id="example"></strong></p>
+    <p class="error" id="error" role="alert" hidden></p>
+    <button type="submit" id="go">Connect</button>
+  </form>
+</main>
+</body>
+</html>

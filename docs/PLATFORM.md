@@ -1,8 +1,8 @@
-# Mansu POS platform (multi-shop) — phases 1 to 3
+# Mansu POS platform (multi-shop) — phases 1 to 4
 
 **What it is:** one server process that runs many shops. Each shop has its own web address (`<shop>.<PLATFORM_BASE_DOMAIN>`), its own SQLite database in its own folder, its own staff, sessions and rate limits, and its own WooCommerce store and keys. It is a separate entry point (`server/platform/`); the single-shop MansutRENDZGH server (`npm start`) is unchanged and keeps running live.
 
-**Status (23 Nov 2026):** phases 1 (multi-shop core) and 2 (sign-up and store connection) of the [SaaS plan](https://claude.ai/artifact/QqLDEKcVAuoCtrD7ifALHR) and 3 (billing and console) are built and tested; not deployed. The multi-shop Windows till is phase 4.
+**Status (23 Nov 2026):** phases 1 (multi-shop core) and 2 (sign-up and store connection) of the [SaaS plan](https://claude.ai/artifact/QqLDEKcVAuoCtrD7ifALHR) 3 (billing and console) and 4 (multi-shop Windows till) are built and tested; not deployed.
 
 ## How a request finds its shop
 
@@ -76,6 +76,16 @@ Settings: `PLATFORM_PAYSTACK_SECRET_KEY` (sk_test_… for staging; a test key in
 
 Tests: `tests/platform-billing.test.js` (6 tests).
 
+## Windows till for many shops (phase 4)
+
+- **One installer** (`desktop/online`, version 2): on first launch a local picker asks for the shop address and the till pins itself to `https://<shop>.<platformDomain>` (or a legacy address listed in `desktop/online/till.json`, e.g. the MansutRENDZGH till). Until a shop is pinned every request is refused; afterwards only that shop's pages and API, and product images from any store's `/wp-content/uploads/`, load. Upgraded MansutRENDZGH tills are offered their old address.
+- **Change shop**: owner signed in on that till only; clears sign-in and held sales, keeps printer/drawer settings.
+- **Updates**: `npm run platform -- till-release --version 2.0.1 --url https://… --sha256 …` publishes `https://<base domain>/till/latest.json`; tills offer the download (allowed hosts in `till.json`) and Shop setup shows the download link. No silent install until signing.
+- **Code signing**: add repository secrets `WIN_CSC_LINK` (base64 .pfx or URL) and `WIN_CSC_KEY_PASSWORD`; the `[online-qa]` CI job then signs and requires a *Valid* signature, otherwise it builds unsigned. A Windows code-signing certificate (OV or EV) has to be bought; EV removes SmartScreen warnings fastest.
+- Set `platformDomain` / `updateFeed` in `desktop/online/till.json` to the real domain before the first public build.
+
+Tests: `tests/online-till.test.js` (13), plus the platform release-notice test.
+
 ## Run it
 
 ```bash
@@ -130,7 +140,8 @@ server {
 - **Email provider** for verification and welcome emails (decision needed; outbox only today). Public sign-up should also get a bot check (e.g. Turnstile/hCaptcha) on top of the rate limit.
 - **Paystack test-mode run** with a real `sk_test_` key: plans, a card subscription, a Mobile Money one-month payment, a renewal and a cancellation (the code was tested against a fake Paystack; field names follow Paystack's documented API). Confirm whether Mobile Money can auto-renew in Ghana.
 - Billing emails (receipts come from Paystack; our own "trial ending" / "payment due" emails need the email provider).
-- Multi-shop Windows till (phase 4).
+- Buy a code-signing certificate; then optionally switch the till to silent automatic updates (electron-updater) — not done before signing on purpose.
+- Phase 5: pilot with 3–5 shops.
 - Terms of service and privacy notice pages (the sign-up form links the wording, not documents yet).
 - Backups run on demand (`backup`); schedule them (systemd timer or cron) and copy off-server. Restore is manual for now: stop the platform, put `platform.db` and the shop folders back, start it.
 - Background order checks run only while a shop is open; a shop closed while it has an unpaid order is checked again when next opened.

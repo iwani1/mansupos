@@ -147,6 +147,7 @@ export function setupRoutes({ registry, shopId, origin, fetchImpl }) {
       connected: registry.hasSecret(s.id, 'woo_key') && registry.hasSecret(s.id, 'woo_secret'), connectedAt: s.connectedAt,
       health: s.health, healthAt: s.healthAt, business: s.business, features: s.features,
       photos: registry.hasSecret(s.id, 'wp_media_password'),
+      till: (() => { const r = registry.tillRelease(); return r ? { version: r.version, url: r.url, sha256: r.sha256 } : null; })(),
     });
     app.get('/api/setup', ...owner, (_req, res) => res.json({ setup: view(shop()) }));
     app.post('/api/setup/woo/connect', ...owner, sensitiveLimit, (req, res) => {

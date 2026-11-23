@@ -274,3 +274,21 @@ test('the console needs password + authenticator code, locks out guessing, and a
   assert.equal(verifyTotp(raw, totpCode(raw, step), { lastStep: step }), 0);
   assert.equal(verifyTotp(raw, totpCode(raw, step + 5)), 0);
 });
+
+test('the Windows till release notice is published by an admin and shown in Shop setup', async t => {
+  const h = await harness(t);
+  const s = await h.shop();
+  assert.equal((await h.site('/till/latest.json')).status, 404, 'nothing published yet');
+  const sha = 'a'.repeat(64);
+  assert.throws(() => h.platform.registry.setTillRelease({ version: 'v2', url: 'https://x/y.exe', sha256: sha }), /Version/);
+  assert.throws(() => h.platform.registry.setTillRelease({ version: '2.0.0', url: 'http://x/y.exe', sha256: sha }), /https/);
+  assert.throws(() => h.platform.registry.setTillRelease({ version: '2.0.0', url: 'https://x/y.exe', sha256: 'abc' }), /SHA-256/);
+  h.platform.registry.setTillRelease({ version: '2.0.0', url: 'https://mansupos.test/download/Mansu-POS-ONLINE-2.0.0-Windows-Setup.exe', sha256: sha, notes: 'Multi-shop till' }, 'test');
+  const notice = await h.site('/till/latest.json');
+  assert.equal(notice.status, 200);
+  assert.equal(notice.data.version, '2.0.0');
+  assert.equal(notice.data.sha256, sha);
+  const setup = await h.call(s.host, '/api/setup', { token: s.token });
+  assert.equal(setup.data.setup.till.version, '2.0.0');
+  assert.match(setup.data.setup.till.url, /Mansu-POS-ONLINE-2\.0\.0/);
+});

@@ -1,0 +1,6 @@
+{
+  "platformDomain": "mansupos.com",
+  "legacyOrigins": ["https://pos.mansutrendzgh.com"],
+  "updateFeed": "https://mansupos.com/till/latest.json",
+  "downloadHosts": ["mansupos.com", "github.com", "objects.githubusercontent.com"]
+}

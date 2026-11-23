@@ -5,7 +5,7 @@
   "asar": true,
   "npmRebuild": false,
   "directories": { "output": "release" },
-  "files": ["main.cjs", "policy.cjs", "preload.cjs", "drawer.cjs", "package.json"],
+  "files": ["main.cjs", "policy.cjs", "preload.cjs", "drawer.cjs", "till.json", "picker.html", "picker.js", "picker.css", "picker-preload.cjs", "package.json"],
   "win": {
     "target": [{ "target": "nsis", "arch": ["x64"] }],
     "icon": "../assets/mansu.ico"

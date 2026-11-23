@@ -250,6 +250,19 @@ export class PlatformRegistry {
   setSetting(key, value) {
     this.db.prepare('INSERT INTO platform_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, String(value));
   }
+  // Windows till release notice: { version, url, sha256, notes, publishedAt }.
+  tillRelease() { try { return JSON.parse(this.setting('till_release') || 'null'); } catch { return null; } }
+  setTillRelease({ version, url, sha256, notes = '' }, actor = 'cli') {
+    if (!/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(String(version))) throw new Error('Version must look like 2.0.0.');
+    const link = new URL(String(url));
+    if (link.protocol !== 'https:') throw new Error('The download must be an https:// address.');
+    if (!/^[0-9a-f]{64}$/i.test(String(sha256))) throw new Error('Give the installer\'s SHA-256 (64 hex characters).');
+    const release = { version: String(version), url: link.toString(), sha256: String(sha256).toLowerCase(), notes: oneLine(notes, 400), publishedAt: now() };
+    this.setSetting('till_release', JSON.stringify(release));
+    this.audit(actor, 'till.release', null, `${release.version} ${release.url}`);
+    return release;
+  }
+
   planCode(plan, interval) { return this.setting(`paystack_plan:${plan}:${interval}`); }
   planForCode(code) {
     const row = this.db.prepare("SELECT key FROM platform_settings WHERE key LIKE 'paystack_plan:%' AND value=?").get(String(code || ''));
