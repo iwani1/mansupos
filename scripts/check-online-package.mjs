@@ -27,10 +27,12 @@ try {
   const preload = content('preload.cjs');
   assert.equal((preload.match(/exposeInMainWorld/g) || []).length, 1);
   assert.match(preload, /printReceipt: \(\) => ipcRenderer\.invoke\('mansu-till:print-receipt'\)/);
+  assert.match(preload, /receiptReady: saleId => ipcRenderer\.invoke\('mansu-till:receipt-ready'/);
+  assert.equal((preload.match(/ipcRenderer\./g) || []).length, 2);
   assert.doesNotMatch(preload, /\bfs\b|child_process|shell|sendSync|webFrame/);
   assert.doesNotMatch(main + policy, /\bnode:sqlite\b|\bsafeStorage\b|\belectron-updater\b|\bDesktopStore\b|\bDesktopRemote\b|\bmansuDesktop\s*=/);
   assert.doesNotMatch(policy, /process\.env|trading\.mansutrendzgh\.com|http:\/\//);
-  console.log('Packaged Mansu POS till: four files (receipt-print bridge only), pinned HTTPS POS, no offline ledger/queue/renderer, no updater or publisher.');
+  console.log('Packaged Mansu POS till: four files (receipt-print bridge only: print, receipt ready), pinned HTTPS POS, no offline ledger/queue/renderer, no updater or publisher.');
 } catch (error) {
   const brief = String(error.message).replaceAll('%', '%25').replace(/[\r\n]+/g, ' | ').slice(0, 900);
   console.error(`::error title=Windows till package isolation::${brief}`);

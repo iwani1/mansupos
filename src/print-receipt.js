@@ -8,3 +8,13 @@ export async function printReceipt() {
   }
   window.print();
 }
+
+// Called once when a just-paid sale's receipt appears. Only the Windows till
+// acts on it (and only when auto-print is switched on there); in a browser it
+// does nothing. Waits for the receipt to be painted before printing.
+export async function autoPrintReceipt(saleId) {
+  const till = typeof window !== 'undefined' ? window.mansuTill : null;
+  if (!till || typeof till.receiptReady !== 'function' || saleId == null) return { printed: false };
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  try { return await till.receiptReady(String(saleId)); } catch { return { printed: false }; }
+}

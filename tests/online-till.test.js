@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed } = require('../desktop/online/policy.cjs');
+const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed, validSaleId } = require('../desktop/online/policy.cjs');
 const directory = path.resolve('desktop/online');
 const read = name => fs.readFileSync(path.join(directory, name), 'utf8');
 const request = (url, method = 'GET', resourceType = 'xhr') => requestAllowed({ url, method, resourceType });
@@ -58,13 +58,13 @@ test('till has no local sale path, credential bridge, updater or browser-exposed
   assert.match(main, /downloadAllowed\(item\.getURL\(\)\)/);
   // The only bridge: print the receipt on screen. Nothing else reaches the page.
   assert.match(main, /preload: path\.join\(__dirname, 'preload\.cjs'\)/);
-  assert.match(preload, /exposeInMainWorld\('mansuTill', Object\.freeze\(\{\n {2}printReceipt: \(\) => ipcRenderer\.invoke\('mansu-till:print-receipt'\),\n\}\)\)/);
+  assert.match(preload, /exposeInMainWorld\('mansuTill', Object\.freeze\(\{\n {2}printReceipt: \(\) => ipcRenderer\.invoke\('mansu-till:print-receipt'\),\n {2}receiptReady: saleId => ipcRenderer\.invoke\('mansu-till:receipt-ready', String\(saleId\)\.slice\(0, 100\)\),\n\}\)\)/);
   assert.equal((preload.match(/exposeInMainWorld/g) || []).length, 1);
-  assert.equal((preload.match(/ipcRenderer\./g) || []).length, 1);
+  assert.equal((preload.match(/ipcRenderer\./g) || []).length, 2);
   assert.doesNotMatch(preload, /\bfs\b|child_process|shell|net\.|send\(|sendSync|webFrame/);
-  assert.equal((main.match(/ipcMain\.(handle|on)\(/g) || []).length, 1);
-  assert.match(main, /event\.sender !== window\.webContents \|\| event\.senderFrame !== window\.webContents\.mainFrame/);
-  assert.match(main, /printRequestAllowed\(event\.senderFrame\.url\)/);
+  assert.equal((main.match(/ipcMain\.(handle|on)\(/g) || []).length, 2);
+  assert.match(main, /event\.sender === window\.webContents &&\n\s+event\.senderFrame === window\.webContents\.mainFrame && printRequestAllowed\(event\.senderFrame\.url\)/);
+  assert.equal((main.match(/fromPos\(event\) \?/g) || []).length, 2); // both bridge calls checked
   assert.doesNotMatch(main + policy + preload, /\bnode:sqlite\b|\bsafeStorage\b|\belectron-updater\b|\bDesktopStore\b|\bDesktopRemote\b|\bmansuDesktop\s*=|\brequire\(['"]\.\.\/store/);
   assert.doesNotMatch(policy, /process\.env|http:\/\/|trading\.mansutrendzgh\.com/);
   assert.equal(POS_ORIGIN, 'https://pos.mansutrendzgh.com');
@@ -152,11 +152,12 @@ test('POS must answer directly over HTTPS as healthy live JSON before the till o
 });
 
 test('receipt printer setting and print requests are validated', () => {
-  assert.deepEqual(parseSettings('{"receiptPrinter":"EPSON TM-T20III Receipt"}'), { receiptPrinter: 'EPSON TM-T20III Receipt' });
-  assert.deepEqual(parseSettings('{"receiptPrinter":"  XP-80C  "}'), { receiptPrinter: 'XP-80C' });
+  assert.deepEqual(parseSettings('{"receiptPrinter":"EPSON TM-T20III Receipt"}'), { receiptPrinter: 'EPSON TM-T20III Receipt', autoPrint: false });
+  assert.deepEqual(parseSettings('{"receiptPrinter":"  XP-80C  ","autoPrint":true}'), { receiptPrinter: 'XP-80C', autoPrint: true });
+  assert.deepEqual(parseSettings('{"receiptPrinter":"XP-80C","autoPrint":"yes"}'), { receiptPrinter: 'XP-80C', autoPrint: false });
   for (const text of ['', 'not json', 'null', '{"receiptPrinter":5}', '{"receiptPrinter":""}',
     JSON.stringify({ receiptPrinter: 'x'.repeat(257) }), JSON.stringify({ receiptPrinter: 'bad\nname' })]) {
-    assert.deepEqual(parseSettings(text), { receiptPrinter: null }, text);
+    assert.equal(parseSettings(text).receiptPrinter, null, text);
   }
   assert.equal(printRequestAllowed(`${POS_ORIGIN}/`), true);
   for (const url of ['about:blank', 'https://example.com/', `${POS_ORIGIN}/other`, 'http://pos.mansutrendzgh.com/', 'not a url', undefined]) {
@@ -173,4 +174,19 @@ test('web receipt buttons print through the till bridge, falling back to the bro
     assert.match(source, /onClick=\{printReceipt\}/, file);
     assert.doesNotMatch(source, /window\.print\(\)/, file);
   }
+});
+
+test('auto-print: only a just-paid sale, once, and only when switched on with a printer chosen', () => {
+  for (const id of ['2b8f1c3e-0000-4000-8000-000000000000', 'DEMO-2BFCEBFE', '1234']) assert.equal(validSaleId(id), true, id);
+  for (const id of ['', 'x'.repeat(101), 'a b', '<script>', 5, null, undefined]) assert.equal(validSaleId(id), false, String(id));
+  const main = read('main.cjs');
+  assert.match(main, /if \(!settings\.autoPrint \|\| !settings\.receiptPrinter \|\| !validSaleId\(saleId\)\) return \{ printed: false \};/);
+  assert.match(main, /if \(autoPrinted\.includes\(saleId\)\) return/);
+  const app = fs.readFileSync('src/App.jsx', 'utf8'), checkout = fs.readFileSync('src/Checkout.jsx', 'utf8');
+  // Only the payment path marks a receipt fresh; reopening from Sales history does not.
+  assert.equal((app.match(/setFreshSaleId\(sale\?\.id\?\?null\)/g) || []).length, 1);
+  assert.match(app, /function paid\(sale\)\{setPending\(null\);setFreshSaleId\(sale\?\.id\?\?null\);setReceipt\(sale\);/);
+  assert.match(app, /fresh=\{receipt\.id!=null&&receipt\.id===freshSaleId\}/);
+  assert.match(app, /onReceipt=\{setReceipt\}/);
+  assert.match(checkout, /if \(!fresh \|\| locked\) return undefined;/);
 });

@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { app, BrowserWindow, dialog, ipcMain, Menu, net, session } = require('electron');
 const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos: verifyWith,
-  parseSettings, printRequestAllowed } = require('./policy.cjs');
+  parseSettings, printRequestAllowed, validSaleId } = require('./policy.cjs');
 
 // Chromium's network stack: honours the Windows proxy settings and the
 // Windows certificate store, exactly like the till window itself.
@@ -24,7 +24,8 @@ const partition = 'persist:mansu-pos-till';
 const CHECK_EVERY_MS = 15000;
 const BANNER_ID = 'mansu-till-connection-banner';
 let window, timer, quitting = false, online = true, serverInfo = { readOnly: false, version: '' };
-let settings = { receiptPrinter: null }, printing = false;
+let settings = { receiptPrinter: null, autoPrint: false }, printing = false;
+const autoPrinted = []; // recent sale ids, so a receipt prints automatically only once
 
 app.setAppUserModelId('com.mansutrendzgh.pos.online');
 const single = app.requestSingleInstanceLock();
@@ -102,7 +103,7 @@ async function loadPos(problem) {
 const settingsFile = () => path.join(app.getPath('userData'), 'till-settings.json');
 function loadSettings() {
   try { settings = parseSettings(fs.readFileSync(settingsFile(), 'utf8')); }
-  catch { settings = { receiptPrinter: null }; }
+  catch { settings = { receiptPrinter: null, autoPrint: false }; }
 }
 function saveSettings() {
   try { fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2)); }
@@ -143,6 +144,23 @@ async function printReceipt(contents) {
     if (!success) await offerDialogPrint(contents, `"${name}" reported: ${reason || 'printing failed'}.`);
     return { printed: success, silent: true };
   } finally { printing = false; }
+}
+
+// A just-paid sale's receipt is on screen. Print it silently, once, when
+// auto-print is on and a printer is chosen. Never opens the print dialog by
+// itself; a failure is reported with the usual "Print with dialog" offer.
+async function receiptReady(contents, saleId) {
+  if (!settings.autoPrint || !settings.receiptPrinter || !validSaleId(saleId)) return { printed: false };
+  if (autoPrinted.includes(saleId)) return { printed: false, reason: 'already printed' };
+  autoPrinted.push(saleId);
+  if (autoPrinted.length > 50) autoPrinted.shift();
+  return printReceipt(contents);
+}
+
+function setAutoPrint(enabled) {
+  settings.autoPrint = Boolean(enabled);
+  saveSettings();
+  buildMenu();
 }
 
 async function chooseReceiptPrinter() {
@@ -206,6 +224,9 @@ function buildMenu() {
       { type: 'separator' },
       { label: 'Choose receipt printer…', click: chooseReceiptPrinter },
       { label: 'Print a test receipt', enabled: Boolean(settings.receiptPrinter), click: printTestReceipt },
+      { type: 'separator' },
+      { label: 'Print automatically after each sale', type: 'checkbox', checked: Boolean(settings.autoPrint && settings.receiptPrinter),
+        enabled: Boolean(settings.receiptPrinter), click: item => setAutoPrint(item.checked) },
     ] },
     { label: 'Help', submenu: [{ label: `About ${APP_NAME}`, click: about }] },
   ]));
@@ -262,11 +283,10 @@ async function start() {
   buildMenu();
   // The page's only bridge (preload.cjs). Accept it only from the POS page in
   // the till window, never from another frame or window.
-  ipcMain.handle('mansu-till:print-receipt', event => {
-    if (!window || window.isDestroyed() || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
-        !printRequestAllowed(event.senderFrame.url)) return { printed: false, reason: 'refused' };
-    return printReceipt(window.webContents);
-  });
+  const fromPos = event => Boolean(window && !window.isDestroyed() && event.sender === window.webContents &&
+    event.senderFrame === window.webContents.mainFrame && printRequestAllowed(event.senderFrame.url));
+  ipcMain.handle('mansu-till:print-receipt', event => (fromPos(event) ? printReceipt(window.webContents) : { printed: false, reason: 'refused' }));
+  ipcMain.handle('mansu-till:receipt-ready', (event, saleId) => (fromPos(event) ? receiptReady(window.webContents, saleId) : { printed: false, reason: 'refused' }));
 
   if (smoke) {
     // Packaged Windows runner checks the real Electron window and request
@@ -278,7 +298,7 @@ async function start() {
     const isolated = await Promise.race([
       window.webContents.executeJavaScript(
         "document.readyState === 'complete' && typeof require === 'undefined' && !window.mansuDesktop && !window.mansuPractice && " +
-        "Object.keys(window.mansuTill || {}).join() === 'printReceipt' && typeof window.mansuTill.printReceipt === 'function'"),
+        "Object.keys(window.mansuTill || {}).sort().join() === 'printReceipt,receiptReady' && typeof window.mansuTill.printReceipt === 'function'"),
       new Promise((_, reject) => setTimeout(() => reject(new Error('QA renderer did not respond.')), 10000)),
     ]);
     const sells = requestAllowed({ url: `${POS_ORIGIN}/api/sales/prepare`, method: 'POST', resourceType: 'xhr' });

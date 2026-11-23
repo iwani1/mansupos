@@ -89,14 +89,18 @@ async function verifyPos(fetchImpl = fetch) {
   }
 }
 
-// Till settings live in the app's own folder (till-settings.json). Only the
-// receipt printer's name is kept; anything unexpected is ignored.
+// Till settings live in the app's own folder (till-settings.json): the
+// receipt printer's name and whether to print after each sale. Anything
+// unexpected is ignored.
 function parseSettings(text) {
   try {
     const value = JSON.parse(String(text || ''));
     const printer = value && typeof value.receiptPrinter === 'string' ? value.receiptPrinter.trim() : '';
-    return { receiptPrinter: printer && printer.length <= 256 && ![...printer].some(ch => ch.charCodeAt(0) < 32) ? printer : null };
-  } catch { return { receiptPrinter: null }; }
+    return {
+      receiptPrinter: printer && printer.length <= 256 && ![...printer].some(ch => ch.charCodeAt(0) < 32) ? printer : null,
+      autoPrint: value?.autoPrint === true,
+    };
+  } catch { return { receiptPrinter: null, autoPrint: false }; }
 }
 
 // Only the POS page in the till window may ask for a silent print.
@@ -105,4 +109,7 @@ function printRequestAllowed(frameUrl) {
   catch { return false; }
 }
 
-module.exports = { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed };
+// A sale id from the POS (UUID or similar): short, plain characters only.
+const validSaleId = value => typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,100}$/.test(value);
+
+module.exports = { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed, validSaleId };
