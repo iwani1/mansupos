@@ -445,3 +445,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+      - name: Cash drawer pulse through the real Windows spooler (file-port test printer)
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'mansu-drawer'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $port = Join-Path $dir 'drawer.prn'
+          Add-PrinterPort -Name $port
+          if (-not (Get-PrinterDriver -Name 'Generic / Text Only' -ErrorAction SilentlyContinue)) { Add-PrinterDriver -Name 'Generic / Text Only' }
+          Add-Printer -Name 'Mansu Drawer Test' -DriverName 'Generic / Text Only' -PortName $port
+          try { node scripts/check-drawer-windows.mjs 'Mansu Drawer Test' $port; if ($LASTEXITCODE -ne 0) { throw 'Drawer pulse check failed.' } }
+          finally { Remove-Printer -Name 'Mansu Drawer Test' -ErrorAction SilentlyContinue }

@@ -8,6 +8,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { app, BrowserWindow, dialog, ipcMain, Menu, net, session } = require('electron');
+const { openDrawer } = require('./drawer.cjs');
 const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos: verifyWith,
   parseSettings, printRequestAllowed, validSaleId } = require('./policy.cjs');
 
@@ -24,8 +25,8 @@ const partition = 'persist:mansu-pos-till';
 const CHECK_EVERY_MS = 15000;
 const BANNER_ID = 'mansu-till-connection-banner';
 let window, timer, quitting = false, online = true, serverInfo = { readOnly: false, version: '' };
-let settings = { receiptPrinter: null, autoPrint: false }, printing = false;
-const autoPrinted = []; // recent sale ids, so a receipt prints automatically only once
+let settings = { receiptPrinter: null, autoPrint: false, drawerOnCash: false, drawerPin: 2 }, printing = false, drawerBusy = false;
+const handledSales = []; // recent sale ids, so a receipt prints / the drawer opens automatically only once
 
 app.setAppUserModelId('com.mansutrendzgh.pos.online');
 const single = app.requestSingleInstanceLock();
@@ -103,7 +104,7 @@ async function loadPos(problem) {
 const settingsFile = () => path.join(app.getPath('userData'), 'till-settings.json');
 function loadSettings() {
   try { settings = parseSettings(fs.readFileSync(settingsFile(), 'utf8')); }
-  catch { settings = { receiptPrinter: null, autoPrint: false }; }
+  catch { settings = parseSettings(''); }
 }
 function saveSettings() {
   try { fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2)); }
@@ -146,15 +147,74 @@ async function printReceipt(contents) {
   } finally { printing = false; }
 }
 
-// A just-paid sale's receipt is on screen. Print it silently, once, when
-// auto-print is on and a printer is chosen. Never opens the print dialog by
-// itself; a failure is reported with the usual "Print with dialog" offer.
-async function receiptReady(contents, saleId) {
-  if (!settings.autoPrint || !settings.receiptPrinter || !validSaleId(saleId)) return { printed: false };
-  if (autoPrinted.includes(saleId)) return { printed: false, reason: 'already printed' };
-  autoPrinted.push(saleId);
-  if (autoPrinted.length > 50) autoPrinted.shift();
-  return printReceipt(contents);
+// ---- Cash drawer -----------------------------------------------------------
+// The drawer is wired to the receipt printer's drawer port; drawer.cjs sends
+// it the ESC/POS pulse. Every opening is written to drawer-log.txt.
+const drawerLogFile = () => path.join(app.getPath('userData'), 'drawer-log.txt');
+function logDrawer(reason, outcome) {
+  const line = `${new Date().toISOString()}\t${reason}\t${settings.receiptPrinter || '-'}\tpin ${settings.drawerPin}\t${outcome}\n`;
+  try {
+    fs.appendFileSync(drawerLogFile(), line);
+    if (fs.statSync(drawerLogFile()).size > 512 * 1024) {
+      const keep = fs.readFileSync(drawerLogFile(), 'utf8').split('\n').slice(-2000).join('\n');
+      fs.writeFileSync(drawerLogFile(), keep);
+    }
+  } catch { /* logging must never stop the drawer */ }
+}
+
+async function openCashDrawer(reason) {
+  if (!settings.receiptPrinter) {
+    dialog.showMessageBox(window, { type: 'info', title: 'Cash drawer', message: 'Choose the receipt printer first',
+      detail: 'The cash drawer opens through the receipt printer it is plugged into. Use Receipt printer → Choose receipt printer…' });
+    return false;
+  }
+  if (drawerBusy) return false;
+  drawerBusy = true;
+  try {
+    await openDrawer(settings.receiptPrinter, settings.drawerPin);
+    logDrawer(reason, 'opened');
+    return true;
+  } catch (error) {
+    logDrawer(reason, `FAILED: ${error.message}`);
+    dialog.showMessageBox(window, { type: 'warning', title: 'Cash drawer', message: 'The cash drawer did not open',
+      detail: `${error.message}\n\nCheck the drawer cable is in the printer's drawer port (not the computer) and the printer is on. ` +
+        'If the drawer still does not open, try the other connector under Cash drawer (pin 2 / pin 5).' });
+    return false;
+  } finally { drawerBusy = false; }
+}
+
+async function openDrawerNow() {
+  const { response } = await dialog.showMessageBox(window, {
+    type: 'question', title: 'Cash drawer', buttons: ['Open drawer', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true,
+    message: 'Open the cash drawer?', detail: 'Use this for giving change or a cash count. Each opening is recorded in the drawer log on this PC.',
+  });
+  if (response === 0) await openCashDrawer('opened from menu');
+}
+
+function showDrawerLog() {
+  let lines = [];
+  try { lines = fs.readFileSync(drawerLogFile(), 'utf8').trim().split('\n').filter(Boolean).slice(-25).reverse(); } catch { /* none yet */ }
+  dialog.showMessageBox(window, { type: 'info', title: 'Cash drawer log', message: 'Last drawer openings on this PC (newest first)',
+    detail: lines.length ? lines.map(line => line.split('\t').slice(0, 2).concat(line.split('\t').slice(4)).join('  ·  ')).join('\n') +
+      `\n\nFull log: ${drawerLogFile()}` : 'No drawer openings yet.' });
+}
+
+function setDrawer(change) {
+  Object.assign(settings, change);
+  saveSettings();
+  buildMenu();
+}
+
+// A just-paid sale's receipt is on screen. Once per sale: open the drawer for
+// a cash sale (if switched on) and print silently (if auto-print is on). Never
+// opens the print dialog by itself; failures show the usual warnings.
+async function receiptReady(contents, saleId, cash) {
+  if (!settings.receiptPrinter || !validSaleId(saleId)) return { printed: false };
+  if (handledSales.includes(saleId)) return { printed: false, reason: 'already handled' };
+  handledSales.push(saleId);
+  if (handledSales.length > 50) handledSales.shift();
+  if (cash === true && settings.drawerOnCash) openCashDrawer(`cash sale ${saleId}`);
+  return settings.autoPrint ? printReceipt(contents) : { printed: false };
 }
 
 function setAutoPrint(enabled) {
@@ -228,6 +288,17 @@ function buildMenu() {
       { label: 'Print automatically after each sale', type: 'checkbox', checked: Boolean(settings.autoPrint && settings.receiptPrinter),
         enabled: Boolean(settings.receiptPrinter), click: item => setAutoPrint(item.checked) },
     ] },
+    { label: 'Cash drawer', submenu: [
+      { label: 'Open cash drawer now…', accelerator: 'Ctrl+Shift+D', enabled: Boolean(settings.receiptPrinter), click: openDrawerNow },
+      { type: 'separator' },
+      { label: 'Open after each cash sale', type: 'checkbox', checked: Boolean(settings.drawerOnCash && settings.receiptPrinter),
+        enabled: Boolean(settings.receiptPrinter), click: item => setDrawer({ drawerOnCash: item.checked }) },
+      { type: 'separator' },
+      { label: 'Drawer cable on pin 2 (most drawers)', type: 'radio', checked: settings.drawerPin !== 5, click: () => setDrawer({ drawerPin: 2 }) },
+      { label: 'Drawer cable on pin 5', type: 'radio', checked: settings.drawerPin === 5, click: () => setDrawer({ drawerPin: 5 }) },
+      { type: 'separator' },
+      { label: 'Show drawer log', click: showDrawerLog },
+    ] },
     { label: 'Help', submenu: [{ label: `About ${APP_NAME}`, click: about }] },
   ]));
 }
@@ -286,7 +357,7 @@ async function start() {
   const fromPos = event => Boolean(window && !window.isDestroyed() && event.sender === window.webContents &&
     event.senderFrame === window.webContents.mainFrame && printRequestAllowed(event.senderFrame.url));
   ipcMain.handle('mansu-till:print-receipt', event => (fromPos(event) ? printReceipt(window.webContents) : { printed: false, reason: 'refused' }));
-  ipcMain.handle('mansu-till:receipt-ready', (event, saleId) => (fromPos(event) ? receiptReady(window.webContents, saleId) : { printed: false, reason: 'refused' }));
+  ipcMain.handle('mansu-till:receipt-ready', (event, saleId, cash) => (fromPos(event) ? receiptReady(window.webContents, saleId, cash === true) : { printed: false, reason: 'refused' }));
 
   if (smoke) {
     // Packaged Windows runner checks the real Electron window and request

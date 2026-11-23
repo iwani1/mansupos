@@ -90,7 +90,8 @@ async function verifyPos(fetchImpl = fetch) {
 }
 
 // Till settings live in the app's own folder (till-settings.json): the
-// receipt printer's name and whether to print after each sale. Anything
+// receipt printer's name, whether to print after each sale, and the cash
+// drawer options (open after cash sales; connector pin 2 or 5). Anything
 // unexpected is ignored.
 function parseSettings(text) {
   try {
@@ -99,8 +100,10 @@ function parseSettings(text) {
     return {
       receiptPrinter: printer && printer.length <= 256 && ![...printer].some(ch => ch.charCodeAt(0) < 32) ? printer : null,
       autoPrint: value?.autoPrint === true,
+      drawerOnCash: value?.drawerOnCash === true,
+      drawerPin: value?.drawerPin === 5 ? 5 : 2,
     };
-  } catch { return { receiptPrinter: null, autoPrint: false }; }
+  } catch { return { receiptPrinter: null, autoPrint: false, drawerOnCash: false, drawerPin: 2 }; }
 }
 
 // Only the POS page in the till window may ask for a silent print.

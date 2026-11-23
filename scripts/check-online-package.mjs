@@ -7,7 +7,7 @@ try {
   const file = process.argv[2];
   if (!file || !fs.existsSync(file)) throw new Error('Pass the Windows till resources/app.asar for inspection.');
   const entries = listPackage(file).map(name => name.replaceAll('\\', '/').replace(/^\/+/, '')).sort();
-  const expected = ['main.cjs', 'policy.cjs', 'preload.cjs', 'package.json'].sort();
+  const expected = ['main.cjs', 'policy.cjs', 'preload.cjs', 'drawer.cjs', 'package.json'].sort();
   assert.deepEqual(entries, expected, 'Unexpected Windows online package contents (offline ledger, web bundle or secrets?).');
   const content = name => extractFile(file, name.split('/').join(path.sep)).toString();
   const manifest = JSON.parse(content('package.json'));
@@ -29,10 +29,14 @@ try {
   assert.match(preload, /printReceipt: \(\) => ipcRenderer\.invoke\('mansu-till:print-receipt'\)/);
   assert.match(preload, /receiptReady: saleId => ipcRenderer\.invoke\('mansu-till:receipt-ready'/);
   assert.equal((preload.match(/ipcRenderer\./g) || []).length, 2);
+  const drawer = content('drawer.cjs');
+  assert.match(drawer, /0x1b, 0x70/);
+  assert.match(drawer, /\$env:MANSU_DRAWER_PRINTER/);
+  assert.doesNotMatch(drawer, /shell:\s*true|execSync/);
   assert.doesNotMatch(preload, /\bfs\b|child_process|shell|sendSync|webFrame/);
   assert.doesNotMatch(main + policy, /\bnode:sqlite\b|\bsafeStorage\b|\belectron-updater\b|\bDesktopStore\b|\bDesktopRemote\b|\bmansuDesktop\s*=/);
   assert.doesNotMatch(policy, /process\.env|trading\.mansutrendzgh\.com|http:\/\//);
-  console.log('Packaged Mansu POS till: four files (receipt-print bridge only: print, receipt ready), pinned HTTPS POS, no offline ledger/queue/renderer, no updater or publisher.');
+  console.log('Packaged Mansu POS till: five files (receipt-print bridge only: print, receipt ready; ESC/POS drawer pulse), pinned HTTPS POS, no offline ledger/queue/renderer, no updater or publisher.');
 } catch (error) {
   const brief = String(error.message).replaceAll('%', '%25').replace(/[\r\n]+/g, ' | ').slice(0, 900);
   console.error(`::error title=Windows till package isolation::${brief}`);

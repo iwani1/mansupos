@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
+const { kickBytes, openDrawer, WINDOWS_SCRIPT } = require('../desktop/online/drawer.cjs');
 const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed, validSaleId } = require('../desktop/online/policy.cjs');
 const directory = path.resolve('desktop/online');
 const read = name => fs.readFileSync(path.join(directory, name), 'utf8');
@@ -30,7 +31,7 @@ test('Windows till has its own identity, no offline POS/website bundle and no pu
   assert.equal(config.electronVersion, pos.devDependencies.electron);
   assert.equal(config.asar, true);
   assert.equal(config.npmRebuild, false);
-  assert.deepEqual([...config.files].sort(), ['main.cjs', 'policy.cjs', 'preload.cjs', 'package.json'].sort());
+  assert.deepEqual([...config.files].sort(), ['main.cjs', 'policy.cjs', 'preload.cjs', 'drawer.cjs', 'package.json'].sort());
   assert.equal(config.publish, undefined);
   assert.equal(config.extraFiles, undefined);
   assert.equal(config.extraResources, undefined);
@@ -58,7 +59,7 @@ test('till has no local sale path, credential bridge, updater or browser-exposed
   assert.match(main, /downloadAllowed\(item\.getURL\(\)\)/);
   // The only bridge: print the receipt on screen. Nothing else reaches the page.
   assert.match(main, /preload: path\.join\(__dirname, 'preload\.cjs'\)/);
-  assert.match(preload, /exposeInMainWorld\('mansuTill', Object\.freeze\(\{\n {2}printReceipt: \(\) => ipcRenderer\.invoke\('mansu-till:print-receipt'\),\n {2}receiptReady: saleId => ipcRenderer\.invoke\('mansu-till:receipt-ready', String\(saleId\)\.slice\(0, 100\)\),\n\}\)\)/);
+  assert.match(preload, /exposeInMainWorld\('mansuTill', Object\.freeze\(\{\n {2}printReceipt: \(\) => ipcRenderer\.invoke\('mansu-till:print-receipt'\),\n {2}receiptReady: \(saleId, paymentMethod\) => ipcRenderer\.invoke\('mansu-till:receipt-ready', String\(saleId\)\.slice\(0, 100\), paymentMethod === 'cash'\),\n\}\)\)/);
   assert.equal((preload.match(/exposeInMainWorld/g) || []).length, 1);
   assert.equal((preload.match(/ipcRenderer\./g) || []).length, 2);
   assert.doesNotMatch(preload, /\bfs\b|child_process|shell|net\.|send\(|sendSync|webFrame/);
@@ -152,9 +153,12 @@ test('POS must answer directly over HTTPS as healthy live JSON before the till o
 });
 
 test('receipt printer setting and print requests are validated', () => {
-  assert.deepEqual(parseSettings('{"receiptPrinter":"EPSON TM-T20III Receipt"}'), { receiptPrinter: 'EPSON TM-T20III Receipt', autoPrint: false });
-  assert.deepEqual(parseSettings('{"receiptPrinter":"  XP-80C  ","autoPrint":true}'), { receiptPrinter: 'XP-80C', autoPrint: true });
-  assert.deepEqual(parseSettings('{"receiptPrinter":"XP-80C","autoPrint":"yes"}'), { receiptPrinter: 'XP-80C', autoPrint: false });
+  const off = { autoPrint: false, drawerOnCash: false, drawerPin: 2 };
+  assert.deepEqual(parseSettings('{"receiptPrinter":"EPSON TM-T20III Receipt"}'), { receiptPrinter: 'EPSON TM-T20III Receipt', ...off });
+  assert.deepEqual(parseSettings('{"receiptPrinter":"  XP-80C  ","autoPrint":true}'), { ...off, receiptPrinter: 'XP-80C', autoPrint: true });
+  assert.deepEqual(parseSettings('{"receiptPrinter":"XP-80C","autoPrint":"yes","drawerOnCash":1,"drawerPin":9}'), { receiptPrinter: 'XP-80C', ...off });
+  assert.deepEqual(parseSettings('{"receiptPrinter":"XP-80T","drawerOnCash":true,"drawerPin":5}'), { ...off, receiptPrinter: 'XP-80T', drawerOnCash: true, drawerPin: 5 });
+  assert.deepEqual(parseSettings('garbage'), { receiptPrinter: null, ...off });
   for (const text of ['', 'not json', 'null', '{"receiptPrinter":5}', '{"receiptPrinter":""}',
     JSON.stringify({ receiptPrinter: 'x'.repeat(257) }), JSON.stringify({ receiptPrinter: 'bad\nname' })]) {
     assert.equal(parseSettings(text).receiptPrinter, null, text);
@@ -180,8 +184,9 @@ test('auto-print: only a just-paid sale, once, and only when switched on with a 
   for (const id of ['2b8f1c3e-0000-4000-8000-000000000000', 'DEMO-2BFCEBFE', '1234']) assert.equal(validSaleId(id), true, id);
   for (const id of ['', 'x'.repeat(101), 'a b', '<script>', 5, null, undefined]) assert.equal(validSaleId(id), false, String(id));
   const main = read('main.cjs');
-  assert.match(main, /if \(!settings\.autoPrint \|\| !settings\.receiptPrinter \|\| !validSaleId\(saleId\)\) return \{ printed: false \};/);
-  assert.match(main, /if \(autoPrinted\.includes\(saleId\)\) return/);
+  assert.match(main, /if \(!settings\.receiptPrinter \|\| !validSaleId\(saleId\)\) return \{ printed: false \};/);
+  assert.match(main, /if \(handledSales\.includes\(saleId\)\) return/);
+  assert.match(main, /return settings\.autoPrint \? printReceipt\(contents\) : \{ printed: false \};/);
   const app = fs.readFileSync('src/App.jsx', 'utf8'), checkout = fs.readFileSync('src/Checkout.jsx', 'utf8');
   // Only the payment path marks a receipt fresh; reopening from Sales history does not.
   assert.equal((app.match(/setFreshSaleId\(sale\?\.id\?\?null\)/g) || []).length, 1);
@@ -189,4 +194,25 @@ test('auto-print: only a just-paid sale, once, and only when switched on with a 
   assert.match(app, /fresh=\{receipt\.id!=null&&receipt\.id===freshSaleId\}/);
   assert.match(app, /onReceipt=\{setReceipt\}/);
   assert.match(checkout, /if \(!fresh \|\| locked\) return undefined;/);
+});
+
+test('cash drawer: exact ESC/POS pulse, cash sales only, fixed Windows spooler script with no injected input', async () => {
+  assert.equal(kickBytes(2).toString('hex'), '1b700019fa');
+  assert.equal(kickBytes(5).toString('hex'), '1b700119fa');
+  assert.equal(kickBytes().toString('hex'), '1b700019fa');
+  await assert.rejects(() => openDrawer('', 2), /No receipt printer/);
+  await assert.rejects(() => openDrawer(null, 2), /No receipt printer/);
+  // The printer name and bytes reach the script only through the environment.
+  assert.match(WINDOWS_SCRIPT, /\$env:MANSU_DRAWER_PRINTER/);
+  assert.match(WINDOWS_SCRIPT, /\$env:MANSU_DRAWER_BYTES/);
+  assert.match(WINDOWS_SCRIPT, /pDataType = "RAW"/);
+  const drawer = read('drawer.cjs'), main = read('main.cjs'), preload = read('preload.cjs');
+  assert.doesNotMatch(drawer, /shell:\s*true|exec\(|execSync|\$\{printer\}/);
+  assert.match(drawer, /System32', 'WindowsPowerShell', 'v1\.0', 'powershell\.exe'/);
+  assert.match(preload, /paymentMethod === 'cash'\)/);
+  assert.match(main, /if \(cash === true && settings\.drawerOnCash\) openCashDrawer\(/);
+  assert.match(main, /receiptReady\(window\.webContents, saleId, cash === true\)/);
+  assert.match(main, /logDrawer\(reason, 'opened'\)/);
+  assert.match(main, /logDrawer\(reason, `FAILED: /);
+  assert.match(fs.readFileSync('src/Checkout.jsx', 'utf8'), /autoPrintReceipt\(sale\.id, sale\.paymentMethod\)/);
 });
