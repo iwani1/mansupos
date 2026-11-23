@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos } = require('../desktop/online/policy.cjs');
+const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed } = require('../desktop/online/policy.cjs');
 const directory = path.resolve('desktop/online');
 const read = name => fs.readFileSync(path.join(directory, name), 'utf8');
 const request = (url, method = 'GET', resourceType = 'xhr') => requestAllowed({ url, method, resourceType });
@@ -30,7 +30,7 @@ test('Windows till has its own identity, no offline POS/website bundle and no pu
   assert.equal(config.electronVersion, pos.devDependencies.electron);
   assert.equal(config.asar, true);
   assert.equal(config.npmRebuild, false);
-  assert.deepEqual([...config.files].sort(), ['main.cjs', 'policy.cjs', 'package.json'].sort());
+  assert.deepEqual([...config.files].sort(), ['main.cjs', 'policy.cjs', 'preload.cjs', 'package.json'].sort());
   assert.equal(config.publish, undefined);
   assert.equal(config.extraFiles, undefined);
   assert.equal(config.extraResources, undefined);
@@ -45,7 +45,7 @@ test('Windows till has its own identity, no offline POS/website bundle and no pu
 });
 
 test('till has no local sale path, credential bridge, updater or browser-exposed Node access', () => {
-  const main = read('main.cjs'), policy = read('policy.cjs');
+  const main = read('main.cjs'), policy = read('policy.cjs'), preload = read('preload.cjs');
   assert.match(main, /session\.fromPartition\(partition, \{ cache: false \}\)/);
   assert.match(main, /webRequest\.onBeforeRequest/);
   assert.match(main, /verifyPos\(\)/);
@@ -56,8 +56,16 @@ test('till has no local sale path, credential bridge, updater or browser-exposed
   assert.match(main, /setWindowOpenHandler\(\(\) => \(\{ action: 'deny' \}\)\)/);
   assert.match(main, /setPermissionRequestHandler\(\(_contents, _permission, callback\) => callback\(false\)\)/);
   assert.match(main, /downloadAllowed\(item\.getURL\(\)\)/);
-  assert.doesNotMatch(main, /preload/);
-  assert.doesNotMatch(main + policy, /\bnode:sqlite\b|\bsafeStorage\b|\belectron-updater\b|\bDesktopStore\b|\bDesktopRemote\b|\bmansuDesktop\s*=|\brequire\(['"]\.\.\/store/);
+  // The only bridge: print the receipt on screen. Nothing else reaches the page.
+  assert.match(main, /preload: path\.join\(__dirname, 'preload\.cjs'\)/);
+  assert.match(preload, /exposeInMainWorld\('mansuTill', Object\.freeze\(\{\n {2}printReceipt: \(\) => ipcRenderer\.invoke\('mansu-till:print-receipt'\),\n\}\)\)/);
+  assert.equal((preload.match(/exposeInMainWorld/g) || []).length, 1);
+  assert.equal((preload.match(/ipcRenderer\./g) || []).length, 1);
+  assert.doesNotMatch(preload, /\bfs\b|child_process|shell|net\.|send\(|sendSync|webFrame/);
+  assert.equal((main.match(/ipcMain\.(handle|on)\(/g) || []).length, 1);
+  assert.match(main, /event\.sender !== window\.webContents \|\| event\.senderFrame !== window\.webContents\.mainFrame/);
+  assert.match(main, /printRequestAllowed\(event\.senderFrame\.url\)/);
+  assert.doesNotMatch(main + policy + preload, /\bnode:sqlite\b|\bsafeStorage\b|\belectron-updater\b|\bDesktopStore\b|\bDesktopRemote\b|\bmansuDesktop\s*=|\brequire\(['"]\.\.\/store/);
   assert.doesNotMatch(policy, /process\.env|http:\/\/|trading\.mansutrendzgh\.com/);
   assert.equal(POS_ORIGIN, 'https://pos.mansutrendzgh.com');
 });
@@ -141,4 +149,28 @@ test('POS must answer directly over HTTPS as healthy live JSON before the till o
     { contentType: 'text/html' }, { mode: 'demo' }, { mode: 'staging' }, { ok: false },
   ]) await assert.rejects(() => verifyPos(async () => healthResponse(response)), /could not be reached securely/);
   await assert.rejects(() => verifyPos(async () => { throw new Error('certificate rejected'); }), /could not be reached securely/);
+});
+
+test('receipt printer setting and print requests are validated', () => {
+  assert.deepEqual(parseSettings('{"receiptPrinter":"EPSON TM-T20III Receipt"}'), { receiptPrinter: 'EPSON TM-T20III Receipt' });
+  assert.deepEqual(parseSettings('{"receiptPrinter":"  XP-80C  "}'), { receiptPrinter: 'XP-80C' });
+  for (const text of ['', 'not json', 'null', '{"receiptPrinter":5}', '{"receiptPrinter":""}',
+    JSON.stringify({ receiptPrinter: 'x'.repeat(257) }), JSON.stringify({ receiptPrinter: 'bad\nname' })]) {
+    assert.deepEqual(parseSettings(text), { receiptPrinter: null }, text);
+  }
+  assert.equal(printRequestAllowed(`${POS_ORIGIN}/`), true);
+  for (const url of ['about:blank', 'https://example.com/', `${POS_ORIGIN}/other`, 'http://pos.mansutrendzgh.com/', 'not a url', undefined]) {
+    assert.equal(printRequestAllowed(url), false, String(url));
+  }
+});
+
+test('web receipt buttons print through the till bridge, falling back to the browser dialog', () => {
+  const helper = fs.readFileSync('src/print-receipt.js', 'utf8');
+  assert.match(helper, /window\.mansuTill/);
+  assert.match(helper, /window\.print\(\)/);
+  for (const file of ['src/Checkout.jsx', 'src/InStore.jsx']) {
+    const source = fs.readFileSync(file, 'utf8');
+    assert.match(source, /onClick=\{printReceipt\}/, file);
+    assert.doesNotMatch(source, /window\.print\(\)/, file);
+  }
 });

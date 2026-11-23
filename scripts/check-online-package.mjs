@@ -7,7 +7,7 @@ try {
   const file = process.argv[2];
   if (!file || !fs.existsSync(file)) throw new Error('Pass the Windows till resources/app.asar for inspection.');
   const entries = listPackage(file).map(name => name.replaceAll('\\', '/').replace(/^\/+/, '')).sort();
-  const expected = ['main.cjs', 'policy.cjs', 'package.json'].sort();
+  const expected = ['main.cjs', 'policy.cjs', 'preload.cjs', 'package.json'].sort();
   assert.deepEqual(entries, expected, 'Unexpected Windows online package contents (offline ledger, web bundle or secrets?).');
   const content = name => extractFile(file, name.split('/').join(path.sep)).toString();
   const manifest = JSON.parse(content('package.json'));
@@ -24,10 +24,13 @@ try {
   assert.match(policy, /https:\/\/pos\.mansutrendzgh\.com/);
   assert.match(main, /\/api\/desktop\/sync/); // offline sync explicitly denied in the packaged smoke check
   assert.match(main, /contextIsolation: true/);
-  assert.doesNotMatch(main, /preload/);
+  const preload = content('preload.cjs');
+  assert.equal((preload.match(/exposeInMainWorld/g) || []).length, 1);
+  assert.match(preload, /printReceipt: \(\) => ipcRenderer\.invoke\('mansu-till:print-receipt'\)/);
+  assert.doesNotMatch(preload, /\bfs\b|child_process|shell|sendSync|webFrame/);
   assert.doesNotMatch(main + policy, /\bnode:sqlite\b|\bsafeStorage\b|\belectron-updater\b|\bDesktopStore\b|\bDesktopRemote\b|\bmansuDesktop\s*=/);
   assert.doesNotMatch(policy, /process\.env|trading\.mansutrendzgh\.com|http:\/\//);
-  console.log('Packaged Mansu POS till: three files, pinned HTTPS POS, no offline ledger/queue/renderer, no updater or publisher.');
+  console.log('Packaged Mansu POS till: four files (receipt-print bridge only), pinned HTTPS POS, no offline ledger/queue/renderer, no updater or publisher.');
 } catch (error) {
   const brief = String(error.message).replaceAll('%', '%25').replace(/[\r\n]+/g, ' | ').slice(0, 900);
   console.error(`::error title=Windows till package isolation::${brief}`);

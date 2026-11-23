@@ -89,4 +89,20 @@ async function verifyPos(fetchImpl = fetch) {
   }
 }
 
-module.exports = { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos };
+// Till settings live in the app's own folder (till-settings.json). Only the
+// receipt printer's name is kept; anything unexpected is ignored.
+function parseSettings(text) {
+  try {
+    const value = JSON.parse(String(text || ''));
+    const printer = value && typeof value.receiptPrinter === 'string' ? value.receiptPrinter.trim() : '';
+    return { receiptPrinter: printer && printer.length <= 256 && ![...printer].some(ch => ch.charCodeAt(0) < 32) ? printer : null };
+  } catch { return { receiptPrinter: null }; }
+}
+
+// Only the POS page in the till window may ask for a silent print.
+function printRequestAllowed(frameUrl) {
+  try { const url = new URL(frameUrl); return url.origin === POS_ORIGIN && url.pathname === '/'; }
+  catch { return false; }
+}
+
+module.exports = { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed };

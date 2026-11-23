@@ -5,9 +5,11 @@
 // stock allocation, offline sale, sync queue or update feed. The pinned HTTPS
 // POS service is the only place a sale, stock change or cash movement happens,
 // and it enforces staff permissions and its own trading gates.
+const fs = require('node:fs');
 const path = require('node:path');
-const { app, BrowserWindow, dialog, Menu, net, session } = require('electron');
-const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos: verifyWith } = require('./policy.cjs');
+const { app, BrowserWindow, dialog, ipcMain, Menu, net, session } = require('electron');
+const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos: verifyWith,
+  parseSettings, printRequestAllowed } = require('./policy.cjs');
 
 // Chromium's network stack: honours the Windows proxy settings and the
 // Windows certificate store, exactly like the till window itself.
@@ -22,6 +24,7 @@ const partition = 'persist:mansu-pos-till';
 const CHECK_EVERY_MS = 15000;
 const BANNER_ID = 'mansu-till-connection-banner';
 let window, timer, quitting = false, online = true, serverInfo = { readOnly: false, version: '' };
+let settings = { receiptPrinter: null }, printing = false;
 
 app.setAppUserModelId('com.mansutrendzgh.pos.online');
 const single = app.requestSingleInstanceLock();
@@ -92,6 +95,122 @@ async function loadPos(problem) {
   await window.loadURL(`${POS_ORIGIN}/`).catch(() => { /* did-fail-load handles it */ });
 }
 
+// ---- Receipt printer -------------------------------------------------------
+// With a receipt printer chosen, "Print receipt" prints straight to it with no
+// dialog. Without one, or if it is missing or fails, the normal Windows print
+// dialog is offered instead, so a receipt can always be printed.
+const settingsFile = () => path.join(app.getPath('userData'), 'till-settings.json');
+function loadSettings() {
+  try { settings = parseSettings(fs.readFileSync(settingsFile(), 'utf8')); }
+  catch { settings = { receiptPrinter: null }; }
+}
+function saveSettings() {
+  try { fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2)); }
+  catch (error) { dialog.showErrorBox(APP_NAME, `The printer choice could not be saved: ${error.message}`); }
+}
+
+const printWith = (contents, options) => new Promise(resolve => {
+  contents.print(options, (success, reason) => resolve({ success, reason }));
+});
+
+async function printerExists(contents, name) {
+  const printers = await contents.getPrintersAsync();
+  return printers.some(printer => printer.name === name);
+}
+
+async function offerDialogPrint(contents, problem) {
+  const { response } = await dialog.showMessageBox(window, {
+    type: 'warning', title: APP_NAME, buttons: ['Print with dialog', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true,
+    message: 'The receipt did not print', detail: `${problem}\n\nCheck the printer is on, has paper and is connected, or choose another one under Receipt printer.`,
+  });
+  if (response === 0) await printWith(contents, { silent: false });
+}
+
+async function printReceipt(contents) {
+  if (printing) return { printed: false, reason: 'busy' };
+  printing = true;
+  try {
+    const name = settings.receiptPrinter;
+    if (!name) {
+      const { success } = await printWith(contents, { silent: false });
+      return { printed: success, silent: false };
+    }
+    if (!(await printerExists(contents, name))) {
+      await offerDialogPrint(contents, `The receipt printer "${name}" is not installed on this computer.`);
+      return { printed: false, reason: 'missing' };
+    }
+    const { success, reason } = await printWith(contents, { silent: true, deviceName: name, printBackground: false });
+    if (!success) await offerDialogPrint(contents, `"${name}" reported: ${reason || 'printing failed'}.`);
+    return { printed: success, silent: true };
+  } finally { printing = false; }
+}
+
+async function chooseReceiptPrinter() {
+  const printers = (await window.webContents.getPrintersAsync()).slice(0, 12);
+  const names = printers.map(printer => printer.name);
+  const buttons = [...printers.map(printer => printer.displayName || printer.name), 'Ask each time (print dialog)', 'Cancel'];
+  const { response } = await dialog.showMessageBox(window, {
+    type: 'question', title: 'Receipt printer', buttons, cancelId: buttons.length - 1, noLink: true,
+    message: 'Which printer should receipts go to?',
+    detail: `Now: ${settings.receiptPrinter || 'ask each time'}.\n\nReceipts will print straight to the chosen printer with no dialog. ` +
+      'Match the paper width on the receipt screen (80 mm, 58 mm or A4) to the printer.' +
+      (printers.length ? '' : '\n\nNo printers are installed. Install the printer driver in Windows first.'),
+  });
+  if (response === buttons.length - 1) return;
+  settings.receiptPrinter = response < names.length ? names[response] : null;
+  saveSettings();
+  buildMenu();
+  if (settings.receiptPrinter) {
+    const { response: test } = await dialog.showMessageBox(window, {
+      type: 'info', title: 'Receipt printer', buttons: ['Print a test receipt', 'Not now'], defaultId: 0, cancelId: 1, noLink: true,
+      message: `Receipts will print to "${settings.receiptPrinter}".`,
+    });
+    if (test === 0) await printTestReceipt();
+  }
+}
+
+const testReceiptHtml = () => `<!doctype html><meta charset="utf-8"><style>
+@page{margin:3mm}body{margin:0;font:11px/1.4 monospace;color:#000;width:72mm}h1{font-size:14px;margin:0 0 4px;text-align:center}
+p{margin:2px 0}hr{border:0;border-top:1px dashed #000;margin:6px 0}.c{text-align:center}</style>
+<h1>MANSUTRENDZGH</h1><p class="c">Mansu POS for Windows</p><hr><p>TEST PRINT — NOT A RECEIPT</p>
+<p>Printer: ${String(settings.receiptPrinter).replace(/[<>&]/g, '')}</p><p>${new Date().toLocaleString('en-GB')}</p><hr>
+<p>1234567890123456789012345678901234567890</p><p class="c">If this line is centred and not cut off, the printer is ready.</p>`;
+
+async function printTestReceipt() {
+  if (!settings.receiptPrinter) { await chooseReceiptPrinter(); return; }
+  const page = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false, contextIsolation: true } });
+  try {
+    await page.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(testReceiptHtml())}`);
+    if (!(await printerExists(page.webContents, settings.receiptPrinter))) {
+      dialog.showErrorBox('Receipt printer', `"${settings.receiptPrinter}" is not installed on this computer. Choose another printer.`);
+      return;
+    }
+    const { success, reason } = await printWith(page.webContents, { silent: true, deviceName: settings.receiptPrinter, printBackground: false });
+    if (!success) dialog.showErrorBox('Receipt printer', `The test did not print: ${reason || 'printing failed'}.`);
+  } finally { page.destroy(); }
+}
+
+function buildMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'POS', submenu: [
+      { label: 'Reload', accelerator: 'Ctrl+R', click: () => loadPos() },
+      { type: 'separator' },
+      { role: 'togglefullscreen', label: 'Full screen', accelerator: 'F11' },
+      { role: 'zoomIn', label: 'Larger text', accelerator: 'Ctrl+=' },
+      { role: 'zoomOut', label: 'Smaller text', accelerator: 'Ctrl+-' },
+      { role: 'resetZoom', label: 'Normal text size', accelerator: 'Ctrl+0' },
+      { type: 'separator' }, { role: 'quit', label: 'Close' },
+    ] },
+    { label: 'Receipt printer', submenu: [
+      { label: settings.receiptPrinter ? `Printing to: ${settings.receiptPrinter}` : 'Not chosen: print dialog each time', enabled: false },
+      { type: 'separator' },
+      { label: 'Choose receipt printer…', click: chooseReceiptPrinter },
+      { label: 'Print a test receipt', enabled: Boolean(settings.receiptPrinter), click: printTestReceipt },
+    ] },
+    { label: 'Help', submenu: [{ label: `About ${APP_NAME}`, click: about }] },
+  ]));
+}
+
 function about() {
   dialog.showMessageBox(window, {
     type: 'info', title: APP_NAME, message: `${APP_NAME} for Windows ${app.getVersion()}`,
@@ -121,7 +240,7 @@ async function start() {
     title: APP_NAME, width: 1360, height: 870, minWidth: 760, minHeight: 620,
     backgroundColor: '#1c1920', show: false, autoHideMenuBar: false,
     webPreferences: {
-      partition, contextIsolation: true, nodeIntegration: false,
+      partition, preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false,
       nodeIntegrationInWorker: false, sandbox: true, webSecurity: true,
       webviewTag: false, devTools: !app.isPackaged, spellcheck: false,
     },
@@ -139,18 +258,15 @@ async function start() {
   });
   window.once('ready-to-show', () => { if (!quitting) window.show(); });
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'POS', submenu: [
-      { label: 'Reload', accelerator: 'Ctrl+R', click: () => loadPos() },
-      { type: 'separator' },
-      { role: 'togglefullscreen', label: 'Full screen', accelerator: 'F11' },
-      { role: 'zoomIn', label: 'Larger text', accelerator: 'Ctrl+=' },
-      { role: 'zoomOut', label: 'Smaller text', accelerator: 'Ctrl+-' },
-      { role: 'resetZoom', label: 'Normal text size', accelerator: 'Ctrl+0' },
-      { type: 'separator' }, { role: 'quit', label: 'Close' },
-    ] },
-    { label: 'Help', submenu: [{ label: `About ${APP_NAME}`, click: about }] },
-  ]));
+  loadSettings();
+  buildMenu();
+  // The page's only bridge (preload.cjs). Accept it only from the POS page in
+  // the till window, never from another frame or window.
+  ipcMain.handle('mansu-till:print-receipt', event => {
+    if (!window || window.isDestroyed() || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
+        !printRequestAllowed(event.senderFrame.url)) return { printed: false, reason: 'refused' };
+    return printReceipt(window.webContents);
+  });
 
   if (smoke) {
     // Packaged Windows runner checks the real Electron window and request
@@ -161,14 +277,15 @@ async function start() {
     ]);
     const isolated = await Promise.race([
       window.webContents.executeJavaScript(
-        "document.readyState === 'complete' && typeof require === 'undefined' && !window.mansuDesktop && !window.mansuPractice"),
+        "document.readyState === 'complete' && typeof require === 'undefined' && !window.mansuDesktop && !window.mansuPractice && " +
+        "Object.keys(window.mansuTill || {}).join() === 'printReceipt' && typeof window.mansuTill.printReceipt === 'function'"),
       new Promise((_, reject) => setTimeout(() => reject(new Error('QA renderer did not respond.')), 10000)),
     ]);
     const sells = requestAllowed({ url: `${POS_ORIGIN}/api/sales/prepare`, method: 'POST', resourceType: 'xhr' });
     const offlineSync = requestAllowed({ url: `${POS_ORIGIN}/api/desktop/sync`, method: 'POST', resourceType: 'xhr' });
     const otherSite = requestAllowed({ url: 'https://example.com/', method: 'GET', resourceType: 'mainFrame' });
     if (!isolated || !sells || offlineSync || otherSite) throw new Error('Packaged till sandbox or request policy failed.');
-    console.log('Packaged Mansu POS window opened sandboxed; online checkout allowed, offline sync and other sites blocked; no real network request.');
+    console.log('Packaged Mansu POS window opened sandboxed with only the receipt-print bridge; online checkout allowed, offline sync and other sites blocked; no real network request.');
     app.exit(0);
     return;
   }
