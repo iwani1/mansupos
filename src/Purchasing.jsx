@@ -14,7 +14,8 @@ const cedis = value => { const t = String(value ?? '').trim(); return /^\d{1,7}(
 const asCedis = cents => cents == null ? '' : (cents / 100).toFixed(2);
 const lineName = l => `${l.name}${l.label && l.label !== 'Standard' ? ` · ${l.label}` : ''}`;
 function csv(rows, name) {
-  const cell = v => { let t = String(v ?? ''); if (/^[=+\-@]/.test(t)) t = `'${t}`; return /[",\n]/.test(t) ? `"${t.replaceAll('"', '""')}"` : t; };
+  // eslint-disable-next-line no-control-regex -- CSV formula and control-character hardening.
+  const cell = v => { let t = String(v ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); if (/^[\s]*[=+@\-\t\r]/.test(t)) t = `'${t}`; return `"${t.replaceAll('"', '""')}"`; };
   const url = URL.createObjectURL(new Blob([`\ufeff${rows.map(r => r.map(cell).join(',')).join('\r\n')}`], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

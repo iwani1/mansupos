@@ -13,7 +13,11 @@ import { imageType } from './wp-media.js';
 const MAX_OPTIONS = 100;
 const money = z.string().trim().regex(/^\d{1,7}(\.\d{1,2})?$/, 'Use a GHS amount like 120 or 120.50');
 const optionalMoney = z.union([money, z.literal('')]).default('');
-const line = max => z.string().trim().max(max).refine(v => !/[\r\n\0]/.test(v), 'Use one line');
+// Product text is published to the public website through an administrator's
+// Application Password, which WordPress lets store raw HTML. Refuse markup
+// characters so a POS account can never plant a script on the shop.
+const NO_MARKUP = 'Remove < and > from this text';
+const line = max => z.string().trim().max(max).refine(v => !/[\r\n\0]/.test(v), 'Use one line').refine(v => !/[<>]/.test(v), NO_MARKUP);
 const sku = line(60).default('');
 const name = line(80).min(1);
 const imageRef = z.object({ id: z.number().int().positive(), src: z.string().max(1_000_000).default('') }).strict();
