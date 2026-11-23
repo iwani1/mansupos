@@ -258,6 +258,10 @@ export function readConfig(env = process.env) {
     port, bindHost, production, publicOrigin,
     trustProxy: env.POS_TRUST_PROXY || (production ? 'loopback' : '1'),
     ownerUsername: (env.POS_OWNER_USERNAME || '').toLowerCase().trim(), ownerPassword: env.POS_OWNER_PASSWORD || '',
+    // Platform sign-up hands over only the scrypt hash of the owner's chosen password.
+    ownerPasswordHash: tenantId && /^scrypt2:\d+:\d+:\d+:[0-9a-f]{32}:[0-9a-f]{128}$/.test(env.POS_OWNER_PASSWORD_HASH || '') ? env.POS_OWNER_PASSWORD_HASH : '',
+    ownerName: tenantId ? (env.POS_OWNER_NAME || '').trim().slice(0, 80) : '',
+    platformStage: tenantId && ['setup', 'read_only', 'selling'].includes(env.POS_PLATFORM_STAGE) ? env.POS_PLATFORM_STAGE : '',
     businessName,
     businessAddress: env.POS_BUSINESS_ADDRESS || '', businessPhone: env.POS_BUSINESS_PHONE || '', businessTaxId: env.POS_BUSINESS_TAX_ID || '',
     receiptFooter: env.POS_RECEIPT_FOOTER || `Thank you for shopping with ${businessName}.`,
@@ -285,7 +289,7 @@ export function shouldRunReconcileTimer(config) {
 export function publicConfig(config) {
   return {
     mode: config.mode, storeUrl: config.storeUrl, configured: config.configured,
-    platformShop: Boolean(config.tenantId),
+    platformShop: Boolean(config.tenantId), platformStage: config.platformStage || undefined,
     liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
     liveRetailCashDirect: Boolean(config.liveRetailCashDirect),
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,

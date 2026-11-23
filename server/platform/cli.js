@@ -15,7 +15,8 @@ const usage = `Usage: npm run platform -- <command> [options]
   set-feature --slug <slug> --feature ${FEATURES.join('|')} --on|--off
   set-business --slug <slug> [--address ..] [--phone ..] [--tax-id ..] [--receipt-footer ..] [--receipt-width 58|80|a4]
   suspend --slug <slug> | resume --slug <slug>
-  backup [--to <folder>]                  (central database + every shop's database, verified)`;
+  backup [--to <folder>]                  (central database + every shop's database, verified)
+  outbox [--last <n>]                     (emails queued while no email provider is set up)`;
 
 function options(args) {
   const out = {};
@@ -99,6 +100,9 @@ try {
       console.log('Back up PLATFORM_MASTER_KEY separately: without it the saved shop keys cannot be read.');
       break;
     }
+    case 'outbox':
+      for (const m of platform.mailer.list(Number(opt.last) || 10)) console.log(`--- ${m.queuedAt}  to: ${m.to}\n${m.subject}\n\n${m.text}\n`);
+      break;
     case 'suspend': registry.update(shop().id, { status: 'suspended' }, actor); console.log('Suspended.'); break;
     case 'resume': registry.update(shop().id, { status: 'active' }, actor); console.log('Active.'); break;
     default: throw new Error(`Unknown command.\n${usage}`);

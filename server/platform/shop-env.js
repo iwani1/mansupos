@@ -41,9 +41,12 @@ export function buildShopEnv(shop, secrets, platform, { owner } = {}) {
   if (business.taxId) env.POS_BUSINESS_TAX_ID = business.taxId;
   if (business.receiptFooter) env.POS_RECEIPT_FOOTER = business.receiptFooter;
   if (business.receiptWidth) env.POS_RECEIPT_WIDTH = business.receiptWidth;
+  env.POS_PLATFORM_STAGE = shop.stage;
   if (owner) {
     env.POS_OWNER_USERNAME = owner.username;
-    env.POS_OWNER_PASSWORD = owner.password;
+    if (owner.passwordHash) env.POS_OWNER_PASSWORD_HASH = owner.passwordHash;
+    else env.POS_OWNER_PASSWORD = owner.password;
+    if (owner.name) env.POS_OWNER_NAME = owner.name;
   }
   return env;
 }
