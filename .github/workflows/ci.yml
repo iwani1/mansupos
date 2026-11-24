@@ -411,8 +411,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Test HTTPS POS pin, till request policy and package boundaries
-        run: node --test tests/online-till.test.js
+      - name: Test HTTPS POS pin, till request policy, signed updates and package boundaries
+        run: node --test tests/online-till.test.js tests/online-till-updater.test.js
         timeout-minutes: 3
       - name: Download official Windows Electron runtime
         run: node node_modules/electron/install.js
@@ -462,6 +462,27 @@ jobs:
           Copy-Item docs/WINDOWS-ONLINE-TILL.md "$out/READ-ME-MANSU-POS-WINDOWS.md"
           Write-Host "Mansu POS (online till), signature $($signature.Status): $($setup[0].Name), SHA256 $hash"
           Write-Host 'Only a time-limited Actions artifact is uploaded; no GitHub Release or Woo change.'
+      - name: Signed-update signature check through real Windows PowerShell
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = @(Get-ChildItem 'desktop/online/release' -Filter 'Mansu-POS-ONLINE-*-Windows-Setup.exe' -File)[0].FullName
+          $env:MANSU_EXPECT = if ($env:SIGNING -eq 'true') { 'Valid' } else { 'NotSigned' }
+          $env:MANSU_SETUP = $setup
+          @'
+          const { readSignature, runCapture, samePublisher } = require(require('node:path').resolve('desktop/online/updater.cjs'));
+          (async () => {
+            const setup = await readSignature(process.env.MANSU_SETUP, runCapture);
+            const windows = await readSignature(require('node:path').join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), runCapture);
+            console.log('Installer:', JSON.stringify(setup), ' Windows PowerShell:', JSON.stringify(windows));
+            if (setup.status !== process.env.MANSU_EXPECT) throw new Error(`Updater read the installer as ${setup.status}, expected ${process.env.MANSU_EXPECT}.`);
+            if (windows.status !== 'Valid' || !/Microsoft/.test(windows.subject)) throw new Error('Updater could not read a real valid signature.');
+            if (samePublisher(windows, setup)) throw new Error('A Microsoft-signed file must not count as the till publisher.');
+          })().catch(error => { console.error(error.message); process.exit(1); });
+          '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/signature-check.cjs"
+          node "$env:RUNNER_TEMP/signature-check.cjs"
+          if ($LASTEXITCODE -ne 0) { throw 'Signed-update signature check failed.' }
       - uses: actions/upload-artifact@v7
         with:
           name: mansu-pos-ONLINE-Windows-x64-${{ github.run_id }}

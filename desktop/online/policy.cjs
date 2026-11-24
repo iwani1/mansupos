@@ -169,8 +169,8 @@ function printRequestAllowed(frameUrl) {
 const validSaleId = value => typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,100}$/.test(value);
 
 // Release notice published by the platform: offered only when newer, and only
-// with a download on an allowed HTTPS host (the till never installs by itself
-// until releases are code-signed).
+// with a download on an allowed HTTPS host. Its SHA-256 is passed on so a
+// code-signed till can verify the download before installing (updater.cjs).
 function newerRelease(json, currentVersion) {
   const parse = v => (/^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/.exec(String(v || '')) || []).slice(1).map(Number);
   const next = parse(json?.version), now = parse(currentVersion);
@@ -180,7 +180,8 @@ function newerRelease(json, currentVersion) {
   let url;
   try { url = new URL(json.url); } catch { return null; }
   if (url.protocol !== 'https:' || url.username || url.password || !TILL.downloadHosts.includes(url.hostname)) return null;
-  return { version: json.version, url: url.toString(), notes: String(json.notes || '').slice(0, 400) };
+  const sha256 = /^[0-9a-f]{64}$/i.test(String(json.sha256 || '')) ? String(json.sha256).toLowerCase() : null;
+  return { version: json.version, url: url.toString(), notes: String(json.notes || '').slice(0, 400), ...(sha256 ? { sha256 } : {}) };
 }
 
 module.exports = { TILL, validShopOrigin, shopAddress, pinShop, currentShop, newerRelease, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed, validSaleId };

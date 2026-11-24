@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { app, BrowserWindow, dialog, ipcMain, Menu, net, session, shell } = require('electron');
 const { openDrawer } = require('./drawer.cjs');
+const { createUpdater, runCapture } = require('./updater.cjs');
 const { TILL, shopAddress, pinShop, currentShop, newerRelease, posRoot, requestAllowed, downloadAllowed, downloadName,
   verifyPos: verifyWith, parseSettings, printRequestAllowed, validSaleId } = require('./policy.cjs');
 
@@ -304,7 +305,11 @@ function buildMenu() {
       { type: 'separator' },
       { label: 'Show drawer log', click: showDrawerLog },
     ] },
-    { label: 'Help', submenu: [{ label: 'Check for updates', click: () => checkForUpdate(true) }, { label: `About ${APP_NAME}`, click: about }] },
+    { label: 'Help', submenu: [
+      { label: 'Check for updates', click: () => checkForUpdate(true) },
+      { label: updates?.stagedVersion() ? `Install update ${updates.stagedVersion()} now…` : 'Install update now…', enabled: Boolean(updates?.stagedVersion()), click: installUpdateNow },
+      { label: `About ${APP_NAME}`, click: about },
+    ] },
   ]));
 }
 
@@ -465,8 +470,18 @@ async function changeShop() {
 }
 
 // ---- Updates ---------------------------------------------------------------
-// Until releases are code-signed the till never installs anything by itself:
-// it tells staff a new version exists and opens the download on an allowed host.
+// A code-signed till downloads a newer release, checks its SHA-256 and that
+// Windows reports a valid signature from the same publisher, and installs it
+// when staff close the till (updater.cjs). An unsigned till never installs
+// anything by itself: it tells staff a new version exists and opens the
+// download on an allowed host.
+let updates = null;
+let announcedVersion = null;
+const updater = () => updates || (updates = createUpdater({
+  execPath: process.execPath, updatesDir: path.join(app.getPath('userData'), 'updates'),
+  downloadHosts: TILL.downloadHosts, fetch: netFetch, run: runCapture, spawn: require('node:child_process').spawn, fs,
+}));
+
 async function checkForUpdate(manual) {
   try {
     const response = await net.fetch(TILL.updateFeed, { redirect: 'error', signal: AbortSignal.timeout(10000), headers: { Accept: 'application/json' } });
@@ -474,6 +489,20 @@ async function checkForUpdate(manual) {
     if (!release) {
       if (manual) dialog.showMessageBox(window, { type: 'info', title: APP_NAME, message: `You have the latest version (${app.getVersion()}).` });
       return;
+    }
+    if (await updater().signedTill()) {
+      const result = await updater().stage(release);
+      if (result.staged) {
+        buildMenu();
+        if (manual || announcedVersion !== result.version) {
+          announcedVersion = result.version;
+          dialog.showMessageBox(window, { type: 'info', title: APP_NAME, noLink: true,
+            message: `${APP_NAME} ${result.version} is ready to install`,
+            detail: `It installs by itself when the till is closed at the end of the day, then opens again. To install it sooner, choose Help → Install update now when no sale is in progress.${release.notes ? `\n\n${release.notes}` : ''}` });
+        }
+        return;
+      }
+      if (manual) dialog.showMessageBox(window, { type: 'warning', title: APP_NAME, message: `${APP_NAME} ${release.version} could not be prepared`, detail: `${result.reason} You can still download it yourself.` });
     }
     const { response: choice } = await dialog.showMessageBox(window, {
       type: 'info', title: APP_NAME, buttons: ['Download', 'Later'], defaultId: 0, cancelId: 1, noLink: true,
@@ -484,6 +513,17 @@ async function checkForUpdate(manual) {
   } catch {
     if (manual) dialog.showMessageBox(window, { type: 'warning', title: APP_NAME, message: 'Could not check for updates', detail: 'Check the internet connection and try again.' });
   }
+}
+
+async function installUpdateNow() {
+  const version = updates?.stagedVersion();
+  if (!version) return;
+  const { response: choice } = await dialog.showMessageBox(window, {
+    type: 'question', title: APP_NAME, buttons: ['Install and restart', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true,
+    message: `Install ${APP_NAME} ${version} now?`,
+    detail: 'Finish or hold the current sale first. The till closes, installs the update and opens again in about a minute. Shop, printer and drawer settings are kept.',
+  });
+  if (choice === 0) app.quit(); // before-quit runs the staged installer
 }
 
 async function start() {
@@ -501,4 +541,9 @@ if (single) app.whenReady().then(start).catch(error => {
   app.quit();
 });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { quitting = true; if (timer) clearInterval(timer); });
+app.on('before-quit', () => {
+  quitting = true;
+  if (timer) clearInterval(timer);
+  // A verified, staged update installs as the till closes (never while open).
+  try { updates?.installStaged(); } catch { /* the till still closes; the next check stages it again */ }
+});
