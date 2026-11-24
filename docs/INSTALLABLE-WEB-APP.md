@@ -12,6 +12,17 @@ The owner reports that the existing read-only **1.2.3** Contabo pilot includes t
 
 If no install option appears, use Chrome or Edge, confirm you are on the canonical HTTPS host, refresh once, and have an administrator check the endpoints below. Do not bypass a certificate warning. Other browsers may offer a shortcut or their own equivalent; the PWA itself is not a native executable. For the separate Windows QA `.exe`, see [Windows online pilot](archive/WINDOWS-ONLINE-PILOT.md).
 
+## Silent receipt printing (no print dialog)
+
+A web page cannot choose a printer or skip the print dialog by itself; that is a browser safety rule. Chrome and Edge allow it only when they are started in **kiosk printing** mode, which sends every print straight to the computer's **default printer**. Set this up only on a till PC whose default printer is the receipt printer, because every print from that browser profile then goes there without asking.
+
+1. In Windows *Settings → Bluetooth & devices → Printers & scanners*, turn off *Let Windows manage my default printer* and make the receipt printer the default. Print a Windows test page to check paper width and cutting.
+2. Install the app as above, then right-click its **Mansu POS** shortcut on the desktop (and the Start-menu one, if used) → **Properties**. At the end of **Target**, after the existing `--app-id=…`, add a space and `--kiosk-printing`. For example: `"C:\Program Files (x86)\Microsoft\Edge\Application\msedge_proxy.exe" --profile-directory=Default --app-id=abc… --kiosk-printing`. Choose **OK**.
+3. Close **every** Chrome/Edge window (check the system tray too), then open Mansu POS from that shortcut. The flag only takes effect when the browser starts from it.
+4. Make a sale (a demo sale is fine) and tick **Print automatically after each sale on this device** on the receipt. From then on, each just-paid sale prints once, by itself, with no dialog. **Print receipt** also prints without a dialog. A receipt reopened from Sales history never prints by itself.
+
+Without step 2, the auto-print tick still works but opens the normal print dialog after each sale. The tick is saved in that browser on that PC only (clearing site data turns it off). The web app cannot open a cash drawer or warn about a missing printer; if you need those, use the [Windows till](WINDOWS-ONLINE-TILL.md). A browser update can replace shortcuts, so recheck the **Target** after one if dialogs reappear.
+
 **This is not offline POS.** Only a public **Connection required** notice is stored for offline reopening. Product, session, sales, payment and `/api` responses are network-only and not saved by the service worker. If a running window reports the device offline, stop: do not use an old price/stock figure, accept payment or release goods. On reconnection the app rechecks the catalogue and keeps its warning until fresh reads succeed; use **Retry refresh** if they fail. Check current stock before continuing. The existing read-only pilot never permits checkout even when connected.
 
 ## Contabo administrator: historical read-only pilot update procedure
