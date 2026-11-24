@@ -12,6 +12,8 @@
 - [MONITORING.md](MONITORING.md) — Uptime alert for the POS and website
 - [OPERATIONS.md](OPERATIONS.md) — Daily use: shifts, sales, reconciliation
 - [OWNER-AUDIT-ACTIVITY.md](OWNER-AUDIT-ACTIVITY.md) — Owner audit history screen
+- [CUSTOMERS-AND-LOYALTY.md](CUSTOMERS-AND-LOYALTY.md) — Customer profiles and loyalty points (1 point per GH₵1; 100 points = GH₵1 off)
+- [LAST-UNIT-STOCK-HOLD.md](LAST-UNIT-STOCK-HOLD.md) — WordPress plugin that stops the shop and website selling the same last unit
 - [CUSTOMER-RETURNS.md](CUSTOMER-RETURNS.md) — Returns from POS sales: Woo refund, cash out on the shift, restock choice
 - [PLATFORM.md](PLATFORM.md) — Multi-shop SaaS platform (phases 1–5): isolation, sign-up, store connection, billing, console, multi-shop Windows till, backups, invitations, email, reminders, feedback, pilot health, deployment
 - [PURCHASING.md](PURCHASING.md) — Suppliers, purchase orders, receiving deliveries, reorder list and stock value at cost
