@@ -189,6 +189,14 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     }
     next();
   });
+  // Platform shops get the product, not MansutRENDZGH's own stock-count,
+  // evidence/reviewer, offline-till, POS-only in-store and payment-dossier
+  // tooling: those routes do not exist for them.
+  if (config.tenantId) {
+    const hidden = ['/stock-safety', '/reviewer', '/desktop', '/instore', '/payments/reconciliation'];
+    app.use('/api', (req, _res, next) => (hidden.some(prefix => req.path === prefix || req.path.startsWith(`${prefix}/`))
+      ? next(new AppError('API endpoint not found.', 404)) : next()));
+  }
   app.use('/api', rateLimit({ windowMs: 60000, limit: 240, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'Too many requests. Please wait a moment.' } }));
   const auth = (req, res, next) => {
     req.user = sessionUser(req, db, config);

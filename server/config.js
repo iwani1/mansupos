@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import path from 'node:path';
+import { normaliseStoreUrl } from './platform/store-url.js';
 
 export const APP_VERSION = '1.2.3';
 const PRODUCTION_HOSTS = ['mansutrendzgh.com', 'www.mansutrendzgh.com'];
@@ -20,7 +21,19 @@ export function readConfig(env = process.env) {
   const url = new URL(storeUrl);
   const productionHost = PRODUCTION_HOSTS.includes(url.hostname);
   if (mode === 'staging' && productionHost) throw new Error('Staging must use a separate staging URL, not the production store.');
-  if (mode === 'live' && !productionHost) throw new Error('Live mode is restricted to the approved MansutRENDZGH store hostname.');
+  // A shop run by the multi-shop platform (server/platform) carries its own
+  // registered store; only it may run live against a store other than the
+  // approved MansutRENDZGH hostname. The single-shop server refuses this id.
+  const tenantId = (env.POS_TENANT_ID || '').trim();
+  if (tenantId && !/^shp_[a-z2-7]{20}$/.test(tenantId)) throw new Error('POS_TENANT_ID is not a platform shop id.');
+  if (tenantId) {
+    if (mode !== 'live') throw new Error('Platform shops run in live mode against their own registered store.');
+    if (normaliseStoreUrl(storeUrl) !== storeUrl) throw new Error('Platform shop store address is not a public HTTPS origin.');
+    for (const key of ['POS_DESKTOP_SETUP_APPROVED', 'POS_DESKTOP_RESERVATION_APPROVED', 'POS_INSTORE_CASH_APPROVED', 'POS_ONLINE_BRIDGE_LIVE_ENABLED', 'POS_ONLINE_BRIDGE_LOCAL_TEST']) {
+      if (env[key] === 'true') throw new Error(`${key} is not available to platform shops.`);
+    }
+  }
+  if (mode === 'live' && !productionHost && !tenantId) throw new Error('Live mode is restricted to the approved MansutRENDZGH store hostname.');
   // A live catalogue pilot may read the real store, but can never create or
   // update WooCommerce orders, even if an approval flag is later copied in.
   if (env.POS_LIVE_READ_ONLY && !['true', 'false'].includes(env.POS_LIVE_READ_ONLY)) throw new Error('POS_LIVE_READ_ONLY must be true or false.');
@@ -227,8 +240,9 @@ export function readConfig(env = process.env) {
   const reconcileIntervalSeconds = Number(env.POS_RECONCILE_INTERVAL_SECONDS || 60);
   if (!Number.isInteger(reconcileIntervalSeconds) || reconcileIntervalSeconds < 15 || reconcileIntervalSeconds > 3600) throw new Error('POS_RECONCILE_INTERVAL_SECONDS must be an integer from 15 to 3600.');
 
+  const businessName = (env.POS_BUSINESS_NAME || 'MansutRENDZGH').trim() || 'MansutRENDZGH';
   return {
-    mode, storeUrl, configured, liveReadOnly, legacyLiveCheckoutBlocked, writesEnabled, wholesaleWritesEnabled, approvalReference,
+    tenantId, mode, storeUrl, configured, liveReadOnly, legacyLiveCheckoutBlocked, writesEnabled, wholesaleWritesEnabled, approvalReference,
     liveRetailCashDirect, websiteHoldMinutes, abandonedOrderMinutes, inventoryWritesEnabled, productWritesEnabled, returnsEnabled, mediaUser, mediaPassword,
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
@@ -244,9 +258,9 @@ export function readConfig(env = process.env) {
     port, bindHost, production, publicOrigin,
     trustProxy: env.POS_TRUST_PROXY || (production ? 'loopback' : '1'),
     ownerUsername: (env.POS_OWNER_USERNAME || '').toLowerCase().trim(), ownerPassword: env.POS_OWNER_PASSWORD || '',
-    businessName: env.POS_BUSINESS_NAME || 'MansutRENDZGH',
+    businessName,
     businessAddress: env.POS_BUSINESS_ADDRESS || '', businessPhone: env.POS_BUSINESS_PHONE || '', businessTaxId: env.POS_BUSINESS_TAX_ID || '',
-    receiptFooter: env.POS_RECEIPT_FOOTER || 'Thank you for shopping with MansutRENDZGH.',
+    receiptFooter: env.POS_RECEIPT_FOOTER || `Thank you for shopping with ${businessName}.`,
     receiptWidth: ['58', '80', 'a4'].includes(env.POS_RECEIPT_WIDTH) ? env.POS_RECEIPT_WIDTH : '80',
     orderStatus: env.POS_ORDER_STATUS === 'processing' ? 'processing' : 'completed',
     // First live rollout is cash-only. This is enforced on the server; a
@@ -271,6 +285,7 @@ export function shouldRunReconcileTimer(config) {
 export function publicConfig(config) {
   return {
     mode: config.mode, storeUrl: config.storeUrl, configured: config.configured,
+    platformShop: Boolean(config.tenantId),
     liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
     liveRetailCashDirect: Boolean(config.liveRetailCashDirect),
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,

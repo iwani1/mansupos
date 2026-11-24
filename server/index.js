@@ -7,6 +7,9 @@ import { APP_VERSION, readConfig, shouldRunReconcileTimer } from './config.js';
 import { acquireInstanceLease } from './instance-lease.js';
 
 process.umask(0o077);
+// Platform shops are started by server/platform/index.js, never as a
+// stand-alone single-shop service.
+if (process.env.POS_TENANT_ID) throw new Error('POS_TENANT_ID is set: start platform shops with npm run start:platform.');
 const startupConfig = readConfig();
 const dist = path.resolve('dist');
 if (startupConfig.production && !fs.existsSync(path.join(dist, 'index.html'))) {

@@ -11,6 +11,8 @@
   "scripts": {
     "dev": "node server/index.js",
     "start": "NODE_ENV=production node server/index.js",
+    "start:platform": "NODE_ENV=production node server/platform/index.js",
+    "platform": "node server/platform/cli.js",
     "build": "vite build",
     "build:live": "vite build && node scripts/prepare-live-build.mjs",
     "build:desktop": "vite build --base ./ && node scripts/prepare-live-build.mjs && node scripts/prepare-desktop-build.mjs",
