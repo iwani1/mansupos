@@ -179,7 +179,7 @@ test('web receipt buttons print through the till bridge, falling back to the bro
   const helper = fs.readFileSync('src/print-receipt.js', 'utf8');
   assert.match(helper, /window\.mansuTill/);
   assert.match(helper, /window\.print\(\)/);
-  for (const file of ['src/Checkout.jsx', 'src/InStore.jsx']) {
+  for (const file of ['src/Checkout.jsx']) {
     const source = fs.readFileSync(file, 'utf8');
     assert.match(source, /onClick=\{printReceipt\}/, file);
     assert.doesNotMatch(source, /window\.print\(\)/, file);

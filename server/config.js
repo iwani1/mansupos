@@ -138,29 +138,15 @@ export function readConfig(env = process.env) {
     throw new Error('Offline selling requires a distinct documented live website-checkout acceptance AFTER reservation setup and witnessed last-unit tests.');
   }
   const desktopEnabled = desktopRequested && desktopSetupEnabled;
-  // This is a legacy local-stock path. The client's new shared-Woo plan must
-  // never run it outside isolated tests: a local deduction would leave website
-  // stock unchanged. Keep fixture coverage for historical ledger safety.
+  // The POS-only In-store cash/stock ledger is retired: a local deduction would
+  // leave website stock unchanged. Fail closed if an old env file still asks
+  // for it; its tables stay in the ledger for history and backups.
   if (env.POS_INSTORE_CASH_APPROVED && !['true', 'false'].includes(env.POS_INSTORE_CASH_APPROVED)) {
     throw new Error('POS_INSTORE_CASH_APPROVED must be true or false.');
   }
-  const inStoreRequested = env.POS_INSTORE_CASH_APPROVED === 'true';
-  const inStoreAcceptanceReference = (env.POS_INSTORE_ACCEPTANCE_REFERENCE || '').trim();
-  const inStoreSourceHash = (env.POS_INSTORE_SOURCE_SHA256 || '').trim().toLowerCase();
-  if (inStoreRequested && (mode !== 'live' || liveReadOnly || inStoreAcceptanceReference.length < 8 ||
-      inStoreAcceptanceReference === approvalReference || !/^[a-f0-9]{64}$/.test(inStoreSourceHash) ||
-      (env.POS_REQUIRE_SHIFT && env.POS_REQUIRE_SHIFT !== 'true'))) {
-    throw new Error('In-store cash requires a separate reviewed live trading service, a distinct acceptance reference, a pinned stock source SHA-256, and mandatory shifts; never enable it on the read-only pilot.');
-  }
-  // An acceptance reference is NOT a way to revive the old POS-only stock pool
-  // after these goods become shared online. Fail closed even if a service unit
-  // was mistakenly amended and its env contains every former approval value.
-  if (inStoreRequested && env.NODE_ENV !== 'test') {
+  if (env.POS_INSTORE_CASH_APPROVED === 'true') {
     throw new Error('POS-only In-store cash is retired for shared WooCommerce stock. Keep this gate off; use a separately reviewed Woo-backed Wholesale checkout.');
   }
-  // The old local ledger remains exercisable only by isolated test fixtures;
-  // production and accidentally non-production live services cannot revive it.
-  const inStoreCashEnabled = inStoreRequested && mode === 'live' && !liveReadOnly && env.NODE_ENV === 'test';
   if (env.POS_STAGING_APPROVED === 'true' && mode === 'staging' && !configured) throw new Error('Staging approval requires WooCommerce credentials.');
   if (env.POS_ALLOW_LIVE_WRITES === 'true' && mode === 'live' && !configured) throw new Error('Live writes require WooCommerce credentials.');
 
@@ -251,7 +237,6 @@ export function readConfig(env = process.env) {
   return {
     tenantId, mode, storeUrl, configured, liveReadOnly, legacyLiveCheckoutBlocked, writesEnabled, wholesaleWritesEnabled, approvalReference,
     liveRetailCashDirect, websiteHoldMinutes, abandonedOrderMinutes, inventoryWritesEnabled, productWritesEnabled, returnsEnabled, mediaUser, mediaPassword,
-    inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
     desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',
     onlineBridgeLocalTest, onlineBridgeLiveEnabled, onlineBridgeEnabled, bridgeService,
@@ -301,7 +286,7 @@ export function publicConfig(config) {
     platformShop: Boolean(config.tenantId), platformStage: config.platformStage || undefined, platformBilling: config.platformBilling || undefined, maxStaff: config.maxStaff || undefined,
     liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
     liveRetailCashDirect: Boolean(config.liveRetailCashDirect),
-    wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
+    wholesaleWritesEnabled: config.wholesaleWritesEnabled,
     inventoryWritesEnabled: Boolean(config.inventoryWritesEnabled),
     productWritesEnabled: Boolean(config.productWritesEnabled),
     returnsEnabled: Boolean(config.returnsEnabled),

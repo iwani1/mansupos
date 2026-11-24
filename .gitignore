@@ -17,3 +17,7 @@ desktop/pos-trial/bundle/
 desktop/update-policy.json
 # Future raw Woo exports stay local; the already-tracked upload is still in Git history.
 wc-product-export-*.csv
+# Shop stock sheets and product/cost exports are business data: keep them off Git.
+products.csv
+Stock-*.pdf
+data/instore-stock-snapshot.json

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 // True on phone-width screens (iPhones held upright). Matches the 640px
-// breakpoint in mobile.css so layout and behaviour switch together.
+// phone breakpoint in styles.css so layout and behaviour switch together.
 const QUERY = '(max-width: 640px)';
 export function usePhone() {
   const [phone, setPhone] = useState(() => typeof window !== 'undefined' && window.matchMedia?.(QUERY).matches);

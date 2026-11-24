@@ -44,7 +44,7 @@ test('separate live service pins its identity, listener, ledger path and write l
     assert.equal(config.liveReadOnly, false);
     assert.equal(config.writesEnabled, false, 'Locked template cannot create any real orders');
     assert.equal(config.wholesaleWritesEnabled, false);
-    assert.equal(config.inStoreCashEnabled, false, 'Trading template must not import or sell the physical collection');
+    assert.ok(!config.inStoreCashEnabled, 'Trading template must not import or sell the physical collection');
     assert.equal(config.desktopSetupEnabled, false, 'A copied env file cannot enroll an offline device.');
     assert.equal(config.desktopEnabled, false, 'A copied env file cannot authorize offline checkout.');
     assert.deepEqual(config.paymentMethods, ['cash']);
@@ -117,7 +117,7 @@ test('retail-cash drop-in enables only cash Retail on the trading service, whate
     assert.equal(config.liveRetailCashDirect, true);
     assert.equal(config.writesEnabled, true);
     assert.equal(config.wholesaleWritesEnabled, false);
-    assert.equal(config.inStoreCashEnabled, false);
+    assert.ok(!config.inStoreCashEnabled);
     assert.equal(config.desktopSetupEnabled, false);
     assert.equal(config.onlineBridgeEnabled, false);
     assert.deepEqual(config.paymentMethods, ['cash']);

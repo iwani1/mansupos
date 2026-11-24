@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { CreditCard, RefreshCw, Smartphone, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { api, dateTime } from './api.js';
 import { PageHeading, Notice, Spinner } from './components.jsx';
-import './setup.css';
 
 // Platform shops only: the owner's subscription. Payment happens on Paystack's
 // own page; the server confirms it with Paystack before extending access.

@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle2, AlertTriangle, XCircle, PlugZap, Stethoscope, ReceiptText, ToggleRight, Rocket, Clock, MonitorDown } from 'lucide-react';
 import { api } from './api.js';
 import { PageHeading, Notice, Spinner } from './components.jsx';
-import './setup.css';
 
 // Platform shops only: the owner's checklist from sign-up to the first sale.
 const ICON = { pass: CheckCircle2, warn: AlertTriangle, fail: XCircle };

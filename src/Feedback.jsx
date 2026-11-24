@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { MessageSquareText, Send, CheckCircle2, Clock } from 'lucide-react';
 import { api, dateTime } from './api.js';
 import { PageHeading, Notice, Spinner } from './components.jsx';
-import './setup.css';
 
 // Platform shops only: tell Mansu POS about a problem, an idea or a question.
 // Replies from the Mansu POS team show here. Cashiers see their own messages;

@@ -105,6 +105,6 @@ test('product text sent to the public website cannot carry HTML markup', () => {
 });
 
 test('CSV exports neutralise spreadsheet formulas, including ones behind spaces or tabs', () => {
-  const sources = ['server/inventory.js', 'src/Purchasing.jsx', 'server/app.js', 'server/instore.js', 'src/Catalogue.jsx'].map(file => fs.readFileSync(file, 'utf8'));
+  const sources = ['server/inventory.js', 'src/Purchasing.jsx', 'server/routes/reports.js', 'src/Catalogue.jsx'].map(file => fs.readFileSync(file, 'utf8'));
   for (const source of sources) assert.match(source, /\^\[?\\s\]?\*\[=\+/);
 });

@@ -2,9 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw, Truck, ClipboardList, Users, Calculator, PackageCheck, Search, Trash2, Download } from 'lucide-react';
 import { api, money, dateTime, uuid } from './api.js';
 import { PageHeading, Stat, Empty, Badge, Modal, Notice, Spinner, TableRegion } from './components.jsx';
-import './stock-control.css';
-import './product-editor.css';
-import './purchasing.css';
 
 const STATUS = {
   draft: ['Draft', 'neutral'], pending_approval: ['Awaiting approval', 'amber'], approved: ['Approved', 'green'], ordered: ['Sent to supplier', 'green'],

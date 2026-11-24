@@ -62,7 +62,7 @@ server.on('error', error => {
 });
 server.listen(config.port, config.bindHost, () => logger.info({
   msg: 'server.started', version: APP_VERSION, port: config.port, bindHost: config.bindHost, mode: config.mode,
-  writesEnabled: config.writesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
+  writesEnabled: config.writesEnabled,
   publicOrigin: config.publicOrigin || undefined,
   note: config.mode === 'demo' ? 'isolated demo; no live writes' : undefined,
 }));

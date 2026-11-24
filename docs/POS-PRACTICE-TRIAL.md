@@ -1,6 +1,6 @@
 # Windows POS practice trial — NOT FOR SALES
 
-**Completed SAMPLE-only rehearsal, not the requested online Windows POS.** For the separate online-only `.exe` QA build, see [Windows online pilot](WINDOWS-ONLINE-PILOT.md).
+**Completed SAMPLE-only rehearsal, not the requested online Windows POS.** For the separate online-only `.exe` QA build, see [Windows online pilot](archive/WINDOWS-ONLINE-PILOT.md).
 
 The owner reported that the earlier, separate **non-selling hardware check succeeded**. The individual Windows version, scanner/Enter, printer/cut and drawer results have not yet been recorded. This app rehearses the earlier offline POS ledger workflow on a test Windows computer. It is not the selling POS, is not connected to WooCommerce, Paystack, the read-only web pilot or a trading service, and cannot take or confirm a real payment. **No Woo plugin installation, live stock change, selling gate, public GitHub Release or real order is part of this step.**
 
@@ -34,4 +34,4 @@ Please report the Windows version/x64, scanner model and Enter suffix, what samp
 
 ## Limits and future approvals
 
-A successful practice run is **not authorization for live sales**. The Woo reservation plugin remains **uninstalled**, all trading write gates remain OFF, and the one-computer shared Woo/Paystack last-unit, partial-failure, tax, protected restore and real hardware acceptance steps are still unverified. With no staging shop, those need a separately approved, backed-up plan on the actual store before any genuine collection, plugin installation, public Release or general staff use. See [Windows offline design](WINDOWS-OFFLINE-DESIGN.md) and [acceptance checklist](ACCEPTANCE.md).
+A successful practice run is **not authorization for live sales**. The Woo reservation plugin remains **uninstalled**, all trading write gates remain OFF, and the one-computer shared Woo/Paystack last-unit, partial-failure, tax, protected restore and real hardware acceptance steps are still unverified. With no staging shop, those need a separately approved, backed-up plan on the actual store before any genuine collection, plugin installation, public Release or general staff use. See [Windows offline design](archive/WINDOWS-OFFLINE-DESIGN.md) and [acceptance checklist](archive/ACCEPTANCE.md).
