@@ -38,7 +38,10 @@ jobs:
       - run: npm audit --audit-level=high
       - run: npm run preflight
       - name: Validate isolated native systemd units
-        run: systemd-analyze verify deploy/mansu-pos-staging.service deploy/mansu-pos-staging-backup.service deploy/mansu-pos-live-pilot.service deploy/mansu-pos-live-pilot-backup.service deploy/mansu-pos-live-trading.service deploy/mansu-pos-live-trading-backup.service deploy/mansu-pos-live-trading-backup.timer deploy/platform/mansu-platform.service
+        run: |
+          # The platform unit runs /usr/bin/node, as install.sh guarantees; setup-node puts node elsewhere.
+          [ -x /usr/bin/node ] || sudo ln -s "$(command -v node)" /usr/bin/node
+          systemd-analyze verify deploy/mansu-pos-staging.service deploy/mansu-pos-staging-backup.service deploy/mansu-pos-live-pilot.service deploy/mansu-pos-live-pilot-backup.service deploy/mansu-pos-live-trading.service deploy/mansu-pos-live-trading-backup.service deploy/mansu-pos-live-trading-backup.timer deploy/platform/mansu-platform.service
       - name: Check the platform install script and nginx config
         run: |
           bash -n deploy/platform/install.sh
