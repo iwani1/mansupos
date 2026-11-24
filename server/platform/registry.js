@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { slugProblem } from './slug.js';
 import { normaliseStoreUrl } from './store-url.js';
-import { sealSecret, openSecret } from './secrets.js';
+import { sealSecret, openSecret, masterKeyCheck } from './secrets.js';
 import { PLANS, INTERVALS, addMonths } from './billing.js';
 
 // The central database: which shops exist, their settings and their encrypted
@@ -119,6 +119,15 @@ export class PlatformRegistry {
       ['auto_renew', 'INTEGER'], ['paystack_customer', 'TEXT'], ['paystack_subscription', 'TEXT'], ['paystack_email_token', 'TEXT'],
       ['discount_percent', 'INTEGER'], ['discount_until', 'TEXT']]) {
       if (!columns.has(name)) this.db.exec(`ALTER TABLE shops ADD COLUMN ${name} ${type}`);
+    }
+    if (config.masterKey) {
+      const check = masterKeyCheck(config.masterKey);
+      const stored = this.setting('master_key_check');
+      if (!stored) this.setSetting('master_key_check', check);
+      else if (stored !== check) {
+        this.db.close();
+        throw new Error('PLATFORM_MASTER_KEY is not the key this platform data was created with. Use the original key (from your password manager); changing it would make every saved store key unreadable.');
+      }
     }
   }
 

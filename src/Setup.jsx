@@ -40,6 +40,7 @@ export default function Setup({ notify }) {
   if (!setup) return error ? <Notice tone="error">{error}</Notice> : <Spinner label="Loading shop setup…" />;
 
   const health = setup.health;
+  // eslint-disable-next-line react-hooks/purity -- the 24-hour freshness check is meant to use the time of this render
   const fresh = setup.healthAt && Date.now() - Date.parse(setup.healthAt) < 24 * 3600000;
   const canSell = setup.connected && health?.ok && fresh;
   const connect = () => run('connect', async () => { const { url } = await api('/setup/woo/connect', { method: 'POST', body: {} }); window.location.assign(url); });

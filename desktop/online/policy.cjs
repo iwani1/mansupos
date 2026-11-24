@@ -135,8 +135,8 @@ async function verifyPos(fetchImpl = fetch, origin = POS_ORIGIN) {
     return { readOnly: health.liveReadOnly === true, version: typeof health.version === 'string' ? health.version.slice(0, 32) : '' };
   } catch (error) {
     const host = String(origin || '').replace('https://', '');
-    if (error?.noShop) throw new Error(`There is no Mansu POS shop at ${host}. Check the spelling with the shop owner.`);
-    throw new Error(`The shop at ${host} could not be reached securely. Check the address and the internet connection.`);
+    if (error?.noShop) throw new Error(`There is no Mansu POS shop at ${host}. Check the spelling with the shop owner.`, { cause: error });
+    throw new Error(`The shop at ${host} could not be reached securely. Check the address and the internet connection.`, { cause: error });
   }
 }
 

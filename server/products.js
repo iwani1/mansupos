@@ -266,7 +266,7 @@ export class ProductService {
   // Use the store's global attributes (e.g. "Size", "Color") when they exist,
   // creating missing values as terms, so website filters keep working.
   async wooAttributes(attributes) {
-    let globals = [];
+    let globals;
     try { globals = await this.api.attributes(); } catch { globals = []; }
     const out = [];
     for (const a of attributes) {

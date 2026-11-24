@@ -39,7 +39,6 @@ export function readPlatformConfig(env = process.env) {
     if (!/^re_[A-Za-z0-9_]{10,}$/.test(resendApiKey)) throw new Error('PLATFORM_RESEND_API_KEY must be a Resend API key (re_...).');
     if (!/^[^<>\r\n]{1,60} <[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+>$|^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(mailFrom)) throw new Error('PLATFORM_MAIL_FROM must be like "Mansu POS <hello@mansupos.com>" on a domain verified in Resend.');
   }
-  if (production && mailDriver === 'outbox') console.warn('PLATFORM_MAIL_DRIVER=outbox: emails are not sent; read them with npm run platform -- outbox.');
   const backupHours = Number(env.PLATFORM_BACKUP_HOURS ?? 24);
   if (!Number.isInteger(backupHours) || backupHours < 0 || backupHours > 168) throw new Error('PLATFORM_BACKUP_HOURS must be 0 (off) to 168.');
   const backupKeepDays = Number(env.PLATFORM_BACKUP_KEEP_DAYS || 14);

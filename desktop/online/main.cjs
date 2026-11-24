@@ -440,7 +440,7 @@ function registerPickerBridge() {
 
 // Only the shop's owner, signed in on this till, may point it at another shop.
 async function changeShop() {
-  let role = null;
+  let role;
   try {
     role = await window.webContents.executeJavaScript(
       "fetch('/api/session', { credentials: 'same-origin', cache: 'no-store' }).then(r => r.json()).then(d => (d && d.user && d.user.role) || null)", true);

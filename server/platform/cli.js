@@ -2,6 +2,9 @@ import { createInterface } from 'node:readline';
 import { createPlatform } from './platform.js';
 import { FEATURES, STAGES } from './registry.js';
 import { backupPlatform } from './backup.js';
+import { readPlatformConfig } from './config.js';
+import { readLock } from './lock.js';
+import { planRestore, restoreBackup } from './restore.js';
 import { PLANS, INTERVALS, planPrice } from './billing.js';
 import { newReference } from './admin-auth.js';
 
@@ -18,7 +21,11 @@ const usage = `Usage: npm run platform -- <command> [options]
   set-business --slug <slug> [--address ..] [--phone ..] [--tax-id ..] [--receipt-footer ..] [--receipt-width 58|80|a4]
   suspend --slug <slug> | resume --slug <slug>
   backup [--to <folder>]                  (central database + every shop's database, verified)
-  outbox [--last <n>]                     (emails queued while no email provider is set up)
+  verify-backup --from <backup folder>    (checks a backup can be restored here; changes nothing)
+  restore --from <backup folder> [--shop <slug>] [--yes]
+                                          (platform must be stopped; without --yes only shows the plan;
+                                           current files are moved to <data>/pre-restore-<time>/, not deleted)
+  outbox [--last <n>]                     (emails queued while PLATFORM_MAIL_DRIVER=outbox)
   admin-create --username <name>          (reads the password from stdin; prints the authenticator secret once)
   admin-reset-2fa --username <name>
   billing-sync-plans                      (creates the Paystack plans once; needs PLATFORM_PAYSTACK_SECRET_KEY)
@@ -37,7 +44,7 @@ function options(args) {
   for (let i = 0; i < args.length; i++) {
     if (!args[i].startsWith('--')) throw new Error(`Unexpected argument: ${args[i]}`);
     const key = args[i].slice(2);
-    if (key === 'on' || key === 'off') { out[key] = true; continue; }
+    if (key === 'on' || key === 'off' || key === 'yes') { out[key] = true; continue; }
     if (args[i + 1] === undefined) throw new Error(`Missing value for --${key}.`);
     out[key] = args[++i];
   }
@@ -55,6 +62,32 @@ async function readLines(count) {
 
 const [command, ...rest] = process.argv.slice(2);
 if (!command || command === 'help') { console.log(usage); process.exit(command ? 0 : 1); }
+// Restore works on the files directly, with the platform stopped.
+if (command === 'verify-backup' || command === 'restore') {
+  try {
+    const opt = options(rest);
+    if (!opt.from) throw new Error('Give --from <backup folder>.');
+    const config = readPlatformConfig();
+    const plan = planRestore({ from: opt.from, config, shopSlug: opt.shop || null });
+    console.log(`Backup ${plan.dir}\n  made ${plan.manifest?.createdAt || '?'} · ${plan.shops ?? 0} shop database(s) · ${plan.secrets ?? 0} saved store key(s) open with this master key`);
+    if (plan.problems.length) { console.error(`NOT restorable:\n- ${plan.problems.join('\n- ')}`); process.exit(1); }
+    console.log('  Checks passed: checksums, SQLite integrity, each shop copy names its own shop, master key.');
+    if (command === 'verify-backup') process.exit(0);
+    console.log(opt.shop ? `Plan: restore only ${opt.shop}'s database.` : `Plan: replace platform.db and all shops with the backup (${plan.restoring.join(', ') || 'no shop databases'}).`);
+    if (plan.notInBackup.length) console.log(`WARNING: these shops exist now but not in the backup and would stop being served: ${plan.notInBackup.join(', ')}`);
+    if (!opt.yes) { console.log('Nothing changed. Stop the platform (systemctl stop mansu-platform), then run again with --yes.'); process.exit(0); }
+    const done = restoreBackup({ from: opt.from, config, shopSlug: opt.shop || null });
+    console.log(`Restored ${done.central ? 'platform.db and ' : ''}${done.restored.length} shop database(s).`);
+    console.log(`The previous files are in ${done.safetyDir} (delete it once you are happy).`);
+    console.log(`Anything after ${done.backupCreatedAt} is not in the restored data: check the Paystack dashboard for payments since then and record each one in the console (Record a payment, with the Paystack reference as the note) and WooCommerce for orders the till made.`);
+    console.log('Start the platform again: systemctl start mansu-platform');
+    process.exit(0);
+  } catch (error) { console.error(error.message); process.exit(1); }
+}
+{
+  const busy = readLock(readPlatformConfig().dataDir);
+  if (busy?.purpose === 'restore') { console.error(`A restore is running (process ${busy.pid}). Try again when it has finished.`); process.exit(1); }
+}
 const platform = createPlatform({ logger: { debug() {}, info() {}, warn: console.error, error: console.error, child() { return this; } } });
 const { registry } = platform;
 const actor = `cli:${process.env.USER || 'admin'}`;

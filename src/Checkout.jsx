@@ -28,7 +28,7 @@ export function Checkout({ sale, config, onClose, onPaid, notify }) {
   const [uncertain, setUncertain] = useState(false);
   const [hold, setHold] = useState(null);
   const [holdError, setHoldError] = useState('');
-  const [clock, setClock] = useState(Date.now());
+  const [clock, setClock] = useState(() => Date.now());
   const itemCount = sale.items.reduce((count, item) => count + item.quantity, 0);
   const wholesale = sale.saleType === 'wholesale';
   const paymentMethods = config.paymentMethods || (config.mode === 'live' ? ['cash'] : ['cash', 'momo', 'card']);
