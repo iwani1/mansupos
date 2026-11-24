@@ -1,7 +1,7 @@
 {
   "appId": "com.mansutrendzgh.hardwarecheck",
   "productName": "MansutRENDZGH Hardware Check",
-  "electronVersion": "45.3.2",
+  "electronVersion": "45.4.1",
   "asar": true,
   "npmRebuild": false,
   "directories": { "output": "release" },

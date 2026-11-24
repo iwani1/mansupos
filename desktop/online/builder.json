@@ -1,7 +1,7 @@
 {
   "appId": "com.mansutrendzgh.pos.online",
   "productName": "Mansu POS",
-  "electronVersion": "45.3.2",
+  "electronVersion": "45.4.1",
   "asar": true,
   "npmRebuild": false,
   "directories": { "output": "release" },
