@@ -1,5 +1,7 @@
 # Separate online Windows POS — read-only pilot QA
 
+**Superseded (23 Nov 2026):** replaced by [Mansu POS for Windows](WINDOWS-ONLINE-TILL.md). This pilot only opens while the live POS is read-only, which it no longer is; its code was converted into the online till.
+
 **This is an installable Windows x64 Electron `.exe`, not a browser/PWA shortcut and not the offline till.** It opens the existing online POS at **https://pos.mansutrendzgh.com/** in its own native window. The web POS remains available and unchanged. This first installer is visibly labelled **ONLINE · READ-ONLY PILOT · NO CHECKOUT**. It is a **test build, not a selling release**: the deployed pilot's server-side Woo/checkout gates remain OFF, and the Windows app independently rejects sale, stock, cash, Wholesale-price and staff-write requests (except sign-in, sign-out and password change). Do not accept payment or release goods from a reference cart.
 
 ## How it works

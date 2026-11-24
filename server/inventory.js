@@ -393,9 +393,10 @@ export class InventoryService {
   async exportCsv() {
     const { lines } = await this.overview();
     const cell = value => {
-      let text = String(value ?? '');
-      if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-      return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+      // eslint-disable-next-line no-control-regex -- CSV formula and control-character hardening.
+      let text = String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+      if (/^[\s]*[=+\-@\t\r]/.test(text)) text = `'${text}`;
+      return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
     };
     const header = ['Product ID', 'Option ID', 'Product', 'Option', 'SKU', 'Category', 'Retail price (GHS)', 'Stock', 'Status', 'Tracking', 'POS units sold (30 days)', 'Days of cover'];
     const body = lines.map(l => [l.productId, l.variationId, l.name, l.label, l.sku, l.category, decimal(l.price), l.stock ?? '', l.status, l.manageStock ? l.stockSource : 'not tracked', l.posSold30, l.daysOfCover ?? ''].map(cell).join(','));

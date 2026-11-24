@@ -1,8 +1,8 @@
 {
-  "name": "mansu-pos-online-read-only-pilot",
-  "version": "0.1.0",
+  "name": "mansu-pos-online-till",
+  "version": "1.3.0",
   "private": true,
-  "description": "Online Windows POS pilot. Always connects to the read-only POS service; no local sales, stock allocation or sync queue.",
+  "description": "Mansu POS for Windows: native till window for the live online POS. Every sale is made on the server at the moment it happens; no local sales, stock allocation or sync queue.",
   "author": "MansutRENDZGH",
   "license": "UNLICENSED",
   "main": "main.cjs"

@@ -4,6 +4,7 @@ import { ArchiveX, Banknote, CheckCircle2, Download, Minus, Package, Plus, Print
 import { api, authHeaders, dateTime, money, uuid } from './api.js';
 import { Badge, Empty, Modal, Notice, PageHeading, Spinner, Stat } from './components.jsx';
 import './instore.css';
+import { printReceipt } from './print-receipt.js';
 
 const statusLabels = { available: 'In stock', out_of_stock: 'No stock', review: 'Owner review required' };
 const statusTones = { available: 'green', out_of_stock: 'neutral', review: 'amber' };
@@ -38,7 +39,7 @@ function InStoreReceipt({ sale, config, onClose }) {
       <div className="modal-body receipt-body"><div className="receipt-success"><span><CheckCircle2 size={28}/></span><div><h3>Cash sale recorded</h3><p>Only the in-store POS balance was reduced. Online stock is unchanged.</p></div></div>
         <div className="receipt-controls"><label htmlFor="instore-paper-width">Paper width</label><select id="instore-paper-width" value={width} onChange={e => setWidth(e.target.value)}><option value="80">80 mm thermal</option><option value="58">58 mm thermal</option><option value="a4">A4 / standard printer</option></select></div>
         {paper}<p className="field-hint center">Check printer alignment on the actual device before accepting live sales.</p></div>
-      <div className="modal-footer" role="group" aria-label="Receipt actions"><button className="button secondary" onClick={onClose}>Done</button><button className="button primary" onClick={() => window.print()}><Printer size={17}/>Print receipt</button></div>
+      <div className="modal-footer" role="group" aria-label="Receipt actions"><button className="button secondary" onClick={onClose}>Done</button><button className="button primary" onClick={printReceipt}><Printer size={17}/>Print receipt</button></div>
     </Modal></>;
 }
 

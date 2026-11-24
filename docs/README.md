@@ -22,6 +22,7 @@
 - [TAX-DECISION.md](TAX-DECISION.md) — Open tax question and checklist for the tax adviser
 - [UI-DESIGN.md](UI-DESIGN.md) — Visual design notes
 - [WEEKLY-STAFF-SCORECARD.md](WEEKLY-STAFF-SCORECARD.md) — Weekly staff review
+- [WINDOWS-ONLINE-TILL.md](WINDOWS-ONLINE-TILL.md) — Mansu POS for Windows: the online till app, installer and shop-PC acceptance checklist
 - [WORKSPACE-REDESIGN.md](WORKSPACE-REDESIGN.md) — Workspace layout
 
 ## Historical (superseded plans, audits and locked features)
