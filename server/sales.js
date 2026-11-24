@@ -318,7 +318,7 @@ export class SalesService {
       error = 'WooCommerce did not return an unpaid pending order or a confirmed paid order. Review its status before collecting payment or releasing goods.';
     }
     let verified = row.trade_verified_json;
-    let lineProblem = '';
+    let lineProblem;
     if (row.sale_type === 'trade') {
       const problem = wholesaleOrderProblem(row, order);
       const snapshot = !problem ? wholesaleVerifiedSnapshot(order) : null;

@@ -1,7 +1,7 @@
 {
   "appId": "com.mansutrendzgh.pos.practice-only",
   "productName": "Mansu POS Practice - NOT FOR SALES",
-  "electronVersion": "45.3.1",
+  "electronVersion": "45.3.2",
   "asar": true,
   "npmRebuild": false,
   "directories": { "output": "../release" },

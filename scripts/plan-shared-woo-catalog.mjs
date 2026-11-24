@@ -35,7 +35,7 @@ export function parseWooExport(input) {
   } catch (error) {
     // CSV parser errors can include a whole raw row, including plugin metadata.
     if (typeof error.code === 'string' && error.code.startsWith('CSV_')) {
-      throw new Error(`Woo CSV parsing failed (${error.code}, near line ${Number(error.lines) || '?'}). No raw product data was printed.`);
+      throw new Error(`Woo CSV parsing failed (${error.code}, near line ${Number(error.lines) || '?'}). No raw product data was printed.`, { cause: error });
     }
     throw error;
   }

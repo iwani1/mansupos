@@ -23,7 +23,7 @@ export class Catalog {
   }
   demo() {
     const stocks = new Map(this.db.prepare('SELECT * FROM demo_stock').all().map(row => [row.line_key, row.stock]));
-    let added = [];
+    let added;
     try { added = JSON.parse(this.db.prepare("SELECT value FROM app_meta WHERE key='demo_product_store'").get()?.value || '{}').products || []; } catch { added = []; }
     return [...demoProducts, ...added].map(p => ({ ...p,
       stock: p.type === 'simple' ? stocks.get(`${p.id}:0`) : null,
