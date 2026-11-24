@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 
 // Shop credentials (WooCommerce and WordPress keys) are stored encrypted in the
 // central database with AES-256-GCM. The master key never sits in that
@@ -38,4 +38,11 @@ export function openSecret(masterKey, shopId, kind, sealed) {
   } catch {
     throw new Error('Stored shop secret failed its integrity check.');
   }
+}
+
+// A fingerprint of the master key, kept in platform.db, so the platform and a
+// restore can tell at once when they are given the wrong key (the key itself
+// cannot be worked out from it).
+export function masterKeyCheck(masterKey) {
+  return createHmac('sha256', masterKey).update('mansu-pos/master-key-check/v1').digest('hex').slice(0, 32);
 }
