@@ -278,3 +278,15 @@ html{scrollbar-color:var(--line-dark) var(--paper)}
 /* Receipt printing */
 #print-root{display:none}
 @media print{html,body{background:#fff!important;margin:0!important;padding:0!important}body>#root{display:none!important}body>#print-root{display:block!important;visibility:visible!important;margin:0!important;padding:0!important}#print-root .receipt-paper{display:block!important;visibility:visible!important;box-shadow:none!important;margin:0!important;padding:3mm!important;color:#000!important;width:74mm!important;font-size:10px!important;break-inside:avoid}#print-root .receipt-paper *{visibility:visible!important;color:#000!important}#print-root .receipt-paper.paper-58{width:52mm!important;font-size:8px!important;padding:2mm!important}#print-root .receipt-paper.paper-a4{width:180mm!important;padding:10mm!important;font-size:12px!important}@page{margin:5mm}}
+
+/* Website orders on the Reports page */
+.website-report{display:grid;gap:16px;padding-bottom:18px;margin-top:18px}
+.website-report .stats-grid{margin:0 20px}
+.website-report-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;padding:0 20px}
+.website-report-columns h3{font-size:13px;font-weight:700;margin:0 0 8px}
+.website-report-list{display:grid;margin:0}
+.website-report-list>div{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:12px}
+.website-report-list dt{min-width:0;overflow-wrap:anywhere}
+.website-report-list dt span{color:var(--muted)}
+.website-report-list dd{margin:0;white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:600}
+.website-report>.field-hint{padding:0 20px;display:flex;gap:6px;align-items:flex-start}

@@ -48,6 +48,7 @@ import { InventoryService, adjustSchema, countSchema, priceSchema, movementQuery
 import { ProductService, productSchema, productUpdateSchema } from './products.js';
 import { WordPressMedia } from './wp-media.js';
 import { createGuardedFetch } from './net-guard.js';
+import { WebsiteReport } from './website-report.js';
 import { ReturnsService, returnSchema, resolveSchema } from './returns.js';
 import { PurchasingService, supplierSchema, poSchema, poActionSchema, receiptSchema, costSchema } from './purchasing.js';
 
@@ -1161,6 +1162,11 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
       reviewRequiredOrders: rows.filter(s => s.status === 'needs_reconciliation').length,
       items: active.reduce((sum,s) => sum + s.items.reduce((n,i) => n + i.quantity,0),0), average: rows.length ? Math.round(total / rows.length) : 0, methods, saleTypes, daily, topProducts: [...products.values()].sort((a,b) => b.quantity - a.quantity).slice(0,8), sales: rows,
       scope: 'Recorded POS payments, including previously paid receipts under review. Woo refunds are observations, not proof of cash payouts. Excludes legacy POS-only In-store cash receipts and online website orders.' });
+  });
+  const websiteReport = new WebsiteReport(api, config);
+  app.get('/api/reports/website', auth, role('owner', 'manager'), async (req, res) => {
+    const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
+    res.json(await websiteReport.report(days));
   });
   app.get('/api/reports/export', auth, role('owner', 'manager'), (req, res) => {
     const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
