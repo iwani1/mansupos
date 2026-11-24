@@ -36,15 +36,25 @@ function powershellPath(env = process.env) {
   return path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }
 
-// run(command, args, { env, timeoutMs }) resolves with stdout text.
+// Windows PowerShell 5.1 must find its OWN modules (Get-AuthenticodeSignature
+// lives in Microsoft.PowerShell.Security). A PSModulePath inherited from
+// PowerShell 7 (e.g. a till started from a pwsh prompt) points it at
+// incompatible PS7 modules, so drop it and let 5.1 use its defaults.
+function windowsPowershellEnv(extra, env = process.env) {
+  const clean = Object.fromEntries(Object.entries(env).filter(([key]) => key.toUpperCase() !== 'PSMODULEPATH'));
+  return { ...clean, ...extra };
+}
+
+// run(command, args, { env, timeoutMs }) resolves with stdout text. Any
+// failure reads as 'Unknown' (never as signed); `error` says why.
 async function readSignature(file, run) {
   try {
     const out = await run(powershellPath(), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', SIGNATURE_SCRIPT],
-      { env: { ...process.env, MANSU_SIGNED_FILE: file }, timeoutMs: 30000 });
+      { env: windowsPowershellEnv({ MANSU_SIGNED_FILE: file }), timeoutMs: 30000 });
     const parsed = JSON.parse(String(out).trim());
     return { status: String(parsed.status || ''), subject: String(parsed.subject || '') };
-  } catch {
-    return { status: 'Unknown', subject: '' };
+  } catch (error) {
+    return { status: 'Unknown', subject: '', error: String(error?.message || error).slice(0, 300) };
   }
 }
 
@@ -57,12 +67,17 @@ const samePublisher = (own, candidate) => own.status === 'Valid' && candidate.st
 function runCapture(command, args, { env, timeoutMs }) {
   const { spawn } = require('node:child_process');
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { env, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    let out = '';
+    const child = spawn(command, args, { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '', err = '';
     const timer = setTimeout(() => { child.kill(); reject(new Error('Timed out.')); }, timeoutMs);
     child.stdout.on('data', chunk => { if (out.length < 8000) out += chunk; });
+    child.stderr.on('data', chunk => { if (err.length < 4000) err += chunk; });
     child.on('error', error => { clearTimeout(timer); reject(error); });
-    child.on('close', code => { clearTimeout(timer); if (code === 0) resolve(out); else reject(new Error(`exit code ${code}`)); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error(`exit code ${code}${err.trim() ? `: ${err.trim().replace(/\s+/g, ' ')}` : ''}`));
+    });
   });
 }
 
@@ -125,4 +140,4 @@ function createUpdater({ platform = process.platform, execPath, updatesDir, down
   return { signedTill, stage, installStaged, stagedVersion: () => staged?.version || null };
 }
 
-module.exports = { createUpdater, readSignature, runCapture, samePublisher, SIGNATURE_SCRIPT, INSTALL_ARGS, MAX_INSTALLER_BYTES };
+module.exports = { createUpdater, readSignature, runCapture, windowsPowershellEnv, samePublisher, SIGNATURE_SCRIPT, INSTALL_ARGS, MAX_INSTALLER_BYTES };

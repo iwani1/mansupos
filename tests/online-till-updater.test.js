@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { createUpdater, readSignature, samePublisher, SIGNATURE_SCRIPT, INSTALL_ARGS } = require('../desktop/online/updater.cjs');
+const { createUpdater, readSignature, samePublisher, windowsPowershellEnv, SIGNATURE_SCRIPT, INSTALL_ARGS } = require('../desktop/online/updater.cjs');
 const { newerRelease, TILL } = require('../desktop/online/policy.cjs');
 
 const SHOP = 'CN=MansutRENDZGH, O=MansutRENDZGH, L=Accra, C=GH';
@@ -104,12 +104,26 @@ test('a staged installer that changes on disk before closing is not run', async 
 });
 
 test('signature reading tolerates PowerShell failures and odd output', async () => {
-  assert.deepEqual(await readSignature('x.exe', async () => { throw new Error('no powershell'); }), { status: 'Unknown', subject: '' });
-  assert.deepEqual(await readSignature('x.exe', async () => 'not json'), { status: 'Unknown', subject: '' });
+  const failed = await readSignature('x.exe', async () => { throw new Error('no powershell'); });
+  assert.equal(failed.status, 'Unknown');
+  assert.equal(failed.subject, '');
+  assert.match(failed.error, /no powershell/);
+  assert.equal((await readSignature('x.exe', async () => 'not json')).status, 'Unknown');
   assert.deepEqual(await readSignature('x.exe', async () => '{"status":"Valid","subject":"CN=A"}\r\n'), { status: 'Valid', subject: 'CN=A' });
   assert.equal(samePublisher({ status: 'Valid', subject: 'CN=A' }, { status: 'Valid', subject: 'CN=A' }), true);
   assert.equal(samePublisher({ status: 'Valid', subject: '' }, { status: 'Valid', subject: '' }), false);
   assert.equal(samePublisher({ status: 'NotSigned', subject: 'CN=A' }, { status: 'Valid', subject: 'CN=A' }), false);
+});
+
+test('Windows PowerShell is started without an inherited PowerShell 7 module path', async () => {
+  const env = windowsPowershellEnv({ MANSU_SIGNED_FILE: 'C:\\x.exe' }, { PSModulePath: 'C:\\Program Files\\PowerShell\\7\\Modules', Path: 'C:\\Windows' });
+  assert.equal('PSModulePath' in env, false);
+  assert.equal(env.Path, 'C:\\Windows');
+  assert.equal(env.MANSU_SIGNED_FILE, 'C:\\x.exe');
+  assert.equal('psmodulepath' in windowsPowershellEnv({}, { psmodulepath: 'x' }), false);
+  let seen;
+  await readSignature('C:\\x.exe', async (_command, _args, { env: passed }) => { seen = passed; return '{"status":"NotSigned","subject":""}'; });
+  assert.ok(!Object.keys(seen).some(key => key.toUpperCase() === 'PSMODULEPATH'));
 });
 
 test('the release notice passes a valid SHA-256 through to the updater', () => {
