@@ -25,7 +25,8 @@ const usage = `Usage: npm run platform -- <command> [options]
   record-payment --slug <slug> --plan ${Object.keys(PLANS).join('|')} --interval ${Object.keys(INTERVALS).join('|')} --note "<invoice ref>"
   extend-trial --slug <slug> --days <1-90>
   set-plan --slug <slug> --plan ${Object.keys(PLANS).join('|')}
-  comp --slug <slug> --on|--off --note "<reason>"`;
+  comp --slug <slug> --on|--off --note "<reason>"
+  till-release --version 2.0.0 --url https://... --sha256 <64 hex> [--notes "..."]   (tills show it under Check for updates)`;
 
 function options(args) {
   const out = {};
@@ -160,6 +161,11 @@ try {
       registry.setBilling(s.id, { status: opt.on ? 'comped' : (s.billing.paidUntil ? 'active' : null) }, actor);
       registry.audit(actor, 'billing.comp_note', s.id, opt.note);
       console.log(opt.on ? 'Complimentary.' : 'Billing normal.');
+      break;
+    }
+    case 'till-release': {
+      const release = registry.setTillRelease({ version: opt.version, url: opt.url, sha256: opt.sha256, notes: opt.notes || '' }, actor);
+      console.log(`Published Windows till ${release.version}: ${release.url}`);
       break;
     }
     case 'suspend': registry.update(shop().id, { status: 'suspended' }, actor); console.log('Suspended.'); break;

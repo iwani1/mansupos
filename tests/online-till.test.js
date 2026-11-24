@@ -6,7 +6,11 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { kickBytes, openDrawer, WINDOWS_SCRIPT } = require('../desktop/online/drawer.cjs');
-const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed, validSaleId } = require('../desktop/online/policy.cjs');
+const { pinShop, currentShop, shopAddress, validShopOrigin, newerRelease, TILL, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos, parseSettings, printRequestAllowed, validSaleId } = require('../desktop/online/policy.cjs');
+// These checks run against a pinned shop: the MansutRENDZGH till's address,
+// which stays valid after the multi-shop change.
+const POS_ORIGIN = 'https://pos.mansutrendzgh.com';
+pinShop(POS_ORIGIN);
 const directory = path.resolve('desktop/online');
 // Windows checkouts use CRLF; compare source text with LF line endings.
 const read = name => fs.readFileSync(path.join(directory, name), 'utf8').replace(/\r\n/g, '\n');
@@ -32,7 +36,7 @@ test('Windows till has its own identity, no offline POS/website bundle and no pu
   assert.equal(config.electronVersion, pos.devDependencies.electron);
   assert.equal(config.asar, true);
   assert.equal(config.npmRebuild, false);
-  assert.deepEqual([...config.files].sort(), ['main.cjs', 'policy.cjs', 'preload.cjs', 'drawer.cjs', 'package.json'].sort());
+  assert.deepEqual([...config.files].sort(), ['main.cjs', 'policy.cjs', 'preload.cjs', 'drawer.cjs', 'till.json', 'picker.html', 'picker.js', 'picker.css', 'picker-preload.cjs', 'package.json'].sort());
   assert.equal(config.publish, undefined);
   assert.equal(config.extraFiles, undefined);
   assert.equal(config.extraResources, undefined);
@@ -64,12 +68,13 @@ test('till has no local sale path, credential bridge, updater or browser-exposed
   assert.equal((preload.match(/exposeInMainWorld/g) || []).length, 1);
   assert.equal((preload.match(/ipcRenderer\./g) || []).length, 2);
   assert.doesNotMatch(preload, /\bfs\b|child_process|shell|net\.|send\(|sendSync|webFrame/);
-  assert.equal((main.match(/ipcMain\.(handle|on)\(/g) || []).length, 2);
+  assert.equal((main.match(/ipcMain\.(handle|on)\(/g) || []).length, 4); // 2 for the POS page, 2 for the shop picker
+  assert.equal((main.match(/fromPicker\(event\) \?|if \(!fromPicker\(event\)\)/g) || []).length, 2, 'picker calls accepted only from the picker window');
   assert.match(main, /event\.sender === window\.webContents &&\n\s+event\.senderFrame === window\.webContents\.mainFrame && printRequestAllowed\(event\.senderFrame\.url\)/);
   assert.equal((main.match(/fromPos\(event\) \?/g) || []).length, 2); // both bridge calls checked
   assert.doesNotMatch(main + policy + preload, /\bnode:sqlite\b|\bsafeStorage\b|\belectron-updater\b|\bDesktopStore\b|\bDesktopRemote\b|\bmansuDesktop\s*=|\brequire\(['"]\.\.\/store/);
   assert.doesNotMatch(policy, /process\.env|http:\/\/|trading\.mansutrendzgh\.com/);
-  assert.equal(POS_ORIGIN, 'https://pos.mansutrendzgh.com');
+  assert.equal(currentShop(), 'https://pos.mansutrendzgh.com');
 });
 
 test('request policy allows the whole online POS: sign-in, selling, shifts, stock, returns and exports', () => {
@@ -154,7 +159,7 @@ test('POS must answer directly over HTTPS as healthy live JSON before the till o
 });
 
 test('receipt printer setting and print requests are validated', () => {
-  const off = { autoPrint: false, drawerOnCash: false, drawerPin: 2 };
+  const off = { autoPrint: false, drawerOnCash: false, drawerPin: 2, shopOrigin: null };
   assert.deepEqual(parseSettings('{"receiptPrinter":"EPSON TM-T20III Receipt"}'), { receiptPrinter: 'EPSON TM-T20III Receipt', ...off });
   assert.deepEqual(parseSettings('{"receiptPrinter":"  XP-80C  ","autoPrint":true}'), { ...off, receiptPrinter: 'XP-80C', autoPrint: true });
   assert.deepEqual(parseSettings('{"receiptPrinter":"XP-80C","autoPrint":"yes","drawerOnCash":1,"drawerPin":9}'), { receiptPrinter: 'XP-80C', ...off });
@@ -216,4 +221,71 @@ test('cash drawer: exact ESC/POS pulse, cash sales only, fixed Windows spooler s
   assert.match(main, /logDrawer\(reason, 'opened'\)/);
   assert.match(main, /logDrawer\(reason, `FAILED: /);
   assert.match(fs.readFileSync('src/Checkout.jsx', 'utf8'), /autoPrintReceipt\(sale\.id, sale\.paymentMethod\)/);
+});
+
+test('one installer, many shops: the till is pinned to exactly one shop address', () => {
+  // A fresh copy of the policy, as on first launch: nothing is allowed yet.
+  const fresh = path.resolve('desktop/online/policy.cjs');
+  delete require.cache[fresh];
+  const firstLaunch = require(fresh);
+  delete require.cache[fresh];
+  require(fresh); // restore the cached, pinned copy used by the other tests
+  assert.equal(firstLaunch.currentShop(), null);
+  assert.equal(firstLaunch.requestAllowed({ url: 'https://amaboutique.mansupos.com/', method: 'GET', resourceType: 'mainFrame' }), false);
+  assert.equal(firstLaunch.posRoot('https://amaboutique.mansupos.com/'), false);
+  assert.equal(firstLaunch.printRequestAllowed('https://amaboutique.mansupos.com/'), false);
+  assert.equal(firstLaunch.downloadAllowed('blob:https://amaboutique.mansupos.com/x'), false);
+  // What staff type -> the shop origin.
+  assert.equal(TILL.platformDomain, 'mansupos.com');
+  for (const [typed, origin] of [['amaboutique', 'https://amaboutique.mansupos.com'], [' AmaBoutique ', 'https://amaboutique.mansupos.com'],
+    ['amaboutique.mansupos.com', 'https://amaboutique.mansupos.com'], ['https://amaboutique.mansupos.com/', 'https://amaboutique.mansupos.com'],
+    ['pos.mansutrendzgh.com', 'https://pos.mansutrendzgh.com']]) assert.equal(shopAddress(typed), origin, typed);
+  for (const bad of ['', 'admin', 'www', 'a', 'shop_1', 'x--y', 'http://amaboutique.mansupos.com', 'https://amaboutique.mansupos.com/page',
+    'https://amaboutique.mansupos.com:8443', 'evil.com', 'amaboutique.mansupos.com.evil.com', 'https://mansupos.com', 'a.b.mansupos.com', 'https://user@amaboutique.mansupos.com']) {
+    assert.throws(() => shopAddress(bad), Error, bad);
+  }
+  assert.equal(validShopOrigin('https://amaboutique.mansupos.com'), true);
+  assert.equal(validShopOrigin('https://amaboutique.mansupos.com/'), false, 'origin only');
+  // Pinned once: another shop cannot be pinned in the same run.
+  firstLaunch.pinShop('https://amaboutique.mansupos.com');
+  assert.throws(() => firstLaunch.pinShop('https://kofistyles.mansupos.com'), /another shop/);
+  assert.equal(firstLaunch.requestAllowed({ url: 'https://amaboutique.mansupos.com/api/sales/prepare', method: 'POST', resourceType: 'xhr' }), true);
+  for (const url of ['https://kofistyles.mansupos.com/api/sales', 'https://mansupos.com/api/console/shops', 'https://pos.mansutrendzgh.com/api/sales']) {
+    assert.equal(firstLaunch.requestAllowed({ url, method: 'GET', resourceType: 'xhr' }), false, url);
+  }
+  // Product photos come from each shop's own store: images from /wp-content/uploads/ only.
+  assert.equal(firstLaunch.requestAllowed({ url: 'https://amaboutique.example.com/wp-content/uploads/2026/dress.jpg', method: 'GET', resourceType: 'image' }), true);
+  assert.equal(firstLaunch.requestAllowed({ url: 'https://amaboutique.example.com/wp-content/uploads/x.js', method: 'GET', resourceType: 'script' }), false);
+  assert.equal(firstLaunch.requestAllowed({ url: 'https://amaboutique.example.com/wp-json/wc/v3/orders', method: 'GET', resourceType: 'image' }), false);
+  assert.equal(firstLaunch.requestAllowed({ url: 'http://amaboutique.example.com/wp-content/uploads/a.jpg', method: 'GET', resourceType: 'image' }), false);
+  // Saved settings keep only a valid shop address.
+  assert.equal(parseSettings('{"shopOrigin":"https://amaboutique.mansupos.com"}').shopOrigin, 'https://amaboutique.mansupos.com');
+  assert.equal(parseSettings('{"shopOrigin":"https://evil.example.com"}').shopOrigin, null);
+});
+
+test('the shop picker exposes two functions and the main process checks every answer', () => {
+  const preload = read('picker-preload.cjs'), html = read('picker.html'), main = read('main.cjs'), js = read('picker.js');
+  assert.equal((preload.match(/exposeInMainWorld/g) || []).length, 1);
+  assert.match(preload, /info: \(\) => ipcRenderer\.invoke\('till-setup:info'\)/);
+  assert.match(preload, /choose: address => ipcRenderer\.invoke\('till-setup:choose', String\(address \|\| ''\)\.slice\(0, 200\)\)/);
+  assert.doesNotMatch(preload, /\bfs\b|child_process|shell|sendSync|webFrame/);
+  assert.match(html, /Content-Security-Policy" content="default-src 'none'; script-src 'self'/);
+  assert.doesNotMatch(html, /<script>|onclick=|style=/, 'no inline script or style');
+  assert.doesNotMatch(js, /innerHTML/);
+  assert.match(main, /try \{ origin = shopAddress\(address\); \}/);
+  assert.match(main, /serverInfo = await verifyWith\(netFetch, origin\)/);
+  assert.match(main, /if \(role !== 'owner'\)/, 'only the owner may change shop');
+  assert.match(main, /clearStorageData\(\)/);
+});
+
+test('update notices are offered only for newer versions on allowed HTTPS hosts', () => {
+  assert.deepEqual(newerRelease({ version: '2.1.0', url: 'https://mansupos.com/download/Mansu-POS-2.1.0.exe', notes: 'Faster' }, '2.0.0'),
+    { version: '2.1.0', url: 'https://mansupos.com/download/Mansu-POS-2.1.0.exe', notes: 'Faster' });
+  assert.equal(newerRelease({ version: '2.0.0', url: 'https://mansupos.com/x.exe' }, '2.0.0'), null);
+  assert.equal(newerRelease({ version: '1.9.9', url: 'https://mansupos.com/x.exe' }, '2.0.0'), null);
+  assert.equal(newerRelease({ version: '2.0.10', url: 'https://mansupos.com/x.exe' }, '2.0.9').version, '2.0.10');
+  assert.equal(newerRelease({ version: '3.0.0', url: 'https://evil.example/x.exe' }, '2.0.0'), null);
+  assert.equal(newerRelease({ version: '3.0.0', url: 'http://mansupos.com/x.exe' }, '2.0.0'), null);
+  assert.equal(newerRelease({ version: 'latest', url: 'https://mansupos.com/x.exe' }, '2.0.0'), null);
+  assert.doesNotMatch(read('main.cjs'), /electron-updater|autoUpdater|quitAndInstall/, 'nothing installs by itself until releases are signed');
 });

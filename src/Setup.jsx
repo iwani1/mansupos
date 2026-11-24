@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, AlertTriangle, XCircle, PlugZap, Stethoscope, ReceiptText, ToggleRight, Rocket, Clock } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, XCircle, PlugZap, Stethoscope, ReceiptText, ToggleRight, Rocket, Clock, MonitorDown } from 'lucide-react';
 import { api } from './api.js';
 import { PageHeading, Notice, Spinner } from './components.jsx';
 import './setup.css';
@@ -109,6 +109,13 @@ export default function Setup({ notify }) {
           <button type="button" className="button primary" onClick={() => stage('selling')} disabled={!canSell || !confirm || !!busy}>{busy === 'stage' ? 'Starting…' : 'Start selling'}</button>
           {!canSell && <p className="field-hint">{!setup.connected ? 'Connect your store first.' : 'Run the store check; every "must fix" item has to pass.'}</p>}
         </>}
+    </Step>
+    <Step number={6} done={false} icon={MonitorDown} title="Windows till (optional)">
+      <p>A desktop app for the shop PC: your shop in its own window, silent receipt printing and cash drawer. On first launch type <strong>{setup.slug}</strong> as the shop address.</p>
+      {setup.till
+        ? <><p><a className="button secondary" href={setup.till.url} rel="noopener noreferrer">Download Mansu POS {setup.till.version} for Windows</a></p>
+          <p className="field-hint">SHA-256: <code>{setup.till.sha256}</code></p></>
+        : <p className="field-hint">The Windows installer is not published yet. The web till works in any browser meanwhile.</p>}
     </Step>
   </div>;
 }

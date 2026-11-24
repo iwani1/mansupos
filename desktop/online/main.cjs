@@ -1,20 +1,22 @@
 'use strict';
 
-// Mansu POS for Windows: a native till window for the LIVE online POS.
+// Mansu POS for Windows: a native till window for ONE online shop, chosen
+// once on first launch (picker.html) and then the only site it ever opens.
 // Unlike desktop/main.js (the superseded offline till) this app has no SQLite,
 // stock allocation, offline sale, sync queue or update feed. The pinned HTTPS
 // POS service is the only place a sale, stock change or cash movement happens,
 // and it enforces staff permissions and its own trading gates.
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, BrowserWindow, dialog, ipcMain, Menu, net, session } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, net, session, shell } = require('electron');
 const { openDrawer } = require('./drawer.cjs');
-const { POS_ORIGIN, posRoot, requestAllowed, downloadAllowed, downloadName, verifyPos: verifyWith,
-  parseSettings, printRequestAllowed, validSaleId } = require('./policy.cjs');
+const { TILL, shopAddress, pinShop, currentShop, newerRelease, posRoot, requestAllowed, downloadAllowed, downloadName,
+  verifyPos: verifyWith, parseSettings, printRequestAllowed, validSaleId } = require('./policy.cjs');
 
 // Chromium's network stack: honours the Windows proxy settings and the
 // Windows certificate store, exactly like the till window itself.
-const verifyPos = () => verifyWith((url, options) => net.fetch(url, options));
+const netFetch = (url, options) => net.fetch(url, options);
+const verifyPos = () => verifyWith(netFetch, currentShop());
 
 const APP_NAME = 'Mansu POS';
 const smoke = process.env.MANSU_ONLINE_CI_SMOKE === '1' && process.argv.includes('--qa-smoke');
@@ -25,7 +27,8 @@ const partition = 'persist:mansu-pos-till';
 const CHECK_EVERY_MS = 15000;
 const BANNER_ID = 'mansu-till-connection-banner';
 let window, timer, quitting = false, online = true, serverInfo = { readOnly: false, version: '' };
-let settings = { receiptPrinter: null, autoPrint: false, drawerOnCash: false, drawerPin: 2 }, printing = false, drawerBusy = false;
+let settings = { receiptPrinter: null, autoPrint: false, drawerOnCash: false, drawerPin: 2, shopOrigin: null }, printing = false, drawerBusy = false;
+let picker = null, hadSettings = false;
 const handledSales = []; // recent sale ids, so a receipt prints / the drawer opens automatically only once
 
 app.setAppUserModelId('com.mansutrendzgh.pos.online');
@@ -39,8 +42,9 @@ else app.on('second-instance', () => {
 });
 
 function windowTitle() {
-  if (!online) return `${APP_NAME} — CONNECTION LOST · do not take payment`;
-  return serverInfo.readOnly ? `${APP_NAME} — read-only (sales switched off on the server)` : APP_NAME;
+  const name = currentShop() ? `${APP_NAME} — ${new URL(currentShop()).host}` : APP_NAME;
+  if (!online) return `${name} — CONNECTION LOST · do not take payment`;
+  return serverInfo.readOnly ? `${name} — read-only (sales switched off)` : name;
 }
 
 // The banner is drawn in an isolated world: it never touches the page's own
@@ -94,7 +98,7 @@ async function loadPos(problem) {
   if (!(await waitForPos(typeof problem === 'string' ? problem : null))) return;
   online = true;
   window.setTitle(windowTitle());
-  await window.loadURL(`${POS_ORIGIN}/`).catch(() => { /* did-fail-load handles it */ });
+  await window.loadURL(`${currentShop()}/`).catch(() => { /* did-fail-load handles it */ });
 }
 
 // ---- Receipt printer -------------------------------------------------------
@@ -272,6 +276,7 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'POS', submenu: [
       { label: 'Reload', accelerator: 'Ctrl+R', click: () => loadPos() },
+      { label: 'Change shop…', click: changeShop },
       { type: 'separator' },
       { role: 'togglefullscreen', label: 'Full screen', accelerator: 'F11' },
       { role: 'zoomIn', label: 'Larger text', accelerator: 'Ctrl+=' },
@@ -299,20 +304,20 @@ function buildMenu() {
       { type: 'separator' },
       { label: 'Show drawer log', click: showDrawerLog },
     ] },
-    { label: 'Help', submenu: [{ label: `About ${APP_NAME}`, click: about }] },
+    { label: 'Help', submenu: [{ label: 'Check for updates', click: () => checkForUpdate(true) }, { label: `About ${APP_NAME}`, click: about }] },
   ]));
 }
 
 function about() {
   dialog.showMessageBox(window, {
     type: 'info', title: APP_NAME, message: `${APP_NAME} for Windows ${app.getVersion()}`,
-    detail: `Connected to ${POS_ORIGIN}${serverInfo.version ? ` (POS ${serverInfo.version})` : ''}.\n\n` +
+    detail: `Connected to ${currentShop()}${serverInfo.version ? ` (POS ${serverInfo.version})` : ''}.\n\n` +
       'Every sale is recorded on the online POS and the website at the moment it is made. ' +
       'Nothing is stored for later: if the connection drops, wait for it to come back before taking payment.',
   });
 }
 
-async function start() {
+async function startTill() {
   const posSession = session.fromPartition(partition, { cache: false });
   posSession.webRequest.onBeforeRequest((details, callback) => {
     callback({ cancel: !requestAllowed(details) });
@@ -350,7 +355,6 @@ async function start() {
   });
   window.once('ready-to-show', () => { if (!quitting) window.show(); });
 
-  loadSettings();
   buildMenu();
   // The page's only bridge (preload.cjs). Accept it only from the POS page in
   // the till window, never from another frame or window.
@@ -372,11 +376,17 @@ async function start() {
         "Object.keys(window.mansuTill || {}).sort().join() === 'printReceipt,receiptReady' && typeof window.mansuTill.printReceipt === 'function'"),
       new Promise((_, reject) => setTimeout(() => reject(new Error('QA renderer did not respond.')), 10000)),
     ]);
-    const sells = requestAllowed({ url: `${POS_ORIGIN}/api/sales/prepare`, method: 'POST', resourceType: 'xhr' });
-    const offlineSync = requestAllowed({ url: `${POS_ORIGIN}/api/desktop/sync`, method: 'POST', resourceType: 'xhr' });
+    const shop = currentShop();
+    const sells = requestAllowed({ url: `${shop}/api/sales/prepare`, method: 'POST', resourceType: 'xhr' });
+    const offlineSync = requestAllowed({ url: `${shop}/api/desktop/sync`, method: 'POST', resourceType: 'xhr' });
     const otherSite = requestAllowed({ url: 'https://example.com/', method: 'GET', resourceType: 'mainFrame' });
-    if (!isolated || !sells || offlineSync || otherSite) throw new Error('Packaged till sandbox or request policy failed.');
-    console.log('Packaged Mansu POS window opened sandboxed with only the receipt-print bridge; online checkout allowed, offline sync and other sites blocked; no real network request.');
+    const otherShop = requestAllowed({ url: `https://othershop.${TILL.platformDomain}/api/sales`, method: 'GET', resourceType: 'xhr' });
+    // The first-launch picker renders with only its two-function bridge.
+    await openPicker({ hidden: true });
+    const pickerOk = await picker.webContents.executeJavaScript(
+      "typeof require === 'undefined' && Object.keys(window.mansuTillSetup || {}).sort().join() === 'choose,info' && Boolean(document.getElementById('address'))");
+    if (!isolated || !sells || offlineSync || otherSite || otherShop || !pickerOk) throw new Error('Packaged till sandbox, picker or request policy failed.');
+    console.log('Packaged Mansu POS window opened sandboxed with only the receipt-print bridge; shop picker renders; pinned shop allowed, other shops, offline sync and other sites blocked; no real network request.');
     app.exit(0);
     return;
   }
@@ -384,6 +394,105 @@ async function start() {
   await loadPos();
   timer = setInterval(checkConnection, CHECK_EVERY_MS);
   timer.unref();
+  setTimeout(() => checkForUpdate(false), 30000).unref();
+  setInterval(() => checkForUpdate(false), 12 * 3600000).unref();
+}
+
+// ---- Choosing the shop -----------------------------------------------------
+// First launch (or after "Change shop"): a small local page asks for the shop
+// address; the main process checks it is a live Mansu POS shop, saves it and
+// pins it. From then on the till opens only that shop.
+function openPicker({ hidden = false } = {}) {
+  picker = new BrowserWindow({
+    title: `${APP_NAME} — choose your shop`, width: 560, height: 620, resizable: false, show: false, backgroundColor: '#f6f3ef',
+    webPreferences: { preload: path.join(__dirname, 'picker-preload.cjs'), contextIsolation: true, nodeIntegration: false,
+      sandbox: true, webSecurity: true, webviewTag: false, devTools: !app.isPackaged, spellcheck: false },
+  });
+  picker.removeMenu();
+  picker.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  picker.webContents.on('will-navigate', event => event.preventDefault());
+  if (!hidden) picker.once('ready-to-show', () => picker?.show());
+  return picker.loadFile(path.join(__dirname, 'picker.html'));
+}
+
+function registerPickerBridge() {
+  const fromPicker = event => Boolean(picker && !picker.isDestroyed() && event.sender === picker.webContents);
+  ipcMain.handle('till-setup:info', event => (fromPicker(event) ? {
+    platformDomain: TILL.platformDomain,
+    // A till upgraded from the MansutRENDZGH-only version suggests its old address.
+    suggestion: hadSettings && TILL.legacyOrigins[0] ? new URL(TILL.legacyOrigins[0]).host : '',
+  } : null));
+  ipcMain.handle('till-setup:choose', async (event, address) => {
+    if (!fromPicker(event)) return { ok: false, error: 'Refused.' };
+    let origin;
+    try { origin = shopAddress(address); } catch (error) { return { ok: false, error: error.message }; }
+    try { serverInfo = await verifyWith(netFetch, origin); } catch (error) { return { ok: false, error: error.message }; }
+    settings.shopOrigin = origin;
+    saveSettings();
+    pinShop(origin);
+    const chooser = picker;
+    picker = null;
+    await startTill();
+    chooser.close();
+    return { ok: true };
+  });
+}
+
+// Only the shop's owner, signed in on this till, may point it at another shop.
+async function changeShop() {
+  let role = null;
+  try {
+    role = await window.webContents.executeJavaScript(
+      "fetch('/api/session', { credentials: 'same-origin', cache: 'no-store' }).then(r => r.json()).then(d => (d && d.user && d.user.role) || null)", true);
+  } catch { role = null; }
+  if (role !== 'owner') {
+    await dialog.showMessageBox(window, { type: 'info', title: 'Change shop', message: 'Only the shop owner can change the shop on this till',
+      detail: 'Sign in on this till as the owner, then choose POS → Change shop again.' });
+    return;
+  }
+  const host = new URL(currentShop()).host;
+  const { response } = await dialog.showMessageBox(window, {
+    type: 'warning', title: 'Change shop', buttons: ['Disconnect this till', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true,
+    message: `Disconnect this till from ${host}?`,
+    detail: 'Everyone is signed out and held sales on this till are cleared. Printer and cash drawer settings stay. The till restarts and asks for the new shop address.',
+  });
+  if (response !== 0) return;
+  await session.fromPartition(partition).clearStorageData();
+  settings.shopOrigin = null;
+  saveSettings();
+  app.relaunch();
+  app.exit(0);
+}
+
+// ---- Updates ---------------------------------------------------------------
+// Until releases are code-signed the till never installs anything by itself:
+// it tells staff a new version exists and opens the download on an allowed host.
+async function checkForUpdate(manual) {
+  try {
+    const response = await net.fetch(TILL.updateFeed, { redirect: 'error', signal: AbortSignal.timeout(10000), headers: { Accept: 'application/json' } });
+    const release = newerRelease(await response.json(), app.getVersion());
+    if (!release) {
+      if (manual) dialog.showMessageBox(window, { type: 'info', title: APP_NAME, message: `You have the latest version (${app.getVersion()}).` });
+      return;
+    }
+    const { response: choice } = await dialog.showMessageBox(window, {
+      type: 'info', title: APP_NAME, buttons: ['Download', 'Later'], defaultId: 0, cancelId: 1, noLink: true,
+      message: `${APP_NAME} ${release.version} is available`,
+      detail: `You have ${app.getVersion()}.${release.notes ? `\n\n${release.notes}` : ''}\n\nDownload it, then install it when the shop is closed. Your shop, printer and drawer settings are kept.`,
+    });
+    if (choice === 0) await shell.openExternal(release.url);
+  } catch {
+    if (manual) dialog.showMessageBox(window, { type: 'warning', title: APP_NAME, message: 'Could not check for updates', detail: 'Check the internet connection and try again.' });
+  }
+}
+
+async function start() {
+  hadSettings = fs.existsSync(settingsFile());
+  loadSettings();
+  registerPickerBridge();
+  if (smoke) { pinShop(`https://smoketest.${TILL.platformDomain}`); return startTill(); }
+  if (settings.shopOrigin) { pinShop(settings.shopOrigin); return startTill(); }
+  return openPicker();
 }
 
 if (single) app.whenReady().then(start).catch(error => {

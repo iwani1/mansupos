@@ -382,11 +382,14 @@ jobs:
     # superseded offline till). Only an explicit [online-qa] push uploads a
     # short-lived unsigned QA artifact. CI performs no live login, sale or Woo
     # request; no GitHub Release or deployment is created.
+    # Code signing: when the repository secrets WIN_CSC_LINK (base64 .pfx or
+    # a URL) and WIN_CSC_KEY_PASSWORD exist, electron-builder signs and this
+    # job requires a Valid signature; without them the QA build stays unsigned.
     if: github.event_name == 'push' && contains(github.event.head_commit.message, '[online-qa]')
     runs-on: windows-2025
     timeout-minutes: 20
     env:
-      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      SIGNING: ${{ secrets.WIN_CSC_LINK != '' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -400,8 +403,16 @@ jobs:
       - name: Download official Windows Electron runtime
         run: node node_modules/electron/install.js
         timeout-minutes: 8
-      - name: Build unsigned Mansu POS (online) installer
-        run: npm run dist:online:win
+      - name: Build Mansu POS (online) installer (signed when a certificate secret exists)
+        shell: pwsh
+        run: |
+          if ($env:SIGNING -eq 'true') { $env:CSC_LINK = $env:WIN_CSC_LINK; $env:CSC_KEY_PASSWORD = $env:WIN_CSC_KEY_PASSWORD }
+          else { $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false' }
+          npm run dist:online:win
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         timeout-minutes: 10
       - name: Smoke packaged native window with no live network or credentials
         shell: pwsh
@@ -429,11 +440,13 @@ jobs:
           $setup = @(Get-ChildItem $out -Filter 'Mansu-POS-ONLINE-*-Windows-Setup.exe' -File)
           if ($setup.Count -ne 1 -or $setup[0].Length -lt 50000000) { throw 'Exactly one complete Mansu POS installer was expected.' }
           $signature = Get-AuthenticodeSignature $setup[0].FullName
-          if ($signature.Status -ne 'NotSigned') { throw "Unexpected QA installer signature state: $($signature.Status)" }
+          $expected = if ($env:SIGNING -eq 'true') { 'Valid' } else { 'NotSigned' }
+          if ($signature.Status -ne $expected) { throw "Installer signature is $($signature.Status), expected $expected." }
+          if ($env:SIGNING -eq 'true') { Write-Host "Signed by: $($signature.SignerCertificate.Subject)" }
           $hash = (Get-FileHash $setup[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $($setup[0].Name)" | Set-Content -Encoding ascii "$out/SHA256.txt"
           Copy-Item docs/WINDOWS-ONLINE-TILL.md "$out/READ-ME-MANSU-POS-WINDOWS.md"
-          Write-Host "Mansu POS (online till), unsigned QA build: $($setup[0].Name), SHA256 $hash"
+          Write-Host "Mansu POS (online till), signature $($signature.Status): $($setup[0].Name), SHA256 $hash"
           Write-Host 'Only a time-limited Actions artifact is uploaded; no GitHub Release or Woo change.'
       - uses: actions/upload-artifact@v7
         with:

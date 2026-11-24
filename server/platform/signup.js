@@ -53,6 +53,12 @@ export function createSignupApp({ config, registry, provisionShop, mailer, logge
   const checkLimit = limit(60000, 60, 'Too many checks. Wait a moment.');
 
   app.get('/api/health', (_req, res) => res.json({ ok: true, platform: true }));
+  // Release notice read by every Windows till (Help > Check for updates).
+  app.get('/till/latest.json', (_req, res) => {
+    const release = registry.tillRelease();
+    if (!release) return res.status(404).json({ error: 'No release published.' });
+    res.set('Cache-Control', 'public, max-age=300').json(release);
+  });
   app.get('/api/signup/check', checkLimit, (req, res) => {
     const slug = String(req.query.slug || '').trim().toLowerCase();
     const problem = slugProblem(slug) || (registry.bySlug(slug) ? 'That address is already taken.' : '');
