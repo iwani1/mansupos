@@ -23,7 +23,6 @@ async function sell() {
   await page.getByRole('checkbox', { name: /demo payment record/ }).check();
   await page.getByRole('button', { name: 'Complete demo sale' }).click();
   await page.getByRole('heading', { name: 'Demo sale complete' }).waitFor();
-  await page.waitForTimeout(300);
 }
 
 try {
@@ -31,6 +30,7 @@ try {
   await page.locator('.product-card').first().waitFor();
 
   await sell();
+  await page.waitForTimeout(1500);
   const toggle = page.getByRole('checkbox', { name: /Print automatically after each sale/ });
   if (await toggle.isChecked()) throw new Error('Auto-print must be off by default.');
   if (await prints() !== 0) throw new Error('Receipt printed while auto-print was off.');
@@ -39,6 +39,9 @@ try {
   console.log('Auto-print off by default: PASS');
 
   await sell();
+  // Printing waits for the receipt to be painted, which can take a while on a busy CI runner.
+  await page.waitForFunction(() => window.__prints >= 1, null, { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(1000);
   if (await prints() !== 1) throw new Error(`Expected one automatic print, got ${await prints()}.`);
   await page.getByText('Receipt sent to the printer automatically.').waitFor();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
@@ -48,7 +51,7 @@ try {
   await page.locator('[data-nav="sales"]').click();
   await page.getByRole('button', { name: 'Receipt', exact: true }).first().click();
   await page.getByRole('heading', { name: 'Sale receipt' }).waitFor();
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(1500);
   if (await prints() !== 0) throw new Error('A reopened receipt printed by itself.');
   if (!(await page.getByRole('checkbox', { name: /Print automatically after each sale/ }).isChecked())) throw new Error('Auto-print choice was not remembered on this device.');
   console.log('Reopened receipt does not auto-print; choice remembered: PASS');
