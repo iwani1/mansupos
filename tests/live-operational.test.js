@@ -93,7 +93,7 @@ test('live trading template starts locked, has no secrets and requires a separat
   assert.match(backup, /^ExecStart=.*POS_MODE=live POS_LIVE_READ_ONLY=false POS_DATA_DIR=\/var\/lib\/mansu-pos-live-trading .*server\/backup\.js \/var\/lib\/mansu-pos-live-trading\/backups$/m);
 });
 
-test('retail-cash drop-in enables only cash Retail on the trading service, whatever the env file says', () => {
+test('retail-cash drop-in enables cash Retail (and env-approved cash Wholesale) on the trading service, nothing else', () => {
   const dropIn = fs.readFileSync('deploy/mansu-pos-live-trading.retail-cash.conf', 'utf8');
   assert.match(dropIn, /^ExecStartPre=$/m, 'Drop-in must reset the base unit start commands');
   assert.match(dropIn, /^ExecStart=$/m);
@@ -116,7 +116,11 @@ test('retail-cash drop-in enables only cash Retail on the trading service, whate
     const config = readConfig(effective);
     assert.equal(config.liveRetailCashDirect, true);
     assert.equal(config.writesEnabled, true);
-    assert.equal(config.wholesaleWritesEnabled, false);
+    // Cash-only Wholesale follows the private env file's own switch and
+    // acceptance reference; everything else stays pinned off.
+    assert.equal(config.wholesaleWritesEnabled, true);
+    assert.equal(readConfig({ ...effective, POS_LIVE_WHOLESALE_APPROVED: 'false' }).wholesaleWritesEnabled, false);
+    assert.equal(readConfig({ ...effective, POS_LIVE_WHOLESALE_APPROVED: 'false', POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: '' }).wholesaleWritesEnabled, false);
     assert.equal(config.inStoreCashEnabled, false);
     assert.equal(config.desktopSetupEnabled, false);
     assert.equal(config.onlineBridgeEnabled, false);

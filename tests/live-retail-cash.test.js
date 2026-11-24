@@ -35,7 +35,9 @@ test('direct retail cash refuses unsafe combinations and the read-only pilot', (
     { POS_ALLOW_LIVE_WRITES: 'false' },
     { POS_OWNER_APPROVAL_REFERENCE: 'short' },
     { POS_REQUIRE_SHIFT: 'false' },
-    { POS_LIVE_WHOLESALE_APPROVED: 'true', POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'wholesale-reference' },
+    { POS_LIVE_WHOLESALE_APPROVED: 'true' },
+    { POS_LIVE_WHOLESALE_APPROVED: 'true', POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'owner-chat-2026-11-16-cash-retail' },
+    { POS_LIVE_WHOLESALE_APPROVED: 'yes', POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'wholesale-reference' },
     { POS_INSTORE_CASH_APPROVED: 'true' },
     { POS_DESKTOP_SETUP_APPROVED: 'true' },
     { WOO_CONSUMER_KEY: '' },
@@ -44,6 +46,14 @@ test('direct retail cash refuses unsafe combinations and the read-only pilot', (
   ];
   for (const change of bad) assert.throws(() => readConfig({ ...tradingEnv, ...change }), Error, JSON.stringify(change));
   assert.throws(() => readConfig({ ...tradingEnv, POS_MODE: 'staging', WOO_BASE_URL: 'https://staging.example.com' }));
+});
+
+test('cash-only wholesale can be added to direct retail cash with its own acceptance reference', () => {
+  const config = readConfig({ ...tradingEnv, POS_LIVE_WHOLESALE_APPROVED: 'true', POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'owner-chat-2026-11-24-wholesale' });
+  assert.equal(config.liveRetailCashDirect, true);
+  assert.equal(config.wholesaleWritesEnabled, true);
+  assert.deepEqual(config.paymentMethods, ['cash'], 'Wholesale on the live till is cash only');
+  assert.equal(readConfig({ ...tradingEnv, POS_LIVE_WHOLESALE_APPROVED: 'false', POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'owner-chat-2026-11-24-wholesale' }).wholesaleWritesEnabled, false);
 });
 
 test('without the explicit switch, production live checkout stays locked', () => {
@@ -75,12 +85,11 @@ function fakeApi() {
   };
 }
 
-async function harness(t) {
+async function harness(t, extraEnv = {}, api = fakeApi()) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mansu-retail-cash-'));
-  const api = fakeApi();
   // NODE_ENV=test keeps cookies/origin checks simple; the gate itself is the
   // same explicit switch and still requires shifts, approval and no wholesale.
-  const env = { ...tradingEnv, NODE_ENV: 'test', POS_PUBLIC_ORIGIN: '', POS_DATA_DIR: dir, POS_OWNER_USERNAME: 'owner', POS_OWNER_PASSWORD: 'test-secret-passphrase-123' };
+  const env = { ...tradingEnv, NODE_ENV: 'test', POS_PUBLIC_ORIGIN: '', POS_DATA_DIR: dir, POS_OWNER_USERNAME: 'owner', POS_OWNER_PASSWORD: 'test-secret-passphrase-123', ...extraEnv };
   const instance = createApp({ env, api, logger: { debug() {}, info() {}, warn() {}, error() {}, child() { return this; } } });
   const server = instance.app.listen(0, '127.0.0.1');
   await new Promise(r => server.once('listening', r));
@@ -151,6 +160,63 @@ test('wholesale stays locked under direct retail cash', async t => {
   const res = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: { ...cartOf(), saleType: 'wholesale', wholesaleApproved: true, items: [{ productId: 10, variationId: 11, quantity: 1, agreedUnitPrice: 5000 }] } });
   assert.equal(res.status, 403);
   assert.equal(res.data.code, 'WHOLESALE_CHECKOUT_LOCKED');
+});
+
+// Woo with taxes off (the live store's setting): line totals follow REST
+// updates and the order total is recalculated, as WooCommerce does.
+function wholesaleApi() {
+  const api = fakeApi();
+  const view = o => ({ ...o, fee_lines: [], coupon_lines: [], shipping_lines: [], shipping_total: '0.00', discount_total: '0.00', total: o.line_items.reduce((s, i) => s + Number(i.total), 0).toFixed(2), total_tax: '0.00', tax_lines: [], refunds: [],
+    line_items: o.line_items.map(i => ({ ...i, name: 'Test Dress', sku: 'DRESS-M', total_tax: '0.00' })) });
+  api.createOrder = async body => { api.state.creates++; const o = { ...body, id: 900 + api.state.creates, number: String(900 + api.state.creates), currency: 'GHS', date_paid: null,
+    line_items: body.line_items.map((i, n) => ({ ...i, id: n + 1, price: 100, subtotal: (100 * i.quantity).toFixed(2), total: (100 * i.quantity).toFixed(2) })) }; api.state.orders.push(o); return view(o); };
+  api.updateOrder = async (id, body) => { api.state.updates++; const o = api.state.orders.find(x => x.id === id);
+    const { meta_data, line_items, ...rest } = body; Object.assign(o, rest);
+    for (const change of line_items || []) Object.assign(o.line_items.find(i => i.id === change.id), { subtotal: change.subtotal, total: change.total });
+    if (meta_data) o.meta_data = [...o.meta_data, ...meta_data];
+    if (body.set_paid) { o.date_paid = new Date().toISOString(); api.state.stock -= o.line_items.reduce((s, i) => s + i.quantity, 0); }
+    return view(o); };
+  api.order = async id => view(api.state.orders.find(o => o.id === id));
+  api.recentOrders = async () => ({ data: api.state.orders.map(view), total: api.state.orders.length, pages: 1, paginationKnown: true });
+  return api;
+}
+const wholesaleEnv = { POS_LIVE_WHOLESALE_APPROVED: 'true', POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE: 'owner-chat-2026-11-24-wholesale' };
+const wholesaleCart = (price = 8000, quantity = 2) => ({ idempotencyKey: randomUUID(), saleType: 'wholesale', wholesaleApproved: true, buyerName: 'Ama Boutique',
+  items: [{ productId: 10, variationId: 11, quantity, agreedUnitPrice: price }] });
+
+test('switched on, a live wholesale sale is repriced in Woo, paid in cash on the shift and lowers stock', async t => {
+  const api = wholesaleApi(); api.state.stock = 5;
+  const h = await harness(t, wholesaleEnv, api);
+  const prepared = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: wholesaleCart() });
+  assert.equal(prepared.status, 201, JSON.stringify(h.db.prepare('SELECT error FROM sales').all()));
+  assert.equal(prepared.data.sale.total, 16000, 'Agreed GH₵80 x 2, not the GH₵100 catalogue price');
+  assert.equal(api.state.orders[0].line_items[0].total, '160.00');
+  assert.equal(api.state.orders[0].billing.first_name, 'Ama Boutique');
+  const momo = await h.request(`/sales/${prepared.data.sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'momo', reference: 'MOMO-1', confirmed: true } });
+  assert.equal(momo.status, 403);
+  assert.equal(momo.data.code, 'PAYMENT_METHOD_LOCKED');
+  const paid = await h.request(`/sales/${prepared.data.sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 20000, confirmed: true } });
+  assert.equal(paid.status, 200, JSON.stringify(paid.data));
+  assert.equal(paid.data.sale.status, 'paid');
+  assert.equal(paid.data.sale.changeDue, 4000);
+  assert.equal(api.state.stock, 3);
+  assert.equal(api.state.orders[0].line_items[0].price, 100, 'Catalogue price is untouched');
+});
+
+test('live wholesale still refuses cashiers and last units held by unpaid orders', async t => {
+  const api = wholesaleApi();
+  const h = await harness(t, wholesaleEnv, api);
+  const created = await h.request('/staff', { method: 'POST', token: h.token, body: { username: 'kofi', name: 'Kofi', role: 'cashier', password: 'cashier-secret-phrase-1' } });
+  assert.equal(created.status, 201, JSON.stringify(created.data));
+  const cashier = (await h.request('/auth/login', { method: 'POST', body: { username: 'kofi', password: 'cashier-secret-phrase-1' } })).data.token;
+  await h.request('/auth/password', { method: 'POST', token: cashier, body: { currentPassword: 'cashier-secret-phrase-1', newPassword: 'cashier-rotated-phrase-2' } });
+  const refused = await h.request('/sales/prepare', { method: 'POST', token: cashier, body: wholesaleCart(8000, 1) });
+  assert.equal(refused.status, 403);
+  assert.equal(refused.data.code, 'WHOLESALE_ROLE_REQUIRED');
+  api.state.orders.push({ ...websiteHold, currency: 'GHS', line_items: [{ ...websiteHold.line_items[0], id: 1, total: '100.00', subtotal: '100.00' }] });
+  const held = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: wholesaleCart(8000, 1) });
+  assert.equal(held.status, 409);
+  assert.equal(held.data.code, 'LAST_UNIT_HELD');
 });
 
 test('the live till refuses items whose stock WooCommerce does not track', async t => {

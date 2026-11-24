@@ -71,7 +71,9 @@ export function readConfig(env = process.env) {
   // Owner-chosen first release (2026-11-16): cash-only RETAIL orders written
   // straight to WooCommerce, without the reservation bridge. It is a distinct,
   // explicit switch and refuses to combine with Wholesale, MoMo/card, the
-  // bridge, offline tills or the retired POS-only stock pool. A REST-created
+  // bridge, offline tills or the retired POS-only stock pool. Wholesale may be
+  // added (2026-11-24, owner request) as a separate cash-only switch with its
+  // own documented acceptance reference. A REST-created
   // order still does not atomically reserve Woo stock, so SalesService also
   // refuses last-unit sales while an unpaid website/POS order holds that item.
   if (env.POS_LIVE_RETAIL_CASH_DIRECT && !['true', 'false'].includes(env.POS_LIVE_RETAIL_CASH_DIRECT)) {
@@ -81,9 +83,16 @@ export function readConfig(env = process.env) {
   if (liveRetailCashDirect && (mode !== 'live' || liveReadOnly || !configured ||
       env.POS_ALLOW_LIVE_WRITES !== 'true' || approvalReference.length < 8 ||
       env.POS_REQUIRE_SHIFT !== 'true' || onlineBridgeLiveEnabled ||
-      env.POS_LIVE_WHOLESALE_APPROVED === 'true' || env.POS_INSTORE_CASH_APPROVED === 'true' ||
+      env.POS_INSTORE_CASH_APPROVED === 'true' ||
       env.POS_DESKTOP_SETUP_APPROVED === 'true' || env.POS_DESKTOP_RESERVATION_APPROVED === 'true')) {
-    throw new Error('Direct live retail cash requires a separate live trading service (never the read-only pilot), Woo credentials, POS_ALLOW_LIVE_WRITES=true, an owner approval reference, mandatory shifts, and no Wholesale, bridge, offline or in-store gates.');
+    throw new Error('Direct live retail cash requires a separate live trading service (never the read-only pilot), Woo credentials, POS_ALLOW_LIVE_WRITES=true, an owner approval reference, mandatory shifts, and no bridge, offline or in-store gates.');
+  }
+  if (env.POS_LIVE_WHOLESALE_APPROVED && !['true', 'false'].includes(env.POS_LIVE_WHOLESALE_APPROVED)) {
+    throw new Error('POS_LIVE_WHOLESALE_APPROVED must be true or false.');
+  }
+  if (liveRetailCashDirect && env.POS_LIVE_WHOLESALE_APPROVED === 'true' &&
+      (env.POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE || '').trim() === (env.POS_OWNER_APPROVAL_REFERENCE || '').trim()) {
+    throw new Error('Live wholesale needs its own POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE, different from the retail approval reference.');
   }
   const websiteHoldMinutes = Number(env.POS_WEBSITE_HOLD_MINUTES || 60);
   if (!Number.isInteger(websiteHoldMinutes) || websiteHoldMinutes < 1 || websiteHoldMinutes > 1440) {
