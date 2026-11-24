@@ -78,7 +78,7 @@ Create individual cashier accounts in Staff & access. Share temporary credential
 
 ## 4. Hardware
 
-See [HARDWARE.md](HARDWARE.md) for the owner-supplied counter hardware profile and device-specific setup notes.
+See [HARDWARE.md](../HARDWARE.md) for the owner-supplied counter hardware profile and device-specific setup notes.
 
 - Scanner: configure USB/Bluetooth keyboard (HID) mode with an Enter/Return suffix. Test an existing SKU and a variation SKU. `F2` opens the scan field.
 - Printer: install the manufacturer’s trusted driver. Select 58 mm, 80 mm, or A4 in the receipt dialog. Disable browser headers/footers and unwanted scaling if necessary. Test alignment and cutting on the actual device.

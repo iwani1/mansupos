@@ -25,4 +25,4 @@ Every page shares a document-like title, understated icon, context, primary acti
 
 ## Contabo installation
 
-Use [CONTABO-WORKSPACE-DEPLOY.md](CONTABO-WORKSPACE-DEPLOY.md) for the standalone on-server deployment and pull process. This is not a request for a staging site and is not permission for cash trading. Existing pilot, Nginx apps, live store stock and gateway must stay unchanged until separately authorized.
+Use [CONTABO-WORKSPACE-DEPLOY.md](archive/CONTABO-WORKSPACE-DEPLOY.md) for the standalone on-server deployment and pull process. This is not a request for a staging site and is not permission for cash trading. Existing pilot, Nginx apps, live store stock and gateway must stay unchanged until separately authorized.

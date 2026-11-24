@@ -71,7 +71,7 @@ Automated baseline: backend/mocked WooCommerce/restore and deployment-safety reg
 
 ## Wholesale checkout — separate acceptance (not dispatch on credit)
 
-- [ ] For branch 1.2.3, owner-only private defaults are stored in the separate POS ledger: view/edit/remove from Inventory, mark changed/missing Woo identities for review, confirm staff/cashiers cannot access the private price API and no retail catalogue, public Woo price or order is modified. Owner/manager can review a suggested per-option default and can still negotiate a different final price for that sale; edits require fresh approval. Do not interpret a saved default as authority to turn on Checkout. See [PRIVATE-WHOLESALE-PRICES.md](PRIVATE-WHOLESALE-PRICES.md).
+- [ ] For branch 1.2.3, owner-only private defaults are stored in the separate POS ledger: view/edit/remove from Inventory, mark changed/missing Woo identities for review, confirm staff/cashiers cannot access the private price API and no retail catalogue, public Woo price or order is modified. Owner/manager can review a suggested per-option default and can still negotiate a different final price for that sale; edits require fresh approval. Do not interpret a saved default as authority to turn on Checkout. See [PRIVATE-WHOLESALE-PRICES.md](../PRIVATE-WHOLESALE-PRICES.md).
 
 - [ ] Wholesale uses isolated local synthetic fixtures for preliminary tests. No staging server is required. A controlled **real** Wholesale sale needs distinct written live approval and an acceptance-plan reference **after** Retail, stock/hook and pricing checks. `POS_STAGING_WHOLESALE_APPROVED` is an old non-live test flag, **not** a shortcut to live approval; a flag does not prove acceptance.
 - [ ] **Wholesale** is a separate owner/manager navigation page; no negotiated-price controls are in the retail register. Goods are available immediately without choosing or creating a buyer. Type an optional name or leave it blank. A cashier cannot open the wholesale workspace or enter/approve a negotiated price; the API also rejects these actions.
@@ -98,7 +98,7 @@ Automated baseline: backend/mocked WooCommerce/restore and deployment-safety reg
 
 ## Hardware
 
-Observed hardware profile: [HARDWARE.md](HARDWARE.md). Identification from photos is not a physical pass.
+Observed hardware profile: [HARDWARE.md](../HARDWARE.md). Identification from photos is not a physical pass.
 
 - [ ] Actual scanner model, keyboard mode, and Enter suffix tested.
 - [ ] Xprinter XP-80T driver, 80 mm paper width, alignment, readability, and cutting tested.
