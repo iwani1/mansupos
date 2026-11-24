@@ -2,7 +2,6 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from
 import { Search, RefreshCw, Download, PackagePlus, PackageMinus, ClipboardCheck, History, Tag, Boxes, Globe, Store, LockKeyhole } from 'lucide-react';
 import { api, money, dateTime, authHeaders, uuid } from './api.js';
 import { PageHeading, Stat, Empty, Badge, ProductImage, Modal, Notice, Spinner, TableRegion } from './components.jsx';
-import './stock-control.css';
 import { usePhone } from './use-phone.js';
 const ProductEditor = lazy(() => import('./ProductEditor.jsx'));
 

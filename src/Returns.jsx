@@ -2,9 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Search, Undo2, PackageCheck, History, LockKeyhole } from 'lucide-react';
 import { api, money, dateTime, uuid } from './api.js';
 import { PageHeading, Stat, Empty, Badge, Notice, Spinner, TableRegion } from './components.jsx';
-import './stock-control.css';
-import './product-editor.css';
-import './purchasing.css';
 
 const DISPOSITIONS = [
   ['restock', 'Back on sale', 'Added to website and shop stock now'],

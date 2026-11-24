@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, ImagePlus, X, Star, Plus, Trash2, Wand2, LockKeyhole } from 'lucide-react';
 import { api, authHeaders, uuid, money } from './api.js';
 import { Modal, Notice, Spinner } from './components.jsx';
-import './product-editor.css';
 
 const MAX_PHOTOS = 12;
 const MAX_COMBOS = 100;
