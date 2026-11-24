@@ -94,8 +94,12 @@ export class ReturnsService {
     if (!row) throw new AppError('Sale not found.', 404);
     const sale = saleView(row);
     const returned = this.returnedBySale(saleId);
+    // A loyalty points discount lowers what was actually paid: refund each
+    // line in proportion, never more than the customer paid.
+    const goods = sale.items.reduce((sum, i) => sum + (i.agreedLineTotal ?? i.total ?? i.price * i.quantity), 0);
+    const share = goods > sale.total && sale.total > 0 ? sale.total / goods : 1;
     const lines = sale.items.map(i => {
-      const paid = i.agreedLineTotal ?? i.total ?? i.price * i.quantity;
+      const paid = Math.floor((i.agreedLineTotal ?? i.total ?? i.price * i.quantity) * share);
       const key = `${i.productId}:${i.variationId || 0}`;
       return { productId: i.productId, variationId: i.variationId || 0, name: i.name, label: i.label || '', sku: i.sku || '', image: i.image || '',
         sold: i.quantity, returned: returned.get(key) || 0, returnable: Math.max(0, i.quantity - (returned.get(key) || 0)), unitRefund: Math.floor(paid / i.quantity) };
@@ -185,7 +189,7 @@ export class ReturnsService {
         throw new AppError('WooCommerce did not confirm the refund. Press "Complete return" again: the POS checks the order first, so it never refunds twice.', 502, 'REFUND_UNCONFIRMED');
       }
     }
-    return this.tx(() => {
+    const saved = this.tx(() => {
       const sale = this.db.prepare('SELECT * FROM sales WHERE id=?').get(ret.sale_id);
       const refunded = Math.min(sale.total, sale.refunded + ret.refund_total);
       this.db.prepare('UPDATE sales SET refunded=?,status=?,updated_at=? WHERE id=?').run(refunded, refunded >= sale.total ? 'refunded' : 'partially_refunded', now(), sale.id);
@@ -195,6 +199,9 @@ export class ReturnsService {
       audit(this.db, user.id, 'return.refunded', `${ret.id}:${ret.refund_total}`);
       return this.db.prepare('SELECT * FROM customer_returns WHERE id=?').get(ret.id);
     });
+    // Take back the loyalty points earned on the refunded amount.
+    try { this.customers?.onReturn(ret.sale_id, ret.id, ret.refund_total, user.id); } catch { /* owner can adjust points */ }
+    return saved;
   }
   recordCash(user, ret) {
     if (ret.payment_method !== 'cash' || ret.refund_total === 0 || !ret.shift_id) {

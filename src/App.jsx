@@ -54,7 +54,7 @@ const navigation = [
   { id:'returns', label:'Customer returns', short:'Returns', icon:Undo2, group:'Operations', roles:['owner','manager'], hideReadOnly:true },
   { id:'recovery', label:'Recovery queue', short:'Review', icon:ShieldCheck, group:'Operations', roles:['owner','manager'] },
   { id:'paymentReconciliation', label:'Payment reconciliation', short:'Payments', icon:Banknote, group:'Operations', roles:['owner','manager'], merchantOnly:true },
-  { id:'customers', label:'Customers', short:'Buyers', icon:Users, group:'Operations', roles:['owner','manager'] },
+  { id:'customers', label:'Customers', short:'Customers', icon:Users, group:'Operations', roles:['owner','manager'] },
   { id:'shifts', label:'Shifts & drawer', short:'Drawer', icon:Banknote, group:'Operations' },
   { id:'operations', label:'Daily staff operations', short:'Daily duties', icon:ShieldCheck, group:'Operations' },
   { id:'physicalCounts', label:'Physical stock counts', short:'Recount', icon:ClipboardCheck, group:'Operations', liveOnly:true, merchantOnly:true },
@@ -259,7 +259,7 @@ export default function App() {
           {page==='purchasing'&&user.role!=='cashier'&&!config.liveReadOnly&&<Purchasing user={user} notify={notify} refreshCatalog={refresh}/>}
           {page==='stockControl'&&user.role!=='cashier'&&<StockControl user={user} notify={notify} refreshCatalog={refresh} config={config}/>}
           {page==='stockSafety'&&config.mode==='live'&&user.role!=='cashier'&&<StockSafety active={page==='stockSafety'} user={user}/>}
-          {page==='customers'&&user.role!=='cashier'&&<Customers refreshKey={refreshKey}/>}
+          {page==='customers'&&user.role!=='cashier'&&<Customers refreshKey={refreshKey} user={user} notify={notify}/>}
           {page==='recovery'&&user.role!=='cashier'&&<RecoveryQueue/>}
           {page==='paymentReconciliation'&&user.role!=='cashier'&&<PaymentReconciliation user={user}/>}
           {page==='shifts'&&<Shifts config={config} user={user} shift={shift} refresh={refresh} notify={notify}/>}

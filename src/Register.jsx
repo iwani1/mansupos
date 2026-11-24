@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, ScanLine, RefreshCw, Plus, Minus, Trash2, ShoppingBag, ArrowRight, X, Pause, Play, UserRound, StickyNote, Check, WifiOff, LayoutGrid, List, Banknote, ShieldCheck } from 'lucide-react';
 import { api, money, uuid } from './api.js';
 import { IconButton, Badge, ProductImage, Empty, Modal, Notice, NoResults, SellingModeSwitch } from './components.jsx';
+import { CustomerStrip } from './CustomerPicker.jsx';
 import { available, physicallyInStock, allowsBackorders, hasKnownStock, stockUnknown, ownershipUnknown, onBackorder, takesLastUnit } from './stock.js';
 
 const parentAllowsSale = p => Boolean(p?.purchasable && p.stockStatus !== 'outofstock');
@@ -27,6 +28,8 @@ export default function Register({ active = true, catalog, config, checkoutScope
   const [selectedVariant, setSelectedVariant] = useState(null);
   const [variantQty, setVariantQty] = useState(1);
   const [note, setNote] = useState('');
+  const [customer, setCustomer] = useState(null);
+  const [redeemPoints, setRedeemPoints] = useState(0);
   const [showNote, setShowNote] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -55,6 +58,11 @@ export default function Register({ active = true, catalog, config, checkoutScope
   const scanExample = config.mode === 'demo' ? products.flatMap(p => (p.type === 'variable' ? p.variations : [p]).map(line => ({ product: p, line }))).find(({ product, line }) => productAvailable(product) && available(line) && line.barcode?.startsWith('DEMO-')) : null;
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const count = cart.reduce((sum,item) => sum + item.quantity, 0);
+  // Loyalty customers and points: retail till on the server (not the offline till or read-only pilot).
+  const loyaltyAvailable = !desktop && !config.liveReadOnly && config.mode !== 'desktop';
+  const pointsDiscount = customer && redeemPoints && redeemPoints <= Math.max(0, total - 100) ? redeemPoints : 0;
+  const payable = total - pointsDiscount;
+  useEffect(() => { if (redeemPoints && redeemPoints > Math.max(0, total - 100)) setRedeemPoints(0); }, [redeemPoints, total]);
 
   useEffect(() => { if (active && searchSignal) searchRef.current?.focus(); }, [active, searchSignal]);
   useEffect(() => { if (stockStale) setStockOnly(false); }, [stockStale]);
@@ -78,10 +86,10 @@ export default function Register({ active = true, catalog, config, checkoutScope
     cartPanelRef.current?.querySelector('[aria-label="Close cart"]')?.focus();
     return () => { document.body.style.overflow = overflow; document.removeEventListener('keydown', onKey); previous?.focus?.(); };
   }, [mobileCart]);
-  const cartFingerprint = useMemo(() => JSON.stringify({ note: note.trim(),
+  const cartFingerprint = useMemo(() => JSON.stringify({ note: note.trim(), customerId: customer?.id || '', redeemPoints,
     items: [...cart].sort((a,b) => a.productId - b.productId || a.variationId - b.variationId)
       .map(({productId,variationId,quantity}) => ({ productId, variationId, quantity })),
-  }), [cart, note]);
+  }), [cart, note, customer, redeemPoints]);
   useEffect(() => {
     try {
       const stored = JSON.parse(sessionStorage.getItem(checkoutStorageKey) || 'null');
@@ -169,7 +177,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
   function hold() {
     if (!cart.length) return;
     setSavedCarts(previous => [...previous, { id: uuid(), cart, note, created: new Date().toISOString() }]);
-    setCart([]); setNote(''); notify('Sale held on this device. No order or payment has been created.');
+    setCart([]); setNote(''); setCustomer(null); setRedeemPoints(0); notify('Sale held on this device. No order or payment has been created.');
   }
   async function checkout() {
     if (!cart.length || busy) return;
@@ -180,9 +188,10 @@ export default function Register({ active = true, catalog, config, checkoutScope
       const { sale } = await api('/sales/prepare', { method: 'POST', body: {
         idempotencyKey: checkoutKey.current,
         items: cart.map(({productId,variationId,quantity}) => ({productId,variationId,quantity})), note,
+        ...(customer ? { customerId: customer.id, redeemPoints } : {}),
       } });
       try { sessionStorage.removeItem(checkoutStorageKey); } catch {}
-      onPrepared(sale); setCart([]); setNote(''); setMobileCart(false); refresh();
+      onPrepared(sale); setCart([]); setNote(''); setCustomer(null); setRedeemPoints(0); setMobileCart(false); refresh();
     } catch (e) {
       const uncertain = !e.status || e.status >= 500 || e.code === 'RECONCILIATION_REQUIRED' || e.code === 'SALE_BUSY';
       if (uncertain) {
@@ -249,7 +258,7 @@ export default function Register({ active = true, catalog, config, checkoutScope
       </section>
       <div ref={cartPanelRef} className={`cart-panel ${mobileCart ? 'mobile-open' : ''}`} role={mobileCart ? 'dialog' : 'complementary'} aria-modal={mobileCart || undefined} aria-label="Current sale">
         <div className="cart-header"><div><h2>Current sale <span className="count-pill">{count}</span></h2><span className="cart-order-label">New sale · Walk-in</span></div><IconButton icon={X} label="Close cart" className="mobile-only" onClick={() => setMobileCart(false)} /><Badge tone={config.liveReadOnly ? 'amber' : 'green'} dot>{config.liveReadOnly ? 'Read-only' : config.mode === 'demo' ? 'Demo' : config.mode === 'desktop' ? 'Offline till' : config.mode === 'live' ? 'Live' : 'Staging'}</Badge></div>
-        <div className="customer-strip"><span className="customer-avatar"><UserRound size={18} /></span><div><strong>Walk-in customer</strong><span>No customer account required</span></div><ShoppingBag size={17} /></div>
+        {loyaltyAvailable ? <CustomerStrip customer={customer} redeemPoints={redeemPoints} total={total} disabled={busy} onChange={(c, points) => { setCustomer(c); setRedeemPoints(points); }} /> : <div className="customer-strip"><span className="customer-avatar"><UserRound size={18} /></span><div><strong>Walk-in customer</strong><span>No customer account required</span></div><ShoppingBag size={17} /></div>}
         <div className="cart-items" role="region" aria-label="Items in current sale" tabIndex={0}>{!cart.length ? <Empty icon={ShoppingBag} title="A fresh start">Add products to begin a new sale.<br />Search, tap, or scan to get started.</Empty> : cart.map(item => <div className="cart-item" key={item.key}><ProductImage src={item.image} name={item.name} /><div className="cart-item-content">
             <div className="cart-item-title"><h3>{item.name}</h3><button aria-label={`Remove ${item.name}`} onClick={() => setCart(previous => previous.filter(i => i.key !== item.key))}><Trash2 size={14} /></button></div>
             <p>{item.optionLabel || item.label || 'Standard'} <span>· {money(item.price)}</span></p>
@@ -259,11 +268,11 @@ export default function Register({ active = true, catalog, config, checkoutScope
         <div className="cart-bottom"><div className="cart-details" ref={cartDetailsRef} role="region" aria-label="Sale summary" tabIndex={0}>
           <div className="cart-tools"><button onClick={() => setShowNote(!showNote)}><StickyNote size={15} />{note ? 'Edit note' : 'Add note'}</button><button disabled={!cart.length} onClick={hold}><Pause size={15} />Hold sale</button><button disabled={!cart.length} onClick={() => { if (window.confirm('Clear this unsubmitted sale? No order has been created.')) { setCart([]); setNote(''); } }}><Trash2 size={15} />Clear</button></div>
           {showNote && <textarea className="sale-note" aria-label="Sale note" placeholder="Internal note for this order…" value={note} maxLength={250} onChange={e => setNote(e.target.value)} />}
-          <div className="cart-totals"><div><span>Goods <small>({count} {count === 1 ? 'item' : 'items'})</small></span><strong>{money(total)}</strong></div><div className="grand-total"><span>{config.mode === 'demo' ? 'Demo total' : desktop ? 'Offline payable total' : config.liveReadOnly ? 'Reference amount' : 'Estimated total'}</span><strong key={total}>{money(total)}</strong></div></div>
+          <div className="cart-totals"><div><span>Goods <small>({count} {count === 1 ? 'item' : 'items'})</small></span><strong>{money(total)}</strong></div>{pointsDiscount > 0 && <div className="points-discount"><span>Points ({redeemPoints})</span><strong>−{money(pointsDiscount)}</strong></div>}<div className="grand-total"><span>{config.mode === 'demo' ? 'Demo total' : desktop ? 'Offline payable total' : config.liveReadOnly ? 'Reference amount' : 'Estimated total'}</span><strong key={payable}>{money(payable)}</strong></div></div>
           {config.mode !== 'demo' && <p className="total-disclaimer">{desktop ? 'Local gross amount from the approved snapshot. Woo tax treatment must be accepted before offline selling is unlocked.' : config.liveReadOnly ? 'Reference amount only. Tax and the final total have not been checked by WooCommerce.' : 'Estimated total. WooCommerce confirms the final amount before payment.'}</p>}
           {error && <Notice tone="error">{error}</Notice>}
           {config.mode !== 'demo' && !config.writesEnabled && <Notice tone="warning">{config.liveReadOnly?'This read-only catalogue cannot take payments or create orders; trading requires a separate reviewed deployment.':'Checkout is locked until the owner approves this environment.'}</Notice>}
-          </div><div className="cart-checkout"><button className="charge-button" onClick={checkout} disabled={checkoutDisabled}><span>{busy ? 'Preparing order…' : config.liveReadOnly || desktop && !config.writesEnabled ? 'Checkout locked' : desktop ? 'Review offline sale' : 'Prepare order'}<ArrowRight size={19} /></span><strong>{money(total)}</strong></button><div className="cart-secure"><ShieldCheck size={13} />{config.mode === 'demo' ? 'Demo checkout · No real payments' : desktop ? 'Reserved stock · atomic local receipt and sync queue' : config.liveReadOnly ? 'Live catalogue only · No POS payments' : 'Payments collected outside this app'}</div></div>
+          </div><div className="cart-checkout"><button className="charge-button" onClick={checkout} disabled={checkoutDisabled}><span>{busy ? 'Preparing order…' : config.liveReadOnly || desktop && !config.writesEnabled ? 'Checkout locked' : desktop ? 'Review offline sale' : 'Prepare order'}<ArrowRight size={19} /></span><strong>{money(payable)}</strong></button><div className="cart-secure"><ShieldCheck size={13} />{config.mode === 'demo' ? 'Demo checkout · No real payments' : desktop ? 'Reserved stock · atomic local receipt and sync queue' : config.liveReadOnly ? 'Live catalogue only · No POS payments' : 'Payments collected outside this app'}</div></div>
         </div>
       </div>
     </div>

@@ -49,6 +49,7 @@ import { ProductService, productSchema, productUpdateSchema } from './products.j
 import { WordPressMedia } from './wp-media.js';
 import { createGuardedFetch } from './net-guard.js';
 import { WebsiteReport } from './website-report.js';
+import { CustomerService, customerSchema } from './customers.js';
 import { ReturnsService, returnSchema, resolveSchema } from './returns.js';
 import { PurchasingService, supplierSchema, poSchema, poActionSchema, receiptSchema, costSchema } from './purchasing.js';
 
@@ -131,6 +132,10 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     : null;
   const shifts = new ShiftService(db, config);
   const returns = new ReturnsService(db, api, inventory, shifts, config);
+  const customers = new CustomerService(db, config);
+  sales.customers = customers;
+  const withLoyalty = sale => { try { const loyalty = sale?.id && customers.saleInfo(sale.id); return loyalty ? { ...sale, loyalty } : sale; } catch { return sale; } };
+  returns.customers = customers;
   const operations = new DailyOperations(db);
   const weekly = new WeeklyOperations(db);
   const countClaims = new PhysicalCountClaims(db);
@@ -966,7 +971,8 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   app.get('/api/sales', auth, (req, res) => {
     const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 250);
     const cursor = z.string().max(500).optional().parse(req.query.cursor);
-    res.json(sales.listPage(req.user, { limit, cursor }));
+    const page = sales.listPage(req.user, { limit, cursor });
+    res.json({ ...page, sales: (page.sales || []).map(withLoyalty) });
   });
   // Source-limited Owner/Manager payment review: SQLite POS evidence only.
   // No Woo order read, Paystack request, cash update, refund or stock write.
@@ -1098,12 +1104,12 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   });
   app.post('/api/sales/prepare', auth, sensitiveLimit, async (req, res) => {
     const input = prepareSchema.parse(req.body);
-    res.status(201).json({ sale: await (online ? online.prepare(req.user, input) : sales.prepare(req.user, input)) });
+    res.status(201).json({ sale: withLoyalty(await (online ? online.prepare(req.user, input) : sales.prepare(req.user, input))) });
   });
   app.post('/api/sales/:id/pay', auth, sensitiveLimit, async (req, res) => {
     const payment = paymentSchema.parse(req.body);
     if (online && !online.isOnline(req.params.id)) throw new AppError('An older Woo order cannot use the reservation bridge. Review it separately.', 409, 'RECONCILIATION_REQUIRED');
-    res.json({ sale: await (online ? online.collectAndConfirm(req.user, req.params.id, payment) : sales.complete(req.user, req.params.id, payment)) });
+    res.json({ sale: withLoyalty(await (online ? online.collectAndConfirm(req.user, req.params.id, payment) : sales.complete(req.user, req.params.id, payment))) });
   });
   app.get('/api/sales/:id/online-status', auth, async (req, res) => {
     if (!online) throw new AppError('Local online bridge is disabled.', 403, 'CHECKOUT_LOCKED');
@@ -1161,8 +1167,19 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     res.json({ days, since: since.toISOString(), total, gross, refunded, orders: rows.length, activeOrders: active.length, refundedOrders: rows.length - active.length,
       reviewRequiredOrders: rows.filter(s => s.status === 'needs_reconciliation').length,
       items: active.reduce((sum,s) => sum + s.items.reduce((n,i) => n + i.quantity,0),0), average: rows.length ? Math.round(total / rows.length) : 0, methods, saleTypes, daily, topProducts: [...products.values()].sort((a,b) => b.quantity - a.quantity).slice(0,8), sales: rows,
-      scope: 'Recorded POS payments, including previously paid receipts under review. Woo refunds are observations, not proof of cash payouts. Excludes legacy POS-only In-store cash receipts and online website orders.' });
+      scope: 'Recorded POS payments, including previously paid receipts under review. Woo refunds are observations, not proof of cash payouts. Excludes legacy POS-only In-store cash receipts; website orders are shown separately in Website orders.' });
   });
+  // Customer profiles and loyalty points. Every signed-in role can find and
+  // add a customer at the till; editing is for owners/managers, and only an
+  // owner can change a points balance by hand.
+  app.get('/api/customers', auth, (req, res) => {
+    const { q = '' } = z.object({ q: z.string().max(80).optional() }).parse(req.query);
+    res.json({ customers: customers.search(q) });
+  });
+  app.post('/api/customers', auth, sensitiveLimit, (req, res) => res.status(201).json({ customer: customers.create(req.user, customerSchema.parse(req.body)) }));
+  app.get('/api/customers/:id', auth, (req, res) => res.json(customers.detail(z.string().uuid().parse(req.params.id))));
+  app.patch('/api/customers/:id', auth, role('owner', 'manager'), sensitiveLimit, (req, res) => res.json({ customer: customers.update(req.user, z.string().uuid().parse(req.params.id), req.body) }));
+  app.post('/api/customers/:id/points', auth, role('owner'), sensitiveLimit, (req, res) => res.json(customers.adjust(req.user, z.string().uuid().parse(req.params.id), req.body)));
   const websiteReport = new WebsiteReport(api, config);
   app.get('/api/reports/website', auth, role('owner', 'manager'), async (req, res) => {
     const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);

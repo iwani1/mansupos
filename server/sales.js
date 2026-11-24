@@ -135,13 +135,21 @@ function assertOrderIdentity(row, order) {
   if (keys.length !== 1 || keys[0].value !== row.idempotency_key) throw new AppError('WooCommerce order identity did not match this checkout.', 409, 'RECONCILIATION_REQUIRED');
 }
 
-function retailOrderProblem(row, order) {
+// A loyalty points discount is one negative, untaxed fee line named
+// "Loyalty points …" for exactly the redeemed amount; nothing else may appear.
+function feeProblem(order, discount) {
+  const fees = order.fee_lines == null ? [] : order.fee_lines;
+  if (!Array.isArray(fees)) return true;
+  if (!discount) return fees.length > 0;
+  return fees.length !== 1 || cents(fees[0].total) !== -discount || cents(fees[0].total_tax || 0) !== 0 || !String(fees[0].name || '').startsWith('Loyalty points');
+}
+function retailOrderProblem(row, order, discount = 0) {
   let expected;
   try { expected = JSON.parse(row.items_json); } catch { expected = null; }
   if (!Array.isArray(expected) || !expected.length || !Array.isArray(order.line_items) || order.line_items.length !== expected.length) {
     return 'WooCommerce order lines do not match the saved retail cart. Review the order.';
   }
-  if (['fee_lines', 'coupon_lines', 'shipping_lines'].some(key => order[key] != null && (!Array.isArray(order[key]) || order[key].length)) ||
+  if (feeProblem(order, discount) || ['coupon_lines', 'shipping_lines'].some(key => order[key] != null && (!Array.isArray(order[key]) || order[key].length)) ||
       (order.shipping_total != null && cents(order.shipping_total) !== 0) ||
       (order.discount_total != null && cents(order.discount_total) !== 0)) {
     return 'WooCommerce added a fee, discount, or shipping to the POS order. Review the total.';
@@ -165,7 +173,7 @@ function retailOrderProblem(row, order) {
     return Number(remote?.quantity) !== item.quantity ||
       (item.total != null && item.total !== cents(remote.total)) ||
       (item.tax != null && item.tax !== cents(remote.total_tax));
-  }) || !Number.isSafeInteger(gross) || gross !== cents(order.total) ||
+  }) || !Number.isSafeInteger(gross) || gross - discount !== cents(order.total) ||
       !Number.isSafeInteger(taxTotal) || taxTotal !== cents(order.total_tax)) {
     return 'WooCommerce changed the saved retail product, option, quantity, tax, or total. Review the order.';
   }
@@ -186,6 +194,10 @@ function retailPaymentProblem(row, order) {
 
 export class SalesService {
   constructor(db, catalog, api, config) { this.db = db; this.catalog = catalog; this.api = api; this.config = config; this.locks = new Set(); this.shifts = new ShiftService(db, config); }
+  loyaltyDiscount(saleId) { return this.customers?.forSale(saleId)?.redeem_points || 0; }
+  // Points follow the sale (earn when paid, give back when cancelled). Never
+  // let a loyalty problem break or undo a sale.
+  syncLoyalty(saleId, actorId) { try { this.customers?.sync(saleId, actorId); } catch { /* left for the owner to adjust */ } }
   isOnlineSale(id) { return Boolean(this.db.prepare("SELECT 1 FROM sale_events WHERE sale_id=? AND event='online.intent' LIMIT 1").get(id)); }
   hasOnlineHistory() { return Boolean(this.db.prepare("SELECT 1 FROM sale_events WHERE event='online.intent' LIMIT 1").get()); }
   assertLegacySale(id, { readOnly = false } = {}) {
@@ -332,7 +344,7 @@ export class SalesService {
         verified = snapshot;
       }
     } else {
-      lineProblem = retailOrderProblem(row, order);
+      lineProblem = retailOrderProblem(row, order, this.loyaltyDiscount(row.id));
       const paymentProblem = retailPaymentProblem(row, order);
       if (lineProblem || paymentProblem) {
         status = 'needs_reconciliation';
@@ -490,7 +502,11 @@ export class SalesService {
     const buyerName = buyer?.name || (saleType === 'wholesale' ? (input.buyerName || '').replace(/\s+/g, ' ') : '');
     const agreedTotal = saleType === 'wholesale' ? items.reduce((sum, item) => sum + item.agreedUnitPrice * item.quantity, 0) : 0;
     if (saleType === 'wholesale' && (!Number.isSafeInteger(agreedTotal) || agreedTotal < 1 || agreedTotal > 100000000)) throw new AppError('The agreed wholesale total must be between GH₵0.01 and GH₵1,000,000.00.', 400);
-    const hash = fingerprint(items, input.note, saleType, buyer?.id, buyerName);
+    const customer = saleType === 'retail' && input.customerId ? this.customers?.get(input.customerId) : null;
+    if (input.customerId && saleType === 'retail' && !customer) throw new AppError('Customer profiles are not available.', 409);
+    const redeemPoints = customer ? input.redeemPoints || 0 : 0;
+    const baseHash = fingerprint(items, input.note, saleType, buyer?.id, buyerName);
+    const hash = customer ? sha256(`${baseHash}|customer:${customer.id}|points:${redeemPoints}`) : baseHash;
     const cartSignature = saleType === 'wholesale'
       ? JSON.stringify(items.map(({ productId, variationId, quantity }) => ({ productId, variationId, quantity }))) : '';
     const prepareOrder = () => this.exclusive(`prepare:${input.idempotencyKey}`, async () => {
@@ -535,6 +551,7 @@ export class SalesService {
         if (saleType === 'retail' && lines.some(line => !Number.isSafeInteger(line.price) || line.price < 1)) {
           throw new AppError('A retail item has no positive WooCommerce price. Review it before preparing a cash order.', 409, 'PRICE_UNAVAILABLE');
         }
+        const discount = customer ? this.customers.planRedeem(customer.id, redeemPoints, lines.reduce((sum, line) => sum + line.price * line.quantity, 0)) : 0;
         const quote = saleType === 'wholesale' ? items.map((item, index) => ({ ...item, catalogueUnitPrice: lines[index].price })) : null;
         if (quote?.some(item => !Number.isSafeInteger(item.catalogueUnitPrice) || item.catalogueUnitPrice < 0)) {
           throw new AppError('The current catalogue price could not be verified. Refresh the product before preparing a wholesale order.', 409);
@@ -546,18 +563,22 @@ export class SalesService {
         localTransaction(this.db, () => {
           this.db.prepare('UPDATE sales SET items_json=?,trade_quote_json=? WHERE id=?').run(JSON.stringify(draft), quote ? JSON.stringify(quote) : null, id);
           saleEvent(this.db, id, 'sale.cart_verified', user.id, { details: { lineCount: draft.length } });
+          // Points are taken now, before any Woo order, so they cannot be spent twice.
+          if (customer) this.customers.attach(id, customer.id, redeemPoints, user.id);
         });
         if (this.config.mode === 'demo') {
           const agreed = new Map(quote?.map(item => [lineKey(item), item.agreedUnitPrice]));
           const savedLines = draft.map(line => ({ ...line, total: (saleType === 'wholesale' ? agreed.get(lineKey(line)) : line.price) * line.quantity, tax: 0 }));
-          const total = savedLines.reduce((sum, line) => sum + line.total, 0);
+          const subtotal = savedLines.reduce((sum, line) => sum + line.total, 0);
+          const total = subtotal - discount;
           localTransaction(this.db, () => {
-            this.db.prepare('UPDATE sales SET status=?,total=?,prepared_total=?,subtotal=?,items_json=? WHERE id=?').run('awaiting_payment', total, total, total, JSON.stringify(savedLines), id);
+            this.db.prepare('UPDATE sales SET status=?,total=?,prepared_total=?,subtotal=?,items_json=? WHERE id=?').run('awaiting_payment', total, total, subtotal, JSON.stringify(savedLines), id);
             saleEvent(this.db, id, 'sale.prepared', user.id, { amountCents: total, details: { mode: 'demo' } });
           });
         } else {
           const row = this.get(id, user);
           const meta = [{ key: '_mansu_pos_key', value: input.idempotencyKey }, { key: '_mansu_pos_channel', value: 'mansu-pos' }, { key: '_mansu_pos_cashier', value: user.id }];
+          if (customer) meta.push({ key: '_mansu_pos_customer_id', value: customer.id }, ...(redeemPoints ? [{ key: '_mansu_pos_loyalty_points', value: String(redeemPoints) }] : []));
           if (quote) meta.push(
             { key: '_mansu_pos_sale_type', value: 'wholesale' },
             ...(buyer?.id ? [{ key: '_mansu_pos_wholesale_buyer_id', value: buyer.id }] : []),
@@ -572,6 +593,8 @@ export class SalesService {
           const created = await this.api.createOrder({
             status: 'pending', payment_method: '', payment_method_title: 'In-store payment pending',
             ...(buyerName ? { billing: { first_name: buyerName } } : {}),
+            ...(customer ? { billing: { first_name: customer.name, phone: customer.phone, ...(customer.email ? { email: customer.email } : {}) } } : {}),
+            ...(discount ? { fee_lines: [{ name: `Loyalty points (${redeemPoints})`, total: asDecimal(-discount), tax_status: 'none' }] } : {}),
             line_items: items.map((i, index) => ({ product_id: i.productId, ...(i.variationId ? { variation_id: i.variationId } : {}), quantity: i.quantity,
               ...(quote ? { meta_data: [
                 { key: 'Mansu agreed unit gross (GHS)', value: asDecimal(quote[index].agreedUnitPrice) },
@@ -597,6 +620,7 @@ export class SalesService {
             throw error;
           }
         }
+        this.syncLoyalty(id, user.id);
         localTransaction(this.db, () => {
           audit(this.db, user.id, saleType === 'wholesale' ? 'sale.wholesale_prepared' : 'sale.prepared', id);
           if (this.config.mode !== 'demo') saleEvent(this.db, id, 'sale.prepared', user.id, { wooOrderId: this.get(id, user).woo_order_id });
@@ -605,13 +629,14 @@ export class SalesService {
       } catch (error) {
         // The Woo order was created and then cancelled because no stock hold
         // could be placed: the sale is closed, nothing to reconcile.
-        if (error.saleClosed) throw error;
+        if (error.saleClosed) { this.syncLoyalty(id, user.id); throw error; }
         const mayExistRemotely = remoteAttempted || Boolean(this.get(id, user).woo_order_id);
         localTransaction(this.db, () => {
           this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run(mayExistRemotely ? 'needs_reconciliation' : 'failed', error.message, now(), id);
           saleEvent(this.db, id, mayExistRemotely ? 'woo.create_uncertain' : 'sale.prepare_failed', user.id,
             { details: { code: error.code || 'ERROR', remoteAttempted } });
         });
+        this.syncLoyalty(id, user.id);
         if (error instanceof AppError && !mayExistRemotely) throw error;
         throw new AppError('Checkout was interrupted. Do not create another order; reconcile this sale from Sales first.', 502, 'RECONCILIATION_REQUIRED');
       }
@@ -621,6 +646,9 @@ export class SalesService {
     return saleType === 'wholesale' ? this.exclusive(`wholesale-cart:${cartSignature}`, prepareOrder) : prepareOrder();
   }
   async complete(user, id, payment) {
+    try { return await this.completeSale(user, id, payment); } finally { this.syncLoyalty(id, user.id); }
+  }
+  async completeSale(user, id, payment) {
     return this.exclusive(`sale:${id}`, async () => {
       const row = this.get(id, user);
       this.assertLegacySale(id);
@@ -694,7 +722,7 @@ export class SalesService {
           if (Number.isSafeInteger(currentTotal)) this.saveRemote(row, current, user.id);
           throw new AppError('The WooCommerce total changed after preparation. Reconcile this sale before recording payment.', 409, 'TOTAL_CHANGED');
         }
-        if (row.sale_type !== 'trade' && retailOrderProblem(row, current)) {
+        if (row.sale_type !== 'trade' && retailOrderProblem(row, current, this.loyaltyDiscount(row.id))) {
           this.saveRemote(row, current, user.id);
           throw new AppError('The WooCommerce product, option, or quantity changed. Do not collect payment.', 409, 'RETAIL_ORDER_CHANGED');
         }
@@ -763,6 +791,9 @@ export class SalesService {
     });
   }
   async reconcile(user, id) {
+    try { return await this.reconcileSale(user, id); } finally { this.syncLoyalty(id, user.id); }
+  }
+  async reconcileSale(user, id) {
     return this.exclusive(`sale:${id}`, async () => {
       const row = this.get(id, user);
       this.assertLegacySale(id, { readOnly: true });
@@ -841,6 +872,9 @@ export class SalesService {
     return { checked: rows.length, reconciled, failed };
   }
   async cancel(user, id) {
+    try { return await this.cancelSale(user, id); } finally { this.syncLoyalty(id, user.id); }
+  }
+  async cancelSale(user, id) {
     return this.exclusive(`sale:${id}`, async () => {
       const row = this.get(id, user);
       this.assertLegacySale(id);

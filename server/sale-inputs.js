@@ -17,7 +17,12 @@ export const prepareSchema = z.object({
     quantity: z.number().int().min(1).max(999), agreedUnitPrice: z.number().int().min(1).max(100000000).optional(),
   }).strict()).min(1).max(100),
   note: z.string().trim().max(250).optional().default(''),
+  // Retail only: the customer profile and loyalty points to use as a discount.
+  customerId: z.string().uuid().optional(),
+  redeemPoints: z.number().int().min(0).max(10000000).optional().default(0),
 }).strict().superRefine((value, ctx) => {
+  if (value.redeemPoints && !value.customerId) ctx.addIssue({ code: 'custom', path: ['redeemPoints'], message: 'Choose the customer whose points are being used.' });
+  if (value.saleType === 'wholesale' && (value.customerId || value.redeemPoints)) ctx.addIssue({ code: 'custom', path: ['customerId'], message: 'Loyalty customers and points are for retail sales.' });
   if (value.saleType === 'wholesale') {
     // eslint-disable-next-line no-control-regex -- Buyer names appear on orders, receipts and exports.
     if (value.buyerName && (value.buyerName.length < 2 || /[\u0000-\u001f\u007f]/.test(value.buyerName))) ctx.addIssue({ code: 'custom', path: ['buyerName'], message: 'Use a single-line buyer name of at least two characters, or leave it blank.' });
