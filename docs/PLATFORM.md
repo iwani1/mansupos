@@ -38,7 +38,7 @@ Tests: `node --test tests/platform-isolation.test.js` (11 tests, part of `npm te
    - **Optional features:** stock control, product editing, returns (apply once selling).
    - **Start selling:** needs a passing store check from the last 24 hours and an explicit "sales will be real" confirmation. Owners can pause back to practice.
 4. **Outbound safety:** every request a platform shop makes to its store (WooCommerce, WordPress photos, the store check) goes through `server/net-guard.js`: HTTPS only, no IP literals, and the connection's own DNS lookup refuses private, loopback, link-local, carrier-grade NAT, metadata, multicast and reserved addresses (IPv4 and IPv6, including IPv4-mapped forms), so DNS rebinding and redirects are covered too.
-5. **Email:** no provider is chosen yet. `PLATFORM_MAIL_DRIVER=outbox` (the only driver) writes messages to `<data>/outbox/`; read them with `npm run platform -- outbox` and forward the links yourself during an invited pilot. A provider driver is needed before public sign-up.
+5. **Email:** `PLATFORM_MAIL_DRIVER=resend` sends through Resend (see phase 5). `outbox` writes messages to `<data>/outbox/` instead (read them with `mansu-platform outbox` on a server, or `npm run platform -- outbox`); the server logs a warning while it is in use in production.
 
 Tests: `tests/platform-signup.test.js` (8 tests).
 
@@ -153,8 +153,9 @@ It also flags:
 
 **Deployment files** are in `deploy/platform/`:
 - `mansu-platform.service`: systemd, with the network and data settings pinned and the service sandboxed;
-- `nginx-platform.conf`: a wildcard certificate, HSTS and a rate limit;
-- `platform.env.example`: every setting, with notes.
+- `nginx-platform.conf`: a wildcard certificate, HTTP/2 and a rate limit (the app sets HSTS and the other security headers);
+- `platform.env.example`: every setting, with notes;
+- `install.sh`: installs, upgrades and checks a server (see **Install on a server** below).
 
 Tests: `tests/platform-pilot.test.js` (6).
 
@@ -163,10 +164,81 @@ Tests: `tests/platform-pilot.test.js` (6).
 1. A server, the domain, and a wildcard certificate for `*.<domain>` (DNS-01).
 2. A Resend account with the sending domain verified.
 3. A Paystack account. Run the test-mode checks below with `sk_test_` and `PLATFORM_ALLOW_TEST_BILLING=true` on staging, then switch to `sk_live_`. Set the webhook URL to `https://<domain>/api/paystack/webhook`.
-4. Create the console admin with `npm run platform -- admin-create`, and enrol the authenticator.
+4. Create the console admin with `sudo mansu-platform admin-create --username <you>`, and enrol the authenticator.
 5. A code-signing certificate for the Windows till (set `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` in CI). Set `platformDomain` / `updateFeed` in `desktop/online/till.json`.
 6. Legal review of `/terms` and `/privacy`.
 7. Invite 3–5 shops, with a founding price if you like. Watch **Pilot health** daily and answer **Feedback** within a working day.
+
+## Install on a server
+
+On a fresh Ubuntu 24.04 (or Debian 12) server, from a checkout of this repository:
+
+```bash
+sudo deploy/platform/install.sh install mansupos.com
+```
+
+What `install` does:
+- installs nginx, rsync and sqlite3, plus Node.js 22 from NodeSource's signed apt repository if `/usr/bin/node` is older;
+- creates the `mansu-platform` account and its folders:
+  - `/opt/mansu-platform` (code, owned by root);
+  - `/var/lib/mansu-platform` (data, 0700);
+  - `/etc/mansu-platform` (settings);
+- builds the app;
+- writes `/etc/mansu-platform/platform.env` with a **new master key**. It never overwrites an existing settings file. Save the key in your password manager straight away;
+- installs the service and the `mansu-platform` admin command;
+- configures nginx once the wildcard certificate exists. Without a certificate it prints the certbot command for a DNS-01 challenge;
+- starts the platform and checks it answers.
+
+It does not start the platform while a needed setting is empty (for example `PLATFORM_RESEND_API_KEY`), and says which one to fill in. It does not change the firewall; `status` reminds you to.
+
+```bash
+sudo deploy/platform/install.sh upgrade   # after git pull
+sudo deploy/platform/install.sh status    # running? health? latest backup? what is left to do
+```
+
+`upgrade` works in this order:
+1. Backs up all data.
+2. Checks the new nginx config. If `nginx -t` fails, it puts back the previous nginx config and stops before anything else changes.
+3. Builds the new code in a separate folder and swaps it in.
+4. Restarts the platform and checks it answers. If the new version does not come up, it **rolls back** to the previous release by itself.
+
+The script is safe to run again.
+
+Admin commands on the server run as the service account with the server's settings:
+
+```bash
+sudo mansu-platform list
+sudo mansu-platform invite-create --email owner@shop.com --discount 50 --months 6
+sudo mansu-platform backup
+```
+
+## Restore
+
+```bash
+sudo mansu-platform verify-backup --from /var/lib/mansu-platform/backups/<folder>        # changes nothing
+sudo systemctl stop mansu-platform
+sudo mansu-platform restore --from /var/lib/mansu-platform/backups/<folder>              # shows the plan only
+sudo mansu-platform restore --from /var/lib/mansu-platform/backups/<folder> --yes        # whole platform
+sudo mansu-platform restore --from /var/lib/mansu-platform/backups/<folder> --shop amaboutique --yes   # one shop only
+sudo systemctl start mansu-platform
+```
+
+- **Checks before anything changes:**
+  - every file matches its checksum;
+  - SQLite integrity;
+  - each shop copy still names its own shop (`app_meta.tenant_id`), so swapped or renamed files are refused;
+  - shop ids are checked, so a manifest cannot point outside the data folder;
+  - the backup was made with **this** `PLATFORM_MASTER_KEY` (a fingerprint of the key is stored in `platform.db`) and its saved store keys open with it;
+  - enough free disk space.
+- **The plan** names any shop that exists now but not in the backup (signed up after it was made). A whole-platform restore would stop serving those shops.
+- **Never while running:** the platform and a restore hold a lock on the data folder (`platform.lock`), so a restore refuses while the platform runs, and the platform refuses to start during a restore. A lock left by a crash or from before a reboot is taken over.
+- **Nothing is deleted:** the current files are moved to `/var/lib/mansu-platform/pre-restore-<time>/`. Delete that folder by hand once you are happy.
+- **After a restore:** anything since the backup is not in the restored data.
+  - Check the Paystack dashboard for payments made since then, and record each one in the console (**Record a payment**, with the Paystack reference as the note).
+  - Check WooCommerce for orders the tills made since then.
+- **Master key:** the platform also refuses to start if `PLATFORM_MASTER_KEY` is not the key its data was created with, instead of failing later on every store.
+
+Tests: `tests/platform-restore.test.js` (4).
 
 ## Admin commands added in phase 5
 
@@ -189,6 +261,6 @@ npm run platform -- run-jobs        # reminders + scheduled backup now
   The code was tested against a fake Paystack; field names follow Paystack's documented API. Confirm whether Mobile Money can auto-renew in Ghana.
 - A bot check (Turnstile or hCaptcha) before sign-up is opened to everyone. Invitation-only sign-up does not need one.
 - Silent automatic updates for the till (electron-updater), once it is code-signed.
-- Restore is manual: stop the platform, put `platform.db` and the shop folders back, then start it. Deleting a closed shop's data after 90 days is manual too.
+- Deleting a closed shop's data after 90 days is manual.
 - Background order checks run only while a shop is open. A shop closed while it has an unpaid order is checked again when it is next opened. Pilot health flags such a sale after 30 minutes.
 - The Mansutrendz-only modules are switched off for platform shops, not deleted; the single-shop server still uses them.

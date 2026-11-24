@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mountProductionUi } from '../web-ui.js';
 import { createPlatform } from './platform.js';
+import { readPlatformConfig } from './config.js';
+import { acquireLock } from './lock.js';
 
 // Multi-shop server: every <shop>.<PLATFORM_BASE_DOMAIN> is a separate shop
 // with its own database. Put it behind nginx with a wildcard certificate.
@@ -13,8 +15,12 @@ if (process.env.POS_TENANT_ID || process.env.WOO_CONSUMER_KEY) {
   throw new Error('Single-shop settings (POS_TENANT_ID / WOO_*) must not be set for the platform process; shop keys live encrypted in the platform database.');
 }
 
+// Refuses to start while a restore (or a second copy) holds the data folder.
+const releaseLock = acquireLock(readPlatformConfig().dataDir, 'server');
+process.on('exit', releaseLock);
 const platform = createPlatform({ mountUi: (app, config) => mountProductionUi(app, { dist, mode: config.mode }) });
 const { config, logger } = platform;
+if (config.production && config.mailDriver === 'outbox') logger.warn({ msg: 'platform.mail_outbox', detail: 'PLATFORM_MAIL_DRIVER=outbox: no email is sent. Read queued mail with: mansu-platform outbox' });
 const server = createServer(platform.handler);
 server.requestTimeout = 30000;
 server.headersTimeout = 35000;
