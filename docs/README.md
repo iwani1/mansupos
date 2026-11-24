@@ -13,6 +13,7 @@
 - [OPERATIONS.md](OPERATIONS.md) — Daily use: shifts, sales, reconciliation
 - [OWNER-AUDIT-ACTIVITY.md](OWNER-AUDIT-ACTIVITY.md) — Owner audit history screen
 - [CUSTOMER-RETURNS.md](CUSTOMER-RETURNS.md) — Returns from POS sales: Woo refund, cash out on the shift, restock choice
+- [PLATFORM.md](PLATFORM.md) — Multi-shop SaaS platform (phases 1–5): isolation, sign-up, store connection, billing, console, multi-shop Windows till, backups, invitations, email, reminders, feedback, pilot health, deployment
 - [PURCHASING.md](PURCHASING.md) — Suppliers, purchase orders, receiving deliveries, reorder list and stock value at cost
 - [PRODUCT-MANAGEMENT.md](PRODUCT-MANAGEMENT.md) — Add and edit website products (photos, sizes, colours) from the POS
 - [PRIVATE-WHOLESALE-PRICES.md](PRIVATE-WHOLESALE-PRICES.md) — Wholesale price defaults (feature locked)
@@ -22,13 +23,13 @@
 - [TAX-DECISION.md](TAX-DECISION.md) — Open tax question and checklist for the tax adviser
 - [UI-DESIGN.md](UI-DESIGN.md) — Visual design notes
 - [WEEKLY-STAFF-SCORECARD.md](WEEKLY-STAFF-SCORECARD.md) — Weekly staff review
+- [WINDOWS-ONLINE-TILL.md](WINDOWS-ONLINE-TILL.md) — Mansu POS for Windows: the online till app, installer and shop-PC acceptance checklist
 - [WORKSPACE-REDESIGN.md](WORKSPACE-REDESIGN.md) — Workspace layout
 
-## Windows apps (QA only, unsigned)
+## Windows training and test apps (QA only, unsigned)
 
-CI copies these into the matching installer bundles.
+CI copies these into the matching installer bundles. The selling till is [WINDOWS-ONLINE-TILL.md](WINDOWS-ONLINE-TILL.md) above.
 
-- [WINDOWS-ONLINE-PILOT.md](WINDOWS-ONLINE-PILOT.md) — Read-only online pilot window
 - [POS-PRACTICE-TRIAL.md](POS-PRACTICE-TRIAL.md) — Offline practice till for staff training
 - [HARDWARE-TEST.md](HARDWARE-TEST.md) — Printer / scanner / drawer test app
 
@@ -41,6 +42,7 @@ Kept for the record; Git history has every earlier version. These describe appro
 - [AUDIT-PERSISTENT-CUSTODY-AND-DELIVERY.md](archive/AUDIT-PERSISTENT-CUSTODY-AND-DELIVERY.md)
 - [AUDIT-PROVIDER-PRODUCTION-ACCEPTANCE.md](archive/AUDIT-PROVIDER-PRODUCTION-ACCEPTANCE.md)
 - [CONTABO-LIVE-PILOT.md](archive/CONTABO-LIVE-PILOT.md)
+- [WINDOWS-ONLINE-PILOT.md](archive/WINDOWS-ONLINE-PILOT.md)
 - [CONTABO-LIVE-TRADING.md](archive/CONTABO-LIVE-TRADING.md)
 - [CONTABO-NATIVE.md](archive/CONTABO-NATIVE.md)
 - [CONTABO-WORKSPACE-DEPLOY.md](archive/CONTABO-WORKSPACE-DEPLOY.md)

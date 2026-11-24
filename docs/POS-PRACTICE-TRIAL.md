@@ -1,6 +1,6 @@
 # Windows POS practice trial — NOT FOR SALES
 
-**Completed SAMPLE-only rehearsal, not the requested online Windows POS.** For the separate online-only `.exe` QA build, see [Windows online pilot](WINDOWS-ONLINE-PILOT.md).
+**Completed SAMPLE-only rehearsal, not the requested online Windows POS.** For the separate online-only `.exe` QA build, see [Windows online pilot](archive/WINDOWS-ONLINE-PILOT.md).
 
 The owner reported that the earlier, separate **non-selling hardware check succeeded**. The individual Windows version, scanner/Enter, printer/cut and drawer results have not yet been recorded. This app rehearses the earlier offline POS ledger workflow on a test Windows computer. It is not the selling POS, is not connected to WooCommerce, Paystack, the read-only web pilot or a trading service, and cannot take or confirm a real payment. **No Woo plugin installation, live stock change, selling gate, public GitHub Release or real order is part of this step.**
 

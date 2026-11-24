@@ -1,0 +1,49 @@
+body{background:var(--bg)}
+.console-top{display:flex;align-items:center;gap:20px;flex-wrap:wrap;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--surface)}
+.console-top .brand{margin:0}
+.console-top nav{display:flex;gap:4px;flex:1}
+.console-top nav button,.link{width:auto;min-height:36px;padding:6px 12px;background:none;color:var(--ink);font-weight:500;border-radius:8px}
+.console-top nav button[aria-current="page"]{background:var(--ink);color:var(--bg)}
+.console-main{max-width:1240px;margin:0 auto;padding:24px}
+.console-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
+.console-stats div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px}
+.console-stats strong{display:block;font-size:24px}
+.console-stats span{color:var(--muted);font-size:13px}
+.console-toolbar{margin-bottom:12px;max-width:420px}
+.table-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+td small{display:block;color:var(--muted)}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--line)}
+.pill.trial,.pill.unbilled{background:#e3edf9;color:#1d4f86}.pill.active,.pill.comped{background:#e3f4e8;color:#1f6b3a}
+.pill.grace{background:#fff1d6;color:#7a4b00}.pill.lapsed,.pill.suspended{background:#fde3e3;color:#8a1c1c}
+#detail{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:grid;gap:16px}
+#detail h2{margin:0}
+.detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 20px;font-size:14px}
+.detail-grid span{color:var(--muted);display:block;font-size:12px}
+.actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.actions form{border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:8px}
+.actions h3{margin:0;font-size:14px}
+.actions button{min-height:40px;padding:8px 12px;font-size:14px}
+select{font:inherit;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+@media (max-width:700px){.console-main{padding:16px}}
+[hidden]{display:none !important}
+.detail-grid div{min-width:0;overflow-wrap:anywhere}
+.actions form{align-content:start}
+.hint{color:var(--muted);font-size:14px;margin:0 0 12px}
+.flag{display:block;font-size:12px;padding:2px 0}.flag.critical{color:#8a1c1c;font-weight:700}.flag.warning{color:#7a4b00}.flag.info{color:var(--muted)}
+.feedback-list{display:grid;gap:12px}
+.feedback-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:8px;min-width:0}
+.feedback-card header{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.feedback-card header small{color:var(--muted)}
+.feedback-card .message{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.feedback-card .reply{margin:0;padding:8px 10px;background:var(--bg);border-radius:8px;overflow-wrap:anywhere}
+.feedback-card form{display:grid;gap:8px}.feedback-card button{width:auto;justify-self:start;min-height:38px;padding:6px 14px}
+textarea{font:inherit;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);resize:vertical;width:100%;box-sizing:border-box}
+.invite-form{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:10px;margin-bottom:16px;max-width:640px}
+.invite-form h2{margin:0;font-size:18px}.invite-form .hint{margin:0}
+.row3{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.invite-made{border:2px solid var(--accent);border-radius:10px;padding:10px 12px}.invite-made p{margin:4px 0;overflow-wrap:anywhere}
+.actions label{display:grid;gap:4px;font-size:13px}

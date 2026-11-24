@@ -251,6 +251,11 @@ export function openDatabase(config) {
         throw new Error('Demo records found in a non-demo POS ledger. Stop and use a separate private trading ledger.');
       }
       db.prepare('DELETE FROM demo_stock').run();
+      if (config.ownerUsername && config.ownerPasswordHash && !db.prepare("SELECT id FROM users WHERE role='owner' LIMIT 1").get()) {
+        // Platform sign-up: the owner chose this password themselves (hash only).
+        db.prepare('INSERT INTO users(id,username,name,role,password_hash,created_at,must_change_password) VALUES (?,?,?,?,?,?,0)')
+          .run(randomUUID(), config.ownerUsername, config.ownerName || 'Store Owner', 'owner', config.ownerPasswordHash, new Date().toISOString());
+      }
       if (config.ownerUsername && config.ownerPassword && !db.prepare("SELECT id FROM users WHERE role='owner' LIMIT 1").get()) {
         const problem = passwordProblem(config.ownerPassword, config.ownerUsername);
         if (problem) throw new Error(`POS_OWNER_PASSWORD: ${problem}`);

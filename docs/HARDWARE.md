@@ -8,7 +8,7 @@ Observed from owner-supplied photos on 4 November 2026. **Identification is not 
 | Receipt printer | **Xprinter XP-80T**, 80 mm thermal receipt printer, 200 mm/s, ESC/POS command support. Photo shows a USB cable connected; label also lists an additional interface. Cash-drawer output: 24 V. | Compatible through the operating-system printer driver and browser print dialog. Use the POS **80 mm** receipt width. Mansu POS prints HTML receipts; it does not send raw ESC/POS commands. | Not tested |
 | POS terminal | Dual-screen Windows-based POS terminal; exact model and Windows version not visible. Existing POS software is running in the photos. | Compatible if a modern Chromium browser can reach the hosted POS URL. Use the cashier-facing screen for Mansu POS. | Not tested |
 | Customer display | Second screen on the dual-screen terminal. | Not implemented. Mansu POS does not currently drive a separate customer-facing display. | Unsupported |
-| Cash drawer | Not visible as a separate device; printer has a 24 V drawer-kick output. | Not directly controlled by Mansu POS. A drawer may open only if the printer driver/printer firmware is configured to kick on print. Otherwise treat as unsupported. | Unsupported unless driver-triggered and tested |
+| Cash drawer | Not visible as a separate device; printer has a 24 V drawer-kick output. | Browser: not controlled (only via the printer driver's kick-on-print option). **Mansu POS for Windows** opens it through the printer with the ESC/POS drawer pulse (after cash sales and from its Cash drawer menu); see [WINDOWS-ONLINE-TILL.md](WINDOWS-ONLINE-TILL.md). | Not tested on the real drawer |
 | Card terminal | Not shown. | Use the acquirer’s approved standalone terminal. Mansu POS records the externally verified approval/merchant reference; it does not process card payments. | Not tested |
 
 ## Recommended counter setup
@@ -37,7 +37,7 @@ Observed from owner-supplied photos on 4 November 2026. **Identification is not 
 
 4. **Cash drawer**
    - If present, connect the drawer RJ11 cable to the printer’s drawer-kick port, not to the computer.
-   - Mansu POS does not send a drawer-kick command.
+   - In a browser, Mansu POS does not send a drawer-kick command. The **Windows app** does (Cash drawer menu); if you use it, leave the driver's drawer option off so the drawer is not kicked twice.
    - Only mark cash drawer support as passed if the printer driver/firmware reliably opens the drawer during the tested receipt workflow and the owner accepts that behavior.
    - **Driver setup (Windows, Xprinter driver):** Settings → Bluetooth & devices → Printers → the XP-80T → **Printing preferences** (or *Printer properties* → *Device Settings*). Find the cash-drawer option (named *Cash Drawer*, *Peripheral* or *Open drawer*) and choose **open before printing** (preferred: the drawer opens while the receipt prints). If there is a choice of drawer pin/pulse, start with **Drawer 1 / pin 2** and the default pulse. Apply.
    - **Test:** make a cash sale and print the receipt: the drawer should open once. Print from the browser's ordinary print dialog only, never a "test page" loop.

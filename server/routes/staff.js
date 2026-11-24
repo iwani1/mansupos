@@ -15,6 +15,10 @@ export function registerStaffRoutes(app, ctx) {
     const problem = passwordProblem(input.password, input.username);
     if (problem) throw new AppError(problem, 400);
     if (db.prepare('SELECT id FROM users WHERE username=?').get(input.username.toLowerCase())) throw new AppError('That username is already in use.', 409);
+    // Platform plans can cap staff accounts (the owner does not count).
+    if (config.maxStaff && db.prepare("SELECT COUNT(*) AS n FROM users WHERE active=1 AND role IN ('manager','cashier')").get().n >= config.maxStaff) {
+      throw new AppError(`Your plan includes ${config.maxStaff} staff accounts. Upgrade to add more, or deactivate someone first.`, 403, 'PLAN_LIMIT');
+    }
     const id = randomUUID();
     localTransaction(db, () => {
       db.prepare('INSERT INTO users(id,username,name,role,password_hash,created_at,must_change_password) VALUES (?,?,?,?,?,?,1)').run(id,input.username.toLowerCase(),input.name,input.role,hashPassword(input.password),now());

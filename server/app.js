@@ -20,6 +20,7 @@ import { WeeklyOperations } from './weekly-operations.js';
 import { InventoryService } from './inventory.js';
 import { ProductService } from './products.js';
 import { WordPressMedia } from './wp-media.js';
+import { createGuardedFetch } from './net-guard.js';
 import { ReturnsService } from './returns.js';
 import { PurchasingService } from './purchasing.js';
 import { role, bearer, sessionUser } from './session.js';
@@ -41,7 +42,7 @@ import { registerStaffRoutes } from './routes/staff.js';
 import { registerAuditRoutes } from './routes/audit.js';
 import { registerConnectionRoutes } from './routes/connection.js';
 
-export function createApp({ env = process.env, api: injectedApi, bridge: injectedBridge, reservations: injectedReservations, logger: injectedLogger, media: injectedMedia } = {}) {
+export function createApp({ env = process.env, api: injectedApi, bridge: injectedBridge, reservations: injectedReservations, logger: injectedLogger, media: injectedMedia, fetch: injectedFetch, extend } = {}) {
   const config = readConfig(env);
   const logger = injectedLogger || createLogger(config.logLevel);
   const db = openDatabase(config);
@@ -57,7 +58,10 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     config.returnsEnabled = false;
     config.paymentMethods = ['cash'];
   }
-  const api = injectedApi || new WooCommerce(config, fetch, logger);
+  // Platform shops talk to a store address their owner typed: every outbound
+  // connection is checked against private/internal networks (net-guard.js).
+  const outboundFetch = injectedFetch || (config.tenantId ? createGuardedFetch() : fetch);
+  const api = injectedApi || new WooCommerce(config, outboundFetch, logger);
   const catalog = new Catalog(db, api, config);
   const wholesalePrices = new WholesalePrices(db, catalog, api, config);
   const desktop = new DesktopSyncService(db, config, catalog, api,
@@ -65,7 +69,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const sales = new SalesService(db, catalog, api, config);
   const inventory = new InventoryService(db, catalog, api, config);
   const purchasing = new PurchasingService(db, inventory, config);
-  const products = new ProductService(db, catalog, api, config, injectedMedia || new WordPressMedia(config));
+  const products = new ProductService(db, catalog, api, config, injectedMedia || new WordPressMedia(config, outboundFetch));
   // No bridge client, routes, plugin writes or new SQLite schema when OFF.
   const online = config.onlineBridgeEnabled
     ? new OnlineSalesService(db, catalog, injectedBridge || new OnlineBridgeClient(config), config)
@@ -93,6 +97,11 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     strictTransportSecurity: config.production ? { maxAge: 31536000, includeSubDomains: true } : false,
     referrerPolicy: { policy: 'same-origin' },
   }));
+  // The POS never uses these browser features; deny them to any injected code.
+  app.use((_req, res, next) => {
+    res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=(), magnetometer=(), gyroscope=(), accelerometer=(), display-capture=(), browsing-topics=()');
+    next();
+  });
   app.use(express.json({ limit: '64kb' }));
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -116,6 +125,13 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     }
     next();
   });
+  // Platform shops get the product, not MansutRENDZGH's own offline-till and
+  // payment-dossier tooling: those routes do not exist for them.
+  if (config.tenantId) {
+    const hidden = ['/desktop', '/payments/reconciliation'];
+    app.use('/api', (req, _res, next) => (hidden.some(prefix => req.path === prefix || req.path.startsWith(`${prefix}/`))
+      ? next(new AppError('API endpoint not found.', 404)) : next()));
+  }
   app.use('/api', rateLimit({ windowMs: 60000, limit: 240, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'Too many requests. Please wait a moment.' } }));
   const auth = (req, res, next) => {
     req.user = sessionUser(req, db, config);
@@ -147,6 +163,9 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   registerStaffRoutes(app, ctx);
   registerAuditRoutes(app, ctx);
   registerConnectionRoutes(app, ctx);
+  // Extra routes supplied by the multi-shop platform (shop setup, store
+  // connection). They see the same auth/role guards as every other route.
+  if (extend) extend(app, { auth, role, config, db, api, catalog, sensitiveLimit, logger });
 
   app.use('/api', (req, res, next) => next(new AppError('API endpoint not found.', 404)));
   app.use((error, req, res, _next) => {
@@ -157,5 +176,5 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     if (status >= 500) logger.error({ reqId: req.id, method: req.method, path: req.path, code: error.code || 'SERVER_ERROR', name: error.name || 'Error' });
     res.status(status).json({ error: error instanceof AppError ? error.message : 'An unexpected server error occurred. Check the sale history before retrying.', code: error.code || 'SERVER_ERROR', reqId: req.id });
   });
-  return { app, config, db, api, catalog, sales, inventory, products, purchasing, returns, desktop, shifts, logger };
+  return { app, config, db, api, outboundFetch, catalog, sales, inventory, products, purchasing, returns, desktop, shifts, logger };
 }

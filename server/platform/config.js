@@ -1,0 +1,57 @@
+import path from 'node:path';
+import { parseMasterKey } from './secrets.js';
+
+// Settings for the multi-shop platform process itself. Shop settings live in
+// the central database, not here.
+export function readPlatformConfig(env = process.env) {
+  const production = env.NODE_ENV === 'production';
+  const baseDomain = String(env.PLATFORM_BASE_DOMAIN || '').trim().toLowerCase();
+  if (!/^(?!-)[a-z0-9-]{1,63}(\.(?!-)[a-z0-9-]{1,63})+$/.test(baseDomain)) {
+    throw new Error('PLATFORM_BASE_DOMAIN must be a domain such as mansupos.com.');
+  }
+  const masterKey = parseMasterKey(env.PLATFORM_MASTER_KEY);
+  if (!masterKey) throw new Error('PLATFORM_MASTER_KEY is required (32 random bytes, hex or base64). Keep it outside the data folder and back it up separately.');
+  const dataDir = path.resolve(env.PLATFORM_DATA_DIR || '.platform-data');
+  const port = Number(env.PORT || 3100);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.');
+  const bindHost = env.PLATFORM_BIND_HOST || '127.0.0.1';
+  if (!['0.0.0.0', '127.0.0.1'].includes(bindHost)) throw new Error('PLATFORM_BIND_HOST must be 127.0.0.1 or 0.0.0.0.');
+  const maxOpenShops = Number(env.PLATFORM_MAX_OPEN_SHOPS || 50);
+  if (!Number.isInteger(maxOpenShops) || maxOpenShops < 1 || maxOpenShops > 1000) throw new Error('PLATFORM_MAX_OPEN_SHOPS must be 1 to 1000.');
+  const idleMinutes = Number(env.PLATFORM_SHOP_IDLE_MINUTES || 30);
+  if (!Number.isInteger(idleMinutes) || idleMinutes < 1 || idleMinutes > 1440) throw new Error('PLATFORM_SHOP_IDLE_MINUTES must be 1 to 1440.');
+  const signupsPerHour = Number(env.PLATFORM_SIGNUPS_PER_HOUR || 5);
+  if (!Number.isInteger(signupsPerHour) || signupsPerHour < 1 || signupsPerHour > 1000) throw new Error('PLATFORM_SIGNUPS_PER_HOUR must be 1 to 1000.');
+  const paystackSecretKey = String(env.PLATFORM_PAYSTACK_SECRET_KEY || '').trim();
+  if (production && paystackSecretKey.startsWith('sk_test_') && env.PLATFORM_ALLOW_TEST_BILLING !== 'true') {
+    throw new Error('A Paystack TEST key in production needs PLATFORM_ALLOW_TEST_BILLING=true (staging only).');
+  }
+  const graceDays = Number(env.PLATFORM_GRACE_DAYS || 7);
+  if (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 30) throw new Error('PLATFORM_GRACE_DAYS must be 0 to 30.');
+  const signupMode = env.PLATFORM_SIGNUP_MODE || 'invite';
+  if (!['invite', 'open'].includes(signupMode)) throw new Error('PLATFORM_SIGNUP_MODE must be invite or open.');
+  const mailDriver = env.PLATFORM_MAIL_DRIVER || 'outbox';
+  if (!['outbox', 'resend'].includes(mailDriver)) throw new Error('PLATFORM_MAIL_DRIVER must be outbox or resend.');
+  const resendApiKey = String(env.PLATFORM_RESEND_API_KEY || '').trim();
+  const mailFrom = String(env.PLATFORM_MAIL_FROM || '').trim();
+  const mailReplyTo = String(env.PLATFORM_MAIL_REPLY_TO || '').trim();
+  if (mailDriver === 'resend') {
+    if (!/^re_[A-Za-z0-9_]{10,}$/.test(resendApiKey)) throw new Error('PLATFORM_RESEND_API_KEY must be a Resend API key (re_...).');
+    if (!/^[^<>\r\n]{1,60} <[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+>$|^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(mailFrom)) throw new Error('PLATFORM_MAIL_FROM must be like "Mansu POS <hello@mansupos.com>" on a domain verified in Resend.');
+  }
+  if (production && mailDriver === 'outbox') console.warn('PLATFORM_MAIL_DRIVER=outbox: emails are not sent; read them with npm run platform -- outbox.');
+  const backupHours = Number(env.PLATFORM_BACKUP_HOURS ?? 24);
+  if (!Number.isInteger(backupHours) || backupHours < 0 || backupHours > 168) throw new Error('PLATFORM_BACKUP_HOURS must be 0 (off) to 168.');
+  const backupKeepDays = Number(env.PLATFORM_BACKUP_KEEP_DAYS || 14);
+  if (!Number.isInteger(backupKeepDays) || backupKeepDays < 1 || backupKeepDays > 365) throw new Error('PLATFORM_BACKUP_KEEP_DAYS must be 1 to 365.');
+  return {
+    mailDriver, signupsPerHour, paystackSecretKey, graceDays, signupMode, resendApiKey, mailFrom, mailReplyTo,
+    backupHours, backupKeepDays, backupDir: path.resolve(env.PLATFORM_BACKUP_DIR || path.join(dataDir, 'backups')),
+    production, nodeEnv: env.NODE_ENV || 'development', baseDomain, masterKey, dataDir,
+    shopsDir: path.join(dataDir, 'shops'), registryFile: path.join(dataDir, 'platform.db'),
+    port, bindHost, maxOpenShops, idleMs: idleMinutes * 60000,
+    trustProxy: env.PLATFORM_TRUST_PROXY || (production ? 'loopback' : '1'),
+    logLevel: env.POS_LOG_LEVEL || (production ? 'info' : 'debug'),
+    shopOrigin: slug => `https://${slug}.${baseDomain}`,
+  };
+}

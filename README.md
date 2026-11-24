@@ -11,6 +11,7 @@ A point-of-sale web app for **MansutRENDZGH**. It sells from the shop's existing
 - **Add / edit products (new, switch off on live by default):** owners and managers add products with photos, sizes and colours, published straight to the website, and edit them later. Turn on with `POS_PRODUCT_WRITES_APPROVED=true` (+ a WordPress Application Password for photos); see [docs/PRODUCT-MANAGEMENT.md](docs/PRODUCT-MANAGEMENT.md).
 - **Purchasing (new):** suppliers, purchase orders with owner approval, receiving full or partial deliveries (adds stock to WooCommerce once, records damaged units), weighted-average cost, stock value at cost and a reorder list that counts stock already on order; see [docs/PURCHASING.md](docs/PURCHASING.md).
 - **Customer returns (new, switch off on live by default):** return items from a POS sale with a restock choice per item; refund recorded on the Woo order (Woo restock off), cash out on the open shift, never more than sold or twice. Turn on with `POS_RETURNS_APPROVED=true`; see [docs/CUSTOMER-RETURNS.md](docs/CUSTOMER-RETURNS.md).
+- **Windows app (new, QA):** *Mansu POS* for Windows opens this live POS in its own window — online only, every sale made on the server at once, nothing queued offline. Unsigned QA installer from CI; still needs acceptance on the shop PC. See [docs/WINDOWS-ONLINE-TILL.md](docs/WINDOWS-ONLINE-TILL.md).
 - **Known limit:** two sales of the same last unit within a second or two (shop and website) are not prevented.
 
 Operate and update it with [docs/RETAIL-CASH-GO-LIVE-RUNBOOK.md](docs/RETAIL-CASH-GO-LIVE-RUNBOOK.md). [docs/README.md](docs/README.md) says which documents are current and which are history.
@@ -59,12 +60,10 @@ The live service runs under systemd behind nginx on the shop's VPS; [docs/RETAIL
 
 ## Windows apps
 
-The Windows builds are unsigned QA packages, not releases:
-
-- `npm run dist:online:win` — read-only online pilot window ([guide](docs/WINDOWS-ONLINE-PILOT.md)).
+- `npm run dist:online:win` — Mansu POS for Windows, the online till for every shop ([guide](docs/WINDOWS-ONLINE-TILL.md)).
 - `npm run dist:practice:win` — offline practice till for training ([guide](docs/POS-PRACTICE-TRIAL.md)).
 - `npm run dist:hardware:win` — printer/scanner/drawer test ([guide](docs/HARDWARE-TEST.md)).
-- `npm run dist:win` — the offline selling till. Locked: it needs a WooCommerce reservation bridge that is not in place.
+- `npm run dist:win` — the older offline till. Locked: it needs a WooCommerce reservation bridge that is not in place.
 
 ## Limitations
 

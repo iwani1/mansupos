@@ -37,6 +37,7 @@ export default [
     // Server code runs only in Node: browser globals such as `name`, `status`
     // or `history` would hide a missing variable from no-undef.
     files: ['server/**/*.js'],
+    ignores: ['server/**/public/**'], // pages served to the browser
     languageOptions: {
       globals: Object.fromEntries(Object.keys(globals.browser)
         .filter(key => !(key in globals.node)).map(key => [key, 'off'])),

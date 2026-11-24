@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 // copied from an env file or from the backup being restored. Pilot and trading
 // have the same historical POS_MODE and filename, but must NEVER share a ledger.
 export function serviceIdentity(config) {
+  // A platform shop keeps ONE ledger from set-up through read-only to selling.
+  if (config.tenantId) return 'platform-shop';
   return config.mode === 'live' ? (config.liveReadOnly ? 'live-pilot' : 'live-trading') : config.mode;
 }
 
@@ -11,7 +13,7 @@ export function ledgerInfo(db) {
   const hasTable = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
   const meta = hasTable('app_meta') ? key => db.prepare('SELECT value FROM app_meta WHERE key=?').get(key)?.value || '' : () => '';
   return {
-    mode: meta('mode'), service: meta('service_identity'), ledgerId: meta('ledger_uuid'),
+    mode: meta('mode'), service: meta('service_identity'), ledgerId: meta('ledger_uuid'), tenantId: meta('tenant_id'),
     version: hasTable('schema_migrations') ? db.prepare('SELECT COALESCE(MAX(version),0) AS v FROM schema_migrations').get().v : 0,
   };
 }
@@ -19,6 +21,11 @@ export function ledgerInfo(db) {
 export function assertLedgerIdentity(info, config, { existing = true } = {}) {
   if (info.mode && info.mode !== config.mode) throw new Error('POS ledger mode does not match this service. Do not reuse a demo or pilot ledger for trading.');
   if (info.service && info.service !== serviceIdentity(config)) throw new Error('POS ledger service identity does not match this service. Pilot and trading ledgers must stay separate.');
+  // A platform shop's ledger is bound to that shop: a copy placed in another
+  // shop's folder, or opened by the single-shop server, refuses to start.
+  if ((info.tenantId || '') !== (config.tenantId || '') && (info.tenantId || info.service)) {
+    throw new Error('POS ledger belongs to a different shop. Do not copy one shop\'s database to another.');
+  }
   if (info.version >= 9 && (!info.mode || !info.service || !info.ledgerId)) {
     throw new Error('POS ledger v9 is missing its bound mode/service/UUID. Stop; do not infer a replacement identity or migrate this ledger.');
   }
@@ -43,6 +50,7 @@ export function initializeLedgerIdentity(db, config) {
   const add = db.prepare('INSERT OR IGNORE INTO app_meta(key,value) VALUES (?,?)');
   add.run('service_identity', serviceIdentity(config));
   add.run('ledger_uuid', randomUUID());
+  if (config.tenantId) add.run('tenant_id', config.tenantId);
   const bound = ledgerInfo(db);
   assertLedgerIdentity(bound, config);
   return bound;
