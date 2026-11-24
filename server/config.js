@@ -94,6 +94,12 @@ export function readConfig(env = process.env) {
       (env.POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE || '').trim() === (env.POS_OWNER_APPROVAL_REFERENCE || '').trim()) {
     throw new Error('Live wholesale needs its own POS_LIVE_WHOLESALE_ACCEPTANCE_REFERENCE, different from the retail approval reference.');
   }
+  // Last-unit protection with WooCommerce's own reserved-stock table (needs the
+  // Mansu POS Stock Hold plugin on the store). Off until the plugin is active.
+  if (env.POS_STOCK_HOLD_ENABLED && !['true', 'false'].includes(env.POS_STOCK_HOLD_ENABLED)) {
+    throw new Error('POS_STOCK_HOLD_ENABLED must be true or false.');
+  }
+  const stockHoldEnabled = env.POS_STOCK_HOLD_ENABLED === 'true' && mode !== 'demo' && !liveReadOnly;
   const websiteHoldMinutes = Number(env.POS_WEBSITE_HOLD_MINUTES || 60);
   if (!Number.isInteger(websiteHoldMinutes) || websiteHoldMinutes < 1 || websiteHoldMinutes > 1440) {
     throw new Error('POS_WEBSITE_HOLD_MINUTES must be an integer from 1 to 1440 (match WooCommerce Hold stock minutes).');
@@ -259,7 +265,7 @@ export function readConfig(env = process.env) {
   const businessName = (env.POS_BUSINESS_NAME || 'MansutRENDZGH').trim() || 'MansutRENDZGH';
   return {
     tenantId, mode, storeUrl, configured, liveReadOnly, legacyLiveCheckoutBlocked, writesEnabled, wholesaleWritesEnabled, approvalReference,
-    liveRetailCashDirect, websiteHoldMinutes, abandonedOrderMinutes, inventoryWritesEnabled, productWritesEnabled, returnsEnabled, mediaUser, mediaPassword,
+    liveRetailCashDirect, stockHoldEnabled, websiteHoldMinutes, abandonedOrderMinutes, inventoryWritesEnabled, productWritesEnabled, returnsEnabled, mediaUser, mediaPassword,
     inStoreCashEnabled, inStoreAcceptanceReference, inStoreSourceHash,
     desktopSetupEnabled, desktopEnabled, desktopDeviceMasterSecret,
     desktopAppUser: env.POS_DESKTOP_WP_APP_USER || '', desktopAppPassword: env.POS_DESKTOP_WP_APP_PASSWORD || '',
@@ -309,7 +315,7 @@ export function publicConfig(config) {
     mode: config.mode, storeUrl: config.storeUrl, configured: config.configured,
     platformShop: Boolean(config.tenantId), platformStage: config.platformStage || undefined, platformBilling: config.platformBilling || undefined, maxStaff: config.maxStaff || undefined,
     liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
-    liveRetailCashDirect: Boolean(config.liveRetailCashDirect),
+    liveRetailCashDirect: Boolean(config.liveRetailCashDirect), stockHoldEnabled: Boolean(config.stockHoldEnabled),
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
     inventoryWritesEnabled: Boolean(config.inventoryWritesEnabled),
     productWritesEnabled: Boolean(config.productWritesEnabled),

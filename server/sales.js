@@ -456,6 +456,26 @@ export class SalesService {
       }
     }
   }
+  // Hold the order's stock in WooCommerce's reserved-stock table (the same
+  // mechanism the website checkout uses) so neither channel can sell units the
+  // other is collecting payment for. Returns '' when held, else the reason.
+  async holdStock(row, actorId) {
+    if (!this.config.stockHoldEnabled || this.config.mode === 'demo' || !row.woo_order_id) return '';
+    // Cover the whole time an unpaid till order may stay open.
+    const minutes = Math.min(1440, Math.max(this.config.websiteHoldMinutes, this.config.abandonedOrderMinutes + 15));
+    try {
+      await this.api.stockHold(row.woo_order_id, minutes);
+      saleEvent(this.db, row.id, 'woo.stock_held', actorId, { wooOrderId: row.woo_order_id, details: { minutes } });
+      return '';
+    } catch (error) {
+      const refused = error.wooCode === 'mansu_stock_unavailable';
+      saleEvent(this.db, row.id, refused ? 'woo.stock_hold_refused' : 'woo.stock_hold_unverified', actorId,
+        { wooOrderId: row.woo_order_id, details: { status: Number(error.wooStatus) || null } });
+      return refused
+        ? `Another unpaid order (website checkout or till) is holding ${error.wooMessage ? `stock: ${error.wooMessage}` : 'the last units of an item in this sale'}. Do not take cash.`
+        : 'WooCommerce did not confirm the stock hold (check the Mansu POS Stock Hold plugin is active). Do not take cash.';
+    }
+  }
   async prepare(user, input) {
     if (this.config.onlineBridgeEnabled || this.config.onlineBridgeQuarantined || this.hasOnlineHistory()) {
       throw new AppError('Legacy Woo checkout cannot create unreserved orders in this online-bridge ledger.', 403, 'CHECKOUT_LOCKED');
@@ -567,6 +587,15 @@ export class SalesService {
           const order = saleType === 'wholesale' ? await this.repriceWholesaleOrder(this.get(id, user), created) : created;
           const saved = this.saveRemote(this.get(id, user), order, user.id);
           if (saved.status !== 'awaiting_payment') throw new AppError(saved.error || 'WooCommerce did not return a payable pending order. Review Sales before retrying.', 409, 'RECONCILIATION_REQUIRED');
+          const holdProblem = await this.holdStock(this.get(id, user), user.id);
+          if (holdProblem) {
+            // Without a hold the order must not stay open: cancel it in Woo.
+            // cancel() leaves it for reconciliation if Woo does not confirm.
+            const closed = await this.cancel(user, id);
+            const error = new AppError(holdProblem, 409, holdProblem.startsWith('Another') ? 'LAST_UNIT_HELD' : 'STOCK_HOLD_UNVERIFIED');
+            error.saleClosed = closed.status === 'cancelled';
+            throw error;
+          }
         }
         localTransaction(this.db, () => {
           audit(this.db, user.id, saleType === 'wholesale' ? 'sale.wholesale_prepared' : 'sale.prepared', id);
@@ -574,6 +603,9 @@ export class SalesService {
         });
         return saleView(this.get(id, user));
       } catch (error) {
+        // The Woo order was created and then cancelled because no stock hold
+        // could be placed: the sale is closed, nothing to reconcile.
+        if (error.saleClosed) throw error;
         const mayExistRemotely = remoteAttempted || Boolean(this.get(id, user).woo_order_id);
         localTransaction(this.db, () => {
           this.db.prepare('UPDATE sales SET status=?,error=?,updated_at=? WHERE id=?').run(mayExistRemotely ? 'needs_reconciliation' : 'failed', error.message, now(), id);
@@ -674,6 +706,11 @@ export class SalesService {
         const freshLines = await this.catalog.fresh(JSON.parse(row.items_json).map(i => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity })));
         validateAvailability(freshLines);
         await this.assertNoOpenHolds(freshLines, row.woo_order_id);
+        // Renew this order's hold right before payment (it may have expired
+        // while the customer was deciding). Refused: keep the order payable
+        // and let staff decide; nothing has been written yet.
+        const holdProblem = await this.holdStock(row, user.id);
+        if (holdProblem) throw new AppError(holdProblem, 409, holdProblem.startsWith('Another') ? 'LAST_UNIT_HELD' : 'STOCK_HOLD_UNVERIFIED');
         if (payment.method === 'cash' && payment.tendered < currentTotal) throw new AppError('Cash received must cover the WooCommerce order total.', 400);
         // Persist intent BEFORE the remote write. Do not overwrite a previous
         // interrupted intent with different method, amount or reference.
@@ -707,7 +744,7 @@ export class SalesService {
       } catch (error) {
         // A held/unverifiable last unit is checked before any payment intent or
         // remote write: keep the order payable so staff can retry or cancel it.
-        if (!remoteAttempted && ['LAST_UNIT_HELD', 'LAST_UNIT_UNVERIFIED', 'STOCK_NOT_TRACKED'].includes(error.code) && !this.get(id, user).payment_method) throw error;
+        if (!remoteAttempted && ['LAST_UNIT_HELD', 'LAST_UNIT_UNVERIFIED', 'STOCK_NOT_TRACKED', 'STOCK_HOLD_UNVERIFIED'].includes(error.code) && !this.get(id, user).payment_method) throw error;
         const latest = this.get(id, user);
         const hasPaymentIntent = Boolean(latest.payment_method);
         const status = error.code === 'ORDER_CANCELLED' && !hasPaymentIntent && !remoteAttempted ? 'cancelled' : 'needs_reconciliation';

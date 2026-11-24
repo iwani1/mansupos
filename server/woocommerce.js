@@ -92,6 +92,14 @@ export class WooCommerce {
     return { data, total, pages: Math.max(1, Number.isSafeInteger(reportedPages) ? reportedPages : 1, minimumPages),
       paginationKnown, totalKnown: totalHeader !== null && Number.isSafeInteger(total) && total >= 0 };
   }
+  // Mansu POS Stock Hold plugin (woocommerce/mansu-pos-stock-hold): a "wc-"
+  // namespace, so WooCommerce authenticates this same REST API key.
+  async plugin(path, { method = 'GET', body } = {}) {
+    if (!this.config.configured) throw new RemoteError('WooCommerce credentials are not configured. The demo remains available.', 503);
+    return (await this.once(new URL(`${this.config.storeUrl}/wp-json/wc-mansu-pos/v1/${path}`), { method, body, allowMissing: false })).data;
+  }
+  async stockHoldStatus() { return this.plugin('stock-hold/status'); }
+  async stockHold(orderId, minutes) { return this.plugin('stock-hold', { method: 'POST', body: { order_id: Number(orderId), minutes } }); }
   async products(page = 1) { return this.request('products', { query: { page, per_page: 100, status: 'publish', orderby: 'date', order: 'desc' } }); }
   async variations(productId, page = 1) { return this.request(`products/${productId}/variations`, { query: { page, per_page: 100 } }); }
   async product(id) { return (await this.request(`products/${id}`)).data; }

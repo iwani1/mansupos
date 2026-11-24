@@ -246,3 +246,82 @@ test('untouched unpaid POS orders are cancelled after the abandon window; fresh 
   h.db.prepare("UPDATE sales SET created_at=?, payment_method='cash' WHERE id=?").run(longAgo, fresh.data.sale.id);
   assert.deepEqual(await h.sales.cancelAbandoned(), { checked: 0, cancelled: 0 });
 });
+
+// Last-unit protection: the Mansu POS Stock Hold plugin reserves the order's
+// stock with WooCommerce's own checkout reservation.
+const holdEnv = { POS_STOCK_HOLD_ENABLED: 'true' };
+function holdApi(result = 'ok') {
+  const api = fakeApi();
+  api.state.stock = 5;
+  api.state.holds = [];
+  api.state.holdResult = result;
+  api.stockHold = async (orderId, minutes) => {
+    api.state.holds.push({ orderId, minutes });
+    if (api.state.holdResult === 'refused') {
+      const error = new RemoteError('WooCommerce rejected the request (HTTP 409).', 502);
+      error.wooStatus = 409; error.wooCode = 'mansu_stock_unavailable'; error.wooMessage = 'Not enough units of Test Dress are available in stock to fulfil this order.';
+      throw error;
+    }
+    if (api.state.holdResult === 'down') throw new RemoteError('The store could not be reached.', 502, true);
+    return { held: true, orderId, minutes };
+  };
+  return api;
+}
+
+test('stock hold switch is validated and never active in demo', () => {
+  assert.equal(readConfig({ ...tradingEnv, ...holdEnv }).stockHoldEnabled, true);
+  assert.equal(readConfig(tradingEnv).stockHoldEnabled, false);
+  assert.throws(() => readConfig({ ...tradingEnv, POS_STOCK_HOLD_ENABLED: 'yes' }), /POS_STOCK_HOLD_ENABLED/);
+  assert.equal(readConfig({ POS_MODE: 'demo', POS_STOCK_HOLD_ENABLED: 'true' }).stockHoldEnabled, false);
+});
+
+test('with the stock hold on, a sale holds its stock when prepared and again just before payment', async t => {
+  const api = holdApi();
+  const h = await harness(t, holdEnv, api);
+  const prepared = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: cartOf() });
+  assert.equal(prepared.status, 201, JSON.stringify(prepared.data));
+  assert.equal(api.state.holds.length, 1);
+  assert.equal(api.state.holds[0].orderId, api.state.orders[0].id);
+  assert.equal(api.state.holds[0].minutes, 135, 'Covers the 120-minute abandon window');
+  const paid = await h.request(`/sales/${prepared.data.sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 10000, confirmed: true } });
+  assert.equal(paid.status, 200, JSON.stringify(paid.data));
+  assert.equal(api.state.holds.length, 2, 'Hold renewed before the paid write');
+  const events = h.db.prepare("SELECT event FROM sale_events WHERE event LIKE 'woo.stock_%'").all().map(e => e.event);
+  assert.deepEqual(events, ['woo.stock_held', 'woo.stock_held']);
+});
+
+test('when Woo refuses the hold (someone else is paying for the last unit), the till order is cancelled', async t => {
+  const api = holdApi('refused');
+  const h = await harness(t, holdEnv, api);
+  const res = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: cartOf() });
+  assert.equal(res.status, 409);
+  assert.equal(res.data.code, 'LAST_UNIT_HELD');
+  assert.match(res.data.error, /Not enough units of Test Dress/);
+  assert.equal(api.state.orders[0].status, 'cancelled', 'Woo order cancelled, so it holds nothing');
+  assert.equal(h.db.prepare('SELECT status FROM sales').get().status, 'cancelled');
+});
+
+test('if the hold cannot be confirmed (plugin missing or store down), the sale fails closed', async t => {
+  const api = holdApi('down');
+  const h = await harness(t, holdEnv, api);
+  const res = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: cartOf() });
+  assert.equal(res.status, 409);
+  assert.equal(res.data.code, 'STOCK_HOLD_UNVERIFIED');
+  assert.equal(api.state.orders[0].status, 'cancelled');
+  assert.equal(h.db.prepare('SELECT status FROM sales').get().status, 'cancelled');
+});
+
+test('a hold refused at payment keeps the order unpaid and payable, with nothing written to Woo', async t => {
+  const api = holdApi();
+  const h = await harness(t, holdEnv, api);
+  const prepared = await h.request('/sales/prepare', { method: 'POST', token: h.token, body: cartOf() });
+  assert.equal(prepared.status, 201);
+  api.state.holdResult = 'refused';
+  const blocked = await h.request(`/sales/${prepared.data.sale.id}/pay`, { method: 'POST', token: h.token, body: { method: 'cash', tendered: 10000, confirmed: true } });
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.data.code, 'LAST_UNIT_HELD');
+  assert.equal(api.state.updates, 0);
+  const row = h.db.prepare('SELECT status, payment_method FROM sales').get();
+  assert.equal(row.status, 'awaiting_payment');
+  assert.equal(row.payment_method, null);
+});

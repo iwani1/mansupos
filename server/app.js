@@ -1325,6 +1325,15 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
         try { await api.request('orders', { query: { per_page: 1 } }); checks.push({ name: 'WooCommerce orders read', ok: true }); }
         catch (error) { checks.push({ name: 'WooCommerce orders read', ok: false, detail: error.message }); }
       }
+      if (config.stockHoldEnabled) {
+        try {
+          const hold = await api.stockHoldStatus();
+          checks.push({ name: 'Last-unit stock hold plugin', ok: hold?.ok === true,
+            detail: hold?.ok ? `Mansu POS Stock Hold ${hold.version} on WooCommerce ${hold.woocommerce}` : 'Plugin answered but WooCommerce stock holds are unavailable (stock management must be on).' });
+        } catch (error) {
+          checks.push({ name: 'Last-unit stock hold plugin', ok: false, detail: error.wooStatus === 404 || /not found/i.test(error.message) ? 'Mansu POS Stock Hold plugin is not active on the store.' : error.message });
+        }
+      }
     }
     if (config.onlineBridgeLiveEnabled) {
       // Ordinary product/order GETs cannot verify an installed reservation
