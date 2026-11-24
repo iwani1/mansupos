@@ -10,6 +10,7 @@ import { Sales, Inventory, Reports, Staff, Connection, Help, Shifts, Audit } fro
 import { Checkout, Receipt } from './Checkout.jsx';
 import IndependentReviewerPortal from './IndependentReviewerPortal.jsx';
 import { Spinner, Toast, Notice, Modal } from './components.jsx';
+import './setup.css';
 // The till (Register, Checkout, Sales) loads up front. Owner and back-office
 // pages load on first visit so the register opens faster on slow connections.
 const Wholesale = lazy(() => import('./Wholesale.jsx'));
@@ -22,6 +23,7 @@ const StockControl = lazy(() => import('./StockControl.jsx'));
 const Purchasing = lazy(() => import('./Purchasing.jsx'));
 const Returns = lazy(() => import('./Returns.jsx'));
 const Setup = lazy(() => import('./Setup.jsx'));
+const Billing = lazy(() => import('./Billing.jsx'));
 const DailyOperations = lazy(() => import('./DailyOperations.jsx'));
 const WeeklyScorecard = lazy(() => import('./WeeklyScorecard.jsx'));
 const PhysicalCountWorkspace = lazy(() => import('./PhysicalCountWorkspace.jsx'));
@@ -60,6 +62,7 @@ const navigation = [
   { id:'instore', label:'Physical source review', short:'Source', icon:Package, group:'Operations', liveOnly:true, merchantOnly:true },
   { id:'staff', label:'Staff & permissions', short:'Staff', icon:Users, group:'Administration', roles:['owner'] },
   { id:'audit', label:'Audit log', short:'Audit', icon:ScrollText, group:'Administration', roles:['owner'] },
+  { id:'billing', label:'Billing', short:'Billing', icon:Banknote, group:'Administration', roles:['owner'], platformOnly:true },
   { id:'setup', label:'Shop setup', short:'Setup', icon:Settings2, group:'Administration', roles:['owner'], platformOnly:true },
   { id:'connection', label:'Settings & connection', short:'Settings', icon:Settings2, group:'Administration' },
 ];
@@ -120,6 +123,7 @@ export default function App() {
     if (data.token) setSessionToken(data.token);
     // A platform shop that is not selling yet opens on Shop setup for its owner.
     if(data.user?.role==='owner'&&data.config?.platformShop&&data.config.platformStage!=='selling')setPage('setup');
+    if(data.user?.role==='owner'&&data.config?.platformShop&&/[?&]billing=return/.test(location.search))setPage('billing');
     setSession(data);return data;
   },[]);
   useEffect(()=>{if(initialized.current)return;initialized.current=true;loadSession().catch(e=>setCatalogError(e.message));},[loadSession]);
@@ -215,10 +219,16 @@ export default function App() {
       {config.liveReadOnly&&<div className="demo-banner" role="region" aria-label="Live catalogue read-only notice"><span><span className="demo-banner-icon"><LockKeyhole size={14}/></span><strong>Live catalogue · no checkout</strong><span>No orders or payments can be recorded. Do not release goods using this POS.</span></span></div>}
       {config.onlineBridgeQuarantined&&<div className="demo-banner" role="alert"><span><span className="demo-banner-icon"><LockKeyhole size={14}/></span><strong>Original online attempt requires review</strong><span>The reservation bridge is disabled and all checkout writes are locked on this ledger. Do not use legacy order creation or collect cash.</span></span></div>}
       {(offline||connectionRecheck)&&<div className="offline-banner" role="alert"><WifiOff size={18}/><span>{offline?<><strong>Device offline.</strong> Current stock cannot be checked. Do not take payment or release goods; reconnect and refresh first.</>:<><strong>Reconnected · verifying stock.</strong> Do not take payment or release goods until the current catalogue is confirmed. <button className="offline-refresh" onClick={()=>refresh(true)} disabled={refreshing}>{refreshing?'Checking…':'Retry refresh'}</button></>}</span></div>}
+      {config.platformShop&&config.platformBilling&&(()=>{const b=config.platformBilling;const left=b.until?Math.ceil((Date.parse(b.until)-Date.now())/86400000):null;const when=iso=>iso?new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'long'}):'';
+        const message=b.state==='lapsed'?['error','Your Mansu POS subscription has ended. Sales are paused; sign-in, history and reports are still open.']
+          :b.state==='grace'?['warning',`Payment is due. Selling stops on ${when(b.graceUntil)} unless the subscription is paid.`]
+          :b.state==='trial'&&left!==null&&left<=5?['info',`Free trial ends in ${left} day${left===1?'':'s'}.`]:null;
+        return message&&<div className={`billing-banner ${message[0]}`} role={message[0]==='info'?'status':'alert'}><span>{message[1]}</span>{user.role==='owner'?<button type="button" className="text-button" onClick={()=>navigate('billing')}>{b.state==='trial'?'Choose a plan':'Pay now'}</button>:<span>Ask the shop owner to renew.</span>}</div>;})()}
       <main id="main-content" tabIndex={-1} className={`main-content ${page==='register'?'register-main':''}`}>
         <Suspense fallback={<Spinner label="Loading page…" />}>
-        {catalogError&&page!=='instore'&&page!=='setup'&&<Notice tone="error">{catalogError}<button className="text-button" onClick={()=>refresh(true)}>Try again</button></Notice>}
+        {catalogError&&page!=='instore'&&page!=='setup'&&page!=='billing'&&<Notice tone="error">{catalogError}<button className="text-button" onClick={()=>refresh(true)}>Try again</button></Notice>}
         {page==='setup'&&config.platformShop&&user.role==='owner'&&<Setup notify={notify}/>}
+        {page==='billing'&&config.platformShop&&user.role==='owner'&&<Billing notify={notify}/>}
         {page==='operations'&&<DailyOperations user={user}/>}
         {page==='physicalCounts'&&config.mode==='live'&&<PhysicalCountWorkspace user={user}/>}
         {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<CountSupervisionEvidence/>}
@@ -233,7 +243,7 @@ export default function App() {
         {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<FullLaunchReadinessPanel/>}
         {page==='weeklyScorecard'&&user.role!=='cashier'&&<WeeklyScorecard user={user}/>}
         {page==='instore'&&config.mode==='live'&&<InStore config={config} user={user} shift={shift} onOpenShift={()=>navigate('shifts')} notify={notify}/>}
-        {page!=='physicalCounts'&&page!=='instore'&&page!=='operations'&&page!=='weeklyScorecard'&&page!=='setup'&&(!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>
+        {page!=='physicalCounts'&&page!=='instore'&&page!=='operations'&&page!=='weeklyScorecard'&&page!=='setup'&&page!=='billing'&&(!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>
           {page==='overview'&&user.role!=='cashier'&&<Overview catalog={catalog} config={config} sales={sales} salesHasMore={salesHasMore} refresh={refresh} refreshKey={refreshKey} onNavigate={navigate}/>}
           <div style={{display:page==='register'?'block':'none'}}><Register key={`${config.mode}-${user.id}`} active={page==='register'} catalog={catalog} config={config} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} onOpenWholesale={()=>navigate('wholesale')} canWholesale={user.role!=='cashier'} searchSignal={searchSignal} savedCarts={savedCarts} setSavedCarts={setSavedCarts} setHelp={()=>setHelp(true)} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>
           {user.role!=='cashier'&&<div style={{display:page==='wholesale'?'block':'none'}}><Wholesale key={`${config.mode}-${user.id}`} catalog={catalog} config={config} user={user} active={page==='wholesale'} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} onOpenRetail={()=>navigate('register')} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>}

@@ -1,8 +1,8 @@
-# Mansu POS platform (multi-shop) — phases 1 and 2
+# Mansu POS platform (multi-shop) — phases 1 to 3
 
 **What it is:** one server process that runs many shops. Each shop has its own web address (`<shop>.<PLATFORM_BASE_DOMAIN>`), its own SQLite database in its own folder, its own staff, sessions and rate limits, and its own WooCommerce store and keys. It is a separate entry point (`server/platform/`); the single-shop MansutRENDZGH server (`npm start`) is unchanged and keeps running live.
 
-**Status (23 Nov 2026):** phases 1 (multi-shop core) and 2 (sign-up and store connection) of the [SaaS plan](https://claude.ai/artifact/QqLDEKcVAuoCtrD7ifALHR) are built and tested; not deployed. Billing, the web console and the multi-shop Windows till are later phases.
+**Status (23 Nov 2026):** phases 1 (multi-shop core) and 2 (sign-up and store connection) of the [SaaS plan](https://claude.ai/artifact/QqLDEKcVAuoCtrD7ifALHR) and 3 (billing and console) are built and tested; not deployed. The multi-shop Windows till is phase 4.
 
 ## How a request finds its shop
 
@@ -41,6 +41,40 @@ Tests: `node --test tests/platform-isolation.test.js` (11 tests, part of `npm te
 5. **Email:** no provider is chosen yet. `PLATFORM_MAIL_DRIVER=outbox` (the only driver) writes messages to `<data>/outbox/`; read them with `npm run platform -- outbox` and forward the links yourself during an invited pilot. A provider driver is needed before public sign-up.
 
 Tests: `tests/platform-signup.test.js` (8 tests).
+
+## Billing and console (phase 3)
+
+**Plans** (GHS, per shop): Starter 250/month (3 staff, no stock control, product editing or returns), Growth 450, Pro 800. Yearly = 10 months' price. Shops created by sign-up start on Growth with a 14-day trial.
+
+**What a shop can do** (`server/platform/billing.js`):
+
+| State | When | Effect |
+|---|---|---|
+| trial | before the trial ends | everything |
+| active | paid up | everything the plan includes |
+| grace | up to `PLATFORM_GRACE_DAYS` (7) after trial/payment ran out | everything, with a "payment due" banner |
+| lapsed | after grace | read-only: sign-in, history, reports and exports stay; no sales or website changes. Nothing is deleted. Paying restores selling on the next request. |
+| comped | set by an admin | everything |
+| unbilled | admin-created shop with no trial or payment | everything; flagged in the console |
+
+**Paying** (shop owner, *Billing* page): *Pay for one month/year* (card or Mobile Money, no auto-renew) or *Renew automatically by card* (needs Paystack plans: run `billing-sync-plans` once). Paystack's hosted page takes the money; on return the server verifies the transaction with Paystack and counts it only if it is a success, in GHS, for exactly the amount of our own checkout record, for this shop. Each payment reference extends access once; time is added after any remaining trial or paid period.
+
+**Webhook** `POST https://<base domain>/api/paystack/webhook` (set this URL in the Paystack dashboard): HMAC-SHA512 signature required; `charge.success` (first payments and renewals, matched by checkout record or by plan code + customer), `subscription.create`, `subscription.not_renew`/`subscription.disable` (auto-renew off, paid time kept), `invoice.payment_failed` (status past due; access then follows paid-until + grace). Duplicates are ignored.
+
+**Console** `https://<base domain>/console`: password + authenticator code (TOTP; each code once), 10 sign-in attempts per 15 minutes per connection, 8 failures lock the account 15 minutes, sessions end after 30 idle minutes / 8 hours, host-only `HttpOnly; SameSite=Strict; Secure` cookie. Lists every shop with access state, plan, owner, store connection and check status; per shop: suspend/resume, record an invoice payment (note required), extend trial, change plan, complimentary on/off (reason required), billing events and activity. Every action is in the audit log with the admin's name.
+
+```bash
+echo 'a-long-admin-passphrase' | npm run platform -- admin-create --username prince   # prints the authenticator secret once
+npm run platform -- billing-sync-plans          # with PLATFORM_PAYSTACK_SECRET_KEY set
+npm run platform -- record-payment --slug amaboutique --plan growth --interval monthly --note "INV-0001"
+npm run platform -- extend-trial --slug amaboutique --days 7
+npm run platform -- set-plan --slug amaboutique --plan starter
+npm run platform -- comp --slug amaboutique --on --note "founding shop"
+```
+
+Settings: `PLATFORM_PAYSTACK_SECRET_KEY` (sk_test_… for staging; a test key in production also needs `PLATFORM_ALLOW_TEST_BILLING=true`), `PLATFORM_GRACE_DAYS`. Without a Paystack key, shops see "contact support to pay by invoice" and you record payments in the console or CLI.
+
+Tests: `tests/platform-billing.test.js` (6 tests).
 
 ## Run it
 
@@ -94,7 +128,9 @@ server {
 ## Not built yet (next)
 
 - **Email provider** for verification and welcome emails (decision needed; outbox only today). Public sign-up should also get a bot check (e.g. Turnstile/hCaptcha) on top of the rate limit.
-- Paystack billing (trial end, renewals) and the web console (phase 3); multi-shop Windows till (phase 4).
+- **Paystack test-mode run** with a real `sk_test_` key: plans, a card subscription, a Mobile Money one-month payment, a renewal and a cancellation (the code was tested against a fake Paystack; field names follow Paystack's documented API). Confirm whether Mobile Money can auto-renew in Ghana.
+- Billing emails (receipts come from Paystack; our own "trial ending" / "payment due" emails need the email provider).
+- Multi-shop Windows till (phase 4).
 - Terms of service and privacy notice pages (the sign-up form links the wording, not documents yet).
 - Backups run on demand (`backup`); schedule them (systemd timer or cron) and copy off-server. Restore is manual for now: stop the platform, put `platform.db` and the shop folders back, start it.
 - Background order checks run only while a shop is open; a shop closed while it has an unpaid order is checked again when next opened.

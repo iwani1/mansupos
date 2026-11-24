@@ -2,6 +2,8 @@ import { createInterface } from 'node:readline';
 import { createPlatform } from './platform.js';
 import { FEATURES, STAGES } from './registry.js';
 import { backupPlatform } from './backup.js';
+import { PLANS, INTERVALS, planPrice } from './billing.js';
+import { newReference } from './admin-auth.js';
 
 // Platform admin commands until the web console exists (phase 3).
 // Secrets are read from standard input, never from arguments, so they do not
@@ -16,7 +18,14 @@ const usage = `Usage: npm run platform -- <command> [options]
   set-business --slug <slug> [--address ..] [--phone ..] [--tax-id ..] [--receipt-footer ..] [--receipt-width 58|80|a4]
   suspend --slug <slug> | resume --slug <slug>
   backup [--to <folder>]                  (central database + every shop's database, verified)
-  outbox [--last <n>]                     (emails queued while no email provider is set up)`;
+  outbox [--last <n>]                     (emails queued while no email provider is set up)
+  admin-create --username <name>          (reads the password from stdin; prints the authenticator secret once)
+  admin-reset-2fa --username <name>
+  billing-sync-plans                      (creates the Paystack plans once; needs PLATFORM_PAYSTACK_SECRET_KEY)
+  record-payment --slug <slug> --plan ${Object.keys(PLANS).join('|')} --interval ${Object.keys(INTERVALS).join('|')} --note "<invoice ref>"
+  extend-trial --slug <slug> --days <1-90>
+  set-plan --slug <slug> --plan ${Object.keys(PLANS).join('|')}
+  comp --slug <slug> --on|--off --note "<reason>"`;
 
 function options(args) {
   const out = {};
@@ -103,6 +112,56 @@ try {
     case 'outbox':
       for (const m of platform.mailer.list(Number(opt.last) || 10)) console.log(`--- ${m.queuedAt}  to: ${m.to}\n${m.subject}\n\n${m.text}\n`);
       break;
+    case 'admin-create': {
+      const [password] = await readLines(1);
+      const made = platform.adminAuth.create(opt.username, password);
+      console.log(`Admin ${made.username} created. Add this to an authenticator app now (shown once):`);
+      console.log(`  Secret: ${made.secret}\n  URL:    ${made.otpauth}`);
+      console.log(`Console: https://${platform.config.baseDomain}/console`);
+      break;
+    }
+    case 'admin-reset-2fa': {
+      const made = platform.adminAuth.resetTotp(opt.username);
+      console.log(`New authenticator secret (shown once): ${made.secret}\n  URL: ${made.otpauth}`);
+      break;
+    }
+    case 'billing-sync-plans': {
+      if (!platform.paystack) throw new Error('Set PLATFORM_PAYSTACK_SECRET_KEY first.');
+      for (const plan of Object.keys(PLANS)) for (const interval of Object.keys(INTERVALS)) {
+        const existing = registry.planCode(plan, interval);
+        if (existing) { console.log(`${plan}/${interval}: ${existing} (kept)`); continue; }
+        const made = await platform.paystack.createPlan({ name: `Mansu POS ${PLANS[plan].name} (${interval})`, amount: planPrice(plan, interval), interval });
+        registry.setSetting(`paystack_plan:${plan}:${interval}`, made.plan_code);
+        registry.audit(actor, 'billing.plan_created', null, `${plan}/${interval} ${made.plan_code}`);
+        console.log(`${plan}/${interval}: ${made.plan_code} (created${platform.paystack.testMode ? ', TEST mode' : ''})`);
+      }
+      break;
+    }
+    case 'record-payment': {
+      const s = shop();
+      if (!opt.note || opt.note.length < 3) throw new Error('Add --note with the invoice or receipt number.');
+      registry.recordPayment({ shopId: s.id, plan: opt.plan, interval: opt.interval, reference: newReference(), amount: planPrice(opt.plan, opt.interval), actor });
+      registry.audit(actor, 'billing.manual_payment_note', s.id, opt.note);
+      console.log(`Recorded. Paid until ${registry.byId(s.id).billing.paidUntil}`);
+      break;
+    }
+    case 'extend-trial': {
+      const s = shop();
+      const days = Number(opt.days);
+      if (!Number.isInteger(days) || days < 1 || days > 90) throw new Error('--days must be 1 to 90.');
+      const from = Math.max(Date.now(), s.trialEndsAt ? Date.parse(s.trialEndsAt) : 0);
+      console.log(`Trial ends ${registry.setBilling(s.id, { trialEndsAt: new Date(from + days * 86400000).toISOString() }, actor).trialEndsAt}`);
+      break;
+    }
+    case 'set-plan': console.log(registry.setBilling(shop().id, { plan: opt.plan }, actor).billing.plan); break;
+    case 'comp': {
+      const s = shop();
+      if (Boolean(opt.on) === Boolean(opt.off) || !opt.note) throw new Error('Give --on or --off, and --note with the reason.');
+      registry.setBilling(s.id, { status: opt.on ? 'comped' : (s.billing.paidUntil ? 'active' : null) }, actor);
+      registry.audit(actor, 'billing.comp_note', s.id, opt.note);
+      console.log(opt.on ? 'Complimentary.' : 'Billing normal.');
+      break;
+    }
     case 'suspend': registry.update(shop().id, { status: 'suspended' }, actor); console.log('Suspended.'); break;
     case 'resume': registry.update(shop().id, { status: 'active' }, actor); console.log('Active.'); break;
     default: throw new Error(`Unknown command.\n${usage}`);

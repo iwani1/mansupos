@@ -26,7 +26,7 @@ const signupSchema = z.object({
   acceptTerms: z.literal(true, { message: 'Accept the terms to continue' }),
 }).strict();
 
-export function createSignupApp({ config, registry, provisionShop, mailer, logger }) {
+export function createSignupApp({ config, registry, provisionShop, mailer, logger, mount }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
@@ -105,8 +105,10 @@ export function createSignupApp({ config, registry, provisionShop, mailer, logge
     res.status(201).json({ ok: true, shopUrl });
   });
 
+  if (mount) mount(app);
   app.use('/api', (_req, _res, next) => next(new AppError('Not found.', 404)));
-  app.get(['/', '/verify'], (req, res) => res.sendFile(req.path === '/' ? 'index.html' : 'verify.html', { root: publicDir, headers: { 'Cache-Control': 'no-cache' } }));
+  const pages = { '/': 'index.html', '/verify': 'verify.html', '/console': 'console.html' };
+  app.get(Object.keys(pages), (req, res) => res.sendFile(pages[req.path], { root: publicDir, headers: { 'Cache-Control': 'no-cache' } }));
   app.use('/static', express.static(publicDir, { index: false, maxAge: '1h' }));
   app.use((error, req, res, _next) => {
     if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues.map(i => i.message).join('. '), code: 'VALIDATION_ERROR' });

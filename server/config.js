@@ -14,6 +14,13 @@ function httpsOrigin(value, label) {
   return url.origin;
 }
 
+function parsePlatformBilling(value) {
+  const [state, until, graceUntil, plan] = String(value || '').split('|');
+  if (!['comped', 'trial', 'active', 'grace', 'lapsed', 'unbilled'].includes(state)) return null;
+  const iso = text => (/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(text || '') ? text : null);
+  return { state, until: iso(until), graceUntil: iso(graceUntil), plan: /^[a-z]{2,20}$/.test(plan || '') ? plan : null };
+}
+
 export function readConfig(env = process.env) {
   const mode = env.POS_MODE || 'demo';
   if (!['demo', 'staging', 'live'].includes(mode)) throw new Error('POS_MODE must be demo, staging, or live.');
@@ -262,6 +269,8 @@ export function readConfig(env = process.env) {
     ownerPasswordHash: tenantId && /^scrypt2:\d+:\d+:\d+:[0-9a-f]{32}:[0-9a-f]{128}$/.test(env.POS_OWNER_PASSWORD_HASH || '') ? env.POS_OWNER_PASSWORD_HASH : '',
     ownerName: tenantId ? (env.POS_OWNER_NAME || '').trim().slice(0, 80) : '',
     platformStage: tenantId && ['setup', 'read_only', 'selling'].includes(env.POS_PLATFORM_STAGE) ? env.POS_PLATFORM_STAGE : '',
+    platformBilling: tenantId ? parsePlatformBilling(env.POS_PLATFORM_BILLING) : null,
+    maxStaff: tenantId && /^\d{1,4}$/.test(env.POS_MAX_STAFF || '') ? Number(env.POS_MAX_STAFF) : null,
     businessName,
     businessAddress: env.POS_BUSINESS_ADDRESS || '', businessPhone: env.POS_BUSINESS_PHONE || '', businessTaxId: env.POS_BUSINESS_TAX_ID || '',
     receiptFooter: env.POS_RECEIPT_FOOTER || `Thank you for shopping with ${businessName}.`,
@@ -289,7 +298,7 @@ export function shouldRunReconcileTimer(config) {
 export function publicConfig(config) {
   return {
     mode: config.mode, storeUrl: config.storeUrl, configured: config.configured,
-    platformShop: Boolean(config.tenantId), platformStage: config.platformStage || undefined,
+    platformShop: Boolean(config.tenantId), platformStage: config.platformStage || undefined, platformBilling: config.platformBilling || undefined, maxStaff: config.maxStaff || undefined,
     liveReadOnly: config.liveReadOnly, writesEnabled: config.writesEnabled,
     liveRetailCashDirect: Boolean(config.liveRetailCashDirect),
     wholesaleWritesEnabled: config.wholesaleWritesEnabled, inStoreCashEnabled: config.inStoreCashEnabled,
