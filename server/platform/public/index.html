@@ -23,6 +23,7 @@
   <section class="card" aria-labelledby="form-title">
     <form id="signup" novalidate>
       <h2 id="form-title">Start your shop</h2>
+      <div id="invite-field" class="invite-field" hidden><label>Invitation code<input name="inviteCode" autocomplete="off" maxlength="40" placeholder="MANSU-XXXX-XXXX" spellcheck="false" aria-describedby="invite-hint"></label><small id="invite-hint">During the pilot, Mansu POS is by invitation. Your code came by email or WhatsApp.</small></div>
       <fieldset>
         <legend>Your shop</legend>
         <label>Shop name<input name="shopName" autocomplete="organization" required maxlength="80"></label>
@@ -40,7 +41,7 @@
         <label>Username for signing in<input name="username" autocomplete="username" required maxlength="40"></label>
         <label>Password<input name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="256"><small>At least 12 characters.</small></label>
       </fieldset>
-      <label class="check"><input name="acceptTerms" type="checkbox" required> I accept the terms of service and privacy notice.</label>
+      <label class="check"><input name="acceptTerms" type="checkbox" required> <span>I accept the <a href="/terms" target="_blank" rel="noopener">terms of service</a> and <a href="/privacy" target="_blank" rel="noopener">privacy notice</a>.</span></label>
       <p class="error" id="error" role="alert" hidden></p>
       <button type="submit">Create my shop</button>
     </form>

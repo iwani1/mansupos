@@ -9,13 +9,14 @@ import { buildShopEnv } from './shop-env.js';
 import { slugFromHost } from './slug.js';
 import { createMailer } from './mailer.js';
 import { createSignupApp } from './signup.js';
-import { handleWooCallback, setupRoutes } from './setup.js';
+import { handleWooCallback, setupRoutes, feedbackRoutes } from './setup.js';
 import { createGuardedFetch } from '../net-guard.js';
 import { computeAccess, entitlements } from './billing.js';
 import { createBillingService } from './billing-service.js';
 import { Paystack } from './paystack.js';
 import { AdminAuth } from './admin-auth.js';
 import { consoleRouter } from './console.js';
+import { runReminders, runScheduledBackup } from './jobs.js';
 
 // One process, many shops. Every request is matched to exactly one shop by its
 // web address BEFORE any shop code runs; that shop's own POS app (its own
@@ -65,7 +66,8 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
     let instance;
     const setupExtend = setupRoutes({ registry, shopId: shop.id, origin: config.shopOrigin(shop.slug), fetchImpl: setupFetch });
     const billingExtend = billing.routes(shop.id, config.shopOrigin(shop.slug));
-    const extend = (app, ctx) => { setupExtend(app, ctx); billingExtend(app, ctx); };
+    const feedbackExtend = feedbackRoutes({ registry, shopId: shop.id });
+    const extend = (app, ctx) => { setupExtend(app, ctx); billingExtend(app, ctx); feedbackExtend(app, ctx); };
     try { instance = factory({ env: shopEnv, logger: logger.child({ shop: shop.slug }), extend }); }
     catch (error) { lease.release(); throw error; }
     if (mountUi) mountUi(instance.app, instance.config);
@@ -185,16 +187,30 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
   }
   const sweeper = setInterval(() => evictIdle(), 60000);
   sweeper.unref();
+  // Hourly: billing reminder emails and the scheduled backup.
+  let jobsRunning = false;
+  async function runJobs(now = Date.now()) {
+    if (jobsRunning) return;
+    jobsRunning = true;
+    try {
+      await runReminders({ registry, config, mailer, logger, now });
+      await runScheduledBackup({ registry, config, logger, now });
+    } catch (error) { logger.error({ msg: 'platform.jobs_failed', name: error.name, reason: String(error.message).slice(0, 200) }); }
+    finally { jobsRunning = false; }
+  }
+  const jobs = env.PLATFORM_JOBS === 'off' ? null : setInterval(() => runJobs(), 3600000);
+  jobs?.unref();
 
   function close() {
     clearInterval(sweeper);
+    if (jobs) clearInterval(jobs);
     for (const entry of [...open.values()]) closeEntry(entry);
     try { setupFetch.close?.(); } catch { /* injected */ }
     registry.close();
   }
 
   return {
-    config, registry, logger, mailer, billing, adminAuth, paystack, handler, provisionShop, evictIdle, close,
+    config, registry, logger, mailer, billing, runJobs, adminAuth, paystack, handler, provisionShop, evictIdle, close,
     openShops: () => [...open.values()].map(entry => ({ shopId: entry.shopId, slug: entry.slug, active: entry.active })),
   };
 }

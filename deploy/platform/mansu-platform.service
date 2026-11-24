@@ -1,0 +1,34 @@
+[Unit]
+Description=Mansu POS platform (multi-shop SaaS: sign-up, console, every shop's till)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mansu-platform
+Group=mansu-platform
+WorkingDirectory=/opt/mansu-platform
+# Secrets and settings: see platform.env.example. Mode 0600, owned by root.
+EnvironmentFile=/etc/mansu-platform/platform.env
+# Pinned here so a copied env file cannot expose the process or move its data.
+Environment=NODE_ENV=production PLATFORM_BIND_HOST=127.0.0.1 PORT=3100 PLATFORM_DATA_DIR=/var/lib/mansu-platform PLATFORM_TRUST_PROXY=loopback
+ExecStart=/usr/bin/node server/platform/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/mansu-platform
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

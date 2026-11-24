@@ -1,4 +1,4 @@
-# Mansu POS platform (multi-shop) — phases 1 to 4
+# Mansu POS platform (multi-shop) — phases 1 to 5
 
 **What it is:** one server process that runs many shops. Each shop has its own web address (`<shop>.<PLATFORM_BASE_DOMAIN>`), its own SQLite database in its own folder, its own staff, sessions and rate limits, and its own WooCommerce store and keys. It is a separate entry point (`server/platform/`); the single-shop MansutRENDZGH server (`npm start`) is unchanged and keeps running live.
 
@@ -116,33 +116,79 @@ npm run platform -- backup [--to /path]                 # central + every shop d
 
 Changes reach an open shop on its next request once nothing is in flight. Every change is recorded in `platform_audit`.
 
-## nginx (sketch)
+## Pilot readiness (phase 5)
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name mansupos.com *.mansupos.com;
-    ssl_certificate     /etc/letsencrypt/live/mansupos.com/fullchain.pem;   # wildcard cert (DNS challenge)
-    ssl_certificate_key /etc/letsencrypt/live/mansupos.com/privkey.pem;
-    server_tokens off;
-    client_max_body_size 10m;
-    location / {
-        proxy_pass http://127.0.0.1:3100;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+**Invitation-only sign-up.** `PLATFORM_SIGNUP_MODE=invite` (the default) needs a code such as `MANSU-K7QP-3XMV` for every sign-up. Create one in the console (**Invitations**) or with `npm run platform -- invite-create`. The code is shown once and only its hash is stored. A code can be limited to one email address, expires after 30 days by default, and works once: it is claimed when the email is confirmed, so if two people start with the same code, only the first to confirm gets the shop. The link `https://<base>/?invite=CODE` fills the code in. `open` mode lets anyone sign up, and a code is then optional.
+
+**Founding prices.** An invitation can carry a discount (for example 50% for 6 months). It is applied when the shop is created, and an admin can change or end it from the shop's page in the console. While it lasts, the Billing page shows the reduced and the usual price, and only one-off payments are offered. Paystack plans have one fixed price, so automatic card renewal is offered again once the discount ends. Manual payments recorded in the console use the discounted price as well.
+
+**Email (Resend).** `PLATFORM_MAIL_DRIVER=resend` with `PLATFORM_RESEND_API_KEY` and `PLATFORM_MAIL_FROM` (`Mansu POS <hello@mansupos.com>`, on a domain verified in Resend with SPF and DKIM). If the confirmation email cannot be sent, sign-up says so (`MAIL_FAILED`) instead of pretending it worked. In production the platform warns at start-up if it is still on `outbox`.
+
+**Reminders.** Each hour the platform emails the owner:
+- 3 days and 1 day before the trial ends;
+- 5 days before a paid period ends (only for shops not renewing automatically);
+- when payment is overdue (grace);
+- when sales have paused (lapsed).
+
+Each reminder is sent once per period. One that fails to send is tried again the next hour. Suspended and closed shops get none. `npm run platform -- run-jobs` runs the job now.
+
+**Scheduled backups.** Every `PLATFORM_BACKUP_HOURS` (24 by default, `0` turns them off), the platform writes a verified backup to `PLATFORM_BACKUP_DIR` (default `<data>/backups`). Backups older than `PLATFORM_BACKUP_KEEP_DAYS` (default 14) are pruned. Pruning only removes folders the platform made itself (a timestamped name with a `manifest.json` inside). Copy that folder off the server too, for example with an rsync or rclone timer.
+
+**Feedback.** Every signed-in user of a platform shop has **Feedback & support** in the menu, for a problem, an idea or a question. Messages are limited to 20 per shop per hour. Cashiers see their own messages, and owners and managers see the whole shop's. The console's **Feedback** tab lists open messages. Resolving one with a reply shows that reply on the shop's Feedback page.
+
+**Pilot health.** The console's **Pilot health** tab reads each shop's own database read-only. It shows:
+- sales and takings, today and over 7 days;
+- the last sale;
+- open shifts;
+- staff, and the last time anyone signed in;
+- **stuck sales**: sales neither paid nor cancelled for over 30 minutes. They are flagged as critical, because a stuck sale is the early sign of a lost one.
+
+It also flags:
+- overdue and lapsed billing;
+- a failing store check;
+- a shop that is selling but has had no sale in 7 days;
+- a shop not selling a week after sign-up.
+
+**Terms and privacy.** `/terms` and `/privacy` are drafts, clearly marked as such. They follow the Ghana Data Protection Act, 2012 (Act 843), but **a Ghanaian lawyer must review them**, and Mansu POS must register with the Data Protection Commission before general launch. The privacy notice says closed shops' data is kept for 90 days. That is a policy for now; deletion is manual (see below).
+
+**Deployment files** are in `deploy/platform/`:
+- `mansu-platform.service`: systemd, with the network and data settings pinned and the service sandboxed;
+- `nginx-platform.conf`: a wildcard certificate, HSTS and a rate limit;
+- `platform.env.example`: every setting, with notes.
+
+Tests: `tests/platform-pilot.test.js` (6).
+
+### Pilot checklist (outside the code)
+
+1. A server, the domain, and a wildcard certificate for `*.<domain>` (DNS-01).
+2. A Resend account with the sending domain verified.
+3. A Paystack account. Run the test-mode checks below with `sk_test_` and `PLATFORM_ALLOW_TEST_BILLING=true` on staging, then switch to `sk_live_`. Set the webhook URL to `https://<domain>/api/paystack/webhook`.
+4. Create the console admin with `npm run platform -- admin-create`, and enrol the authenticator.
+5. A code-signing certificate for the Windows till (set `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` in CI). Set `platformDomain` / `updateFeed` in `desktop/online/till.json`.
+6. Legal review of `/terms` and `/privacy`.
+7. Invite 3–5 shops, with a founding price if you like. Watch **Pilot health** daily and answer **Feedback** within a working day.
+
+## Admin commands added in phase 5
+
+```bash
+npm run platform -- invite-create --email owner@shop.com --note "Ama, Osu" --discount 50 --months 6   # code printed once
+npm run platform -- invites
+npm run platform -- feedback
+npm run platform -- run-jobs        # reminders + scheduled backup now
 ```
 
 ## Not built yet (next)
 
-- **Email provider** for verification and welcome emails (decision needed; outbox only today). Public sign-up should also get a bot check (e.g. Turnstile/hCaptcha) on top of the rate limit.
-- **Paystack test-mode run** with a real `sk_test_` key: plans, a card subscription, a Mobile Money one-month payment, a renewal and a cancellation (the code was tested against a fake Paystack; field names follow Paystack's documented API). Confirm whether Mobile Money can auto-renew in Ghana.
-- Billing emails (receipts come from Paystack; our own "trial ending" / "payment due" emails need the email provider).
-- Buy a code-signing certificate; then optionally switch the till to silent automatic updates (electron-updater) — not done before signing on purpose.
-- Phase 5: pilot with 3–5 shops.
-- Terms of service and privacy notice pages (the sign-up form links the wording, not documents yet).
-- Backups run on demand (`backup`); schedule them (systemd timer or cron) and copy off-server. Restore is manual for now: stop the platform, put `platform.db` and the shop folders back, start it.
-- Background order checks run only while a shop is open; a shop closed while it has an unpaid order is checked again when next opened.
+- **Paystack test-mode run** with a real `sk_test_` key covering:
+  - plans;
+  - a card subscription;
+  - a Mobile Money one-month payment;
+  - a renewal;
+  - a cancellation.
+
+  The code was tested against a fake Paystack; field names follow Paystack's documented API. Confirm whether Mobile Money can auto-renew in Ghana.
+- A bot check (Turnstile or hCaptcha) before sign-up is opened to everyone. Invitation-only sign-up does not need one.
+- Silent automatic updates for the till (electron-updater), once it is code-signed.
+- Restore is manual: stop the platform, put `platform.db` and the shop folders back, then start it. Deleting a closed shop's data after 90 days is manual too.
+- Background order checks run only while a shop is open. A shop closed while it has an unpaid order is checked again when it is next opened. Pilot health flags such a sale after 30 minutes.
 - The Mansutrendz-only modules are switched off for platform shops, not deleted; the single-shop server still uses them.

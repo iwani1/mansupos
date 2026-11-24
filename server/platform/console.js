@@ -2,8 +2,9 @@ import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { AppError } from '../errors.js';
-import { PLANS, INTERVALS, planPrice, computeAccess } from './billing.js';
+import { PLANS, INTERVALS, shopPrice, computeAccess } from './billing.js';
 import { newReference } from './admin-auth.js';
+import { shopMetrics, healthFlags } from './shop-metrics.js';
 
 // The platform console API at <base domain>/api/console. Admin sign-in is
 // password + authenticator code; the session cookie is host-only, HttpOnly,
@@ -19,6 +20,7 @@ const actionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('record_payment'), plan: z.enum(Object.keys(PLANS)), interval: z.enum(Object.keys(INTERVALS)), note: z.string().trim().min(3, 'Add a note: invoice or receipt number').max(200) }).strict(),
   z.object({ action: z.literal('set_plan'), plan: z.enum(Object.keys(PLANS)), note: z.string().max(200).default('') }).strict(),
   z.object({ action: z.literal('comp'), on: z.boolean(), note: z.string().trim().min(3, 'Add a reason').max(200) }).strict(),
+  z.object({ action: z.literal('discount'), percent: z.number().int().min(0).max(90), months: z.number().int().min(0).max(24), note: z.string().max(200).default('') }).strict(),
 ]);
 
 export function consoleRouter({ registry, auth, config, billing }) {
@@ -64,12 +66,41 @@ export function consoleRouter({ registry, auth, config, billing }) {
       registry.setBilling(shop.id, { trialEndsAt: new Date(from + input.days * 86400000).toISOString() }, actor);
     }
     if (input.action === 'record_payment') {
-      registry.recordPayment({ shopId: shop.id, plan: input.plan, interval: input.interval, reference: newReference(), amount: planPrice(input.plan, input.interval), actor });
+      registry.recordPayment({ shopId: shop.id, plan: input.plan, interval: input.interval, reference: newReference(), amount: shopPrice(shop, input.plan, input.interval), actor });
     }
     if (input.action === 'set_plan') registry.setBilling(shop.id, { plan: input.plan }, actor);
+    if (input.action === 'discount') registry.setDiscount(shop.id, { percent: input.percent, months: input.months }, actor);
     if (input.action === 'comp') registry.setBilling(shop.id, { status: input.on ? 'comped' : (shop.billing.paidUntil ? 'active' : null) }, actor);
     if (input.note) registry.audit(actor, `console.${input.action}`, shop.id, input.note);
     res.json({ shop: shopView(registry.byId(shop.id)) });
+  });
+  router.get('/health', requireAdmin, (_req, res) => {
+    res.json({ shops: registry.list().filter(s => s.status !== 'closed').map(shop => {
+      const metrics = shopMetrics(registry, shop);
+      const access = computeAccess(shop, { graceDays: config.graceDays });
+      return { id: shop.id, slug: shop.slug, name: shop.name, stage: shop.stage, access: access.state, metrics, flags: healthFlags(shop, metrics, access) };
+    }) });
+  });
+  router.get('/feedback', requireAdmin, (req, res) => {
+    const names = Object.fromEntries(registry.list().map(s => [s.id, s.name]));
+    res.json({ feedback: registry.feedback({ status: ['open', 'resolved', 'all'].includes(req.query.status) ? req.query.status : 'open' }).map(f => ({ ...f, shop: names[f.shopId] || '' })) });
+  });
+  router.post('/feedback/:id/resolve', requireAdmin, (req, res) => {
+    const { reply } = z.object({ reply: z.string().trim().max(500).default('') }).strict().parse(req.body);
+    if (!registry.resolveFeedback(Number(req.params.id), reply, `admin:${req.admin.username}`)) throw new AppError('Already resolved or not found.', 409);
+    res.json({ ok: true });
+  });
+  router.get('/invites', requireAdmin, (_req, res) => res.json({ invites: registry.invites(), mode: config.signupMode }));
+  router.post('/invites', requireAdmin, (req, res) => {
+    const input = z.object({ email: z.string().trim().max(120).default(''), note: z.string().max(200).default(''),
+      discountPercent: z.number().int().min(0).max(90).default(0), discountMonths: z.number().int().min(0).max(24).default(0), days: z.number().int().min(1).max(90).default(30) }).strict().parse(req.body);
+    let made;
+    try { made = registry.createInvite(input, `admin:${req.admin.username}`); } catch (error) { throw new AppError(error.message, 400); }
+    res.status(201).json({ code: made.code, signupUrl: `https://${config.baseDomain}/?invite=${encodeURIComponent(made.code)}` });
+  });
+  router.post('/invites/:id/revoke', requireAdmin, (req, res) => {
+    if (!registry.revokeInvite(req.params.id, `admin:${req.admin.username}`)) throw new AppError('Already used, revoked or not found.', 409);
+    res.json({ ok: true });
   });
   router.get('/audit', requireAdmin, (req, res) => res.json({ audit: registry.recentAudit(Math.min(500, Number(req.query.limit) || 100)) }));
   return router;

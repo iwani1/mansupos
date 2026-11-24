@@ -28,10 +28,25 @@ export function readPlatformConfig(env = process.env) {
   }
   const graceDays = Number(env.PLATFORM_GRACE_DAYS || 7);
   if (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 30) throw new Error('PLATFORM_GRACE_DAYS must be 0 to 30.');
+  const signupMode = env.PLATFORM_SIGNUP_MODE || 'invite';
+  if (!['invite', 'open'].includes(signupMode)) throw new Error('PLATFORM_SIGNUP_MODE must be invite or open.');
   const mailDriver = env.PLATFORM_MAIL_DRIVER || 'outbox';
-  if (!['outbox'].includes(mailDriver)) throw new Error('PLATFORM_MAIL_DRIVER must be outbox (provider drivers come later).');
+  if (!['outbox', 'resend'].includes(mailDriver)) throw new Error('PLATFORM_MAIL_DRIVER must be outbox or resend.');
+  const resendApiKey = String(env.PLATFORM_RESEND_API_KEY || '').trim();
+  const mailFrom = String(env.PLATFORM_MAIL_FROM || '').trim();
+  const mailReplyTo = String(env.PLATFORM_MAIL_REPLY_TO || '').trim();
+  if (mailDriver === 'resend') {
+    if (!/^re_[A-Za-z0-9_]{10,}$/.test(resendApiKey)) throw new Error('PLATFORM_RESEND_API_KEY must be a Resend API key (re_...).');
+    if (!/^[^<>\r\n]{1,60} <[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+>$|^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(mailFrom)) throw new Error('PLATFORM_MAIL_FROM must be like "Mansu POS <hello@mansupos.com>" on a domain verified in Resend.');
+  }
+  if (production && mailDriver === 'outbox') console.warn('PLATFORM_MAIL_DRIVER=outbox: emails are not sent; read them with npm run platform -- outbox.');
+  const backupHours = Number(env.PLATFORM_BACKUP_HOURS ?? 24);
+  if (!Number.isInteger(backupHours) || backupHours < 0 || backupHours > 168) throw new Error('PLATFORM_BACKUP_HOURS must be 0 (off) to 168.');
+  const backupKeepDays = Number(env.PLATFORM_BACKUP_KEEP_DAYS || 14);
+  if (!Number.isInteger(backupKeepDays) || backupKeepDays < 1 || backupKeepDays > 365) throw new Error('PLATFORM_BACKUP_KEEP_DAYS must be 1 to 365.');
   return {
-    mailDriver, signupsPerHour, paystackSecretKey, graceDays,
+    mailDriver, signupsPerHour, paystackSecretKey, graceDays, signupMode, resendApiKey, mailFrom, mailReplyTo,
+    backupHours, backupKeepDays, backupDir: path.resolve(env.PLATFORM_BACKUP_DIR || path.join(dataDir, 'backups')),
     production, nodeEnv: env.NODE_ENV || 'development', baseDomain, masterKey, dataDir,
     shopsDir: path.join(dataDir, 'shops'), registryFile: path.join(dataDir, 'platform.db'),
     port, bindHost, maxOpenShops, idleMs: idleMinutes * 60000,

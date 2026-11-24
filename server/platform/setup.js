@@ -184,3 +184,22 @@ export function setupRoutes({ registry, shopId, origin, fetchImpl }) {
     });
   };
 }
+
+// Feedback to Mansu POS from anyone signed in at a platform shop; the owner
+// and managers see their shop's threads and replies.
+const feedbackSchema = z.object({ kind: z.enum(['problem', 'idea', 'question']), message: z.string().max(2000), page: z.string().max(60).default('') }).strict();
+export function feedbackRoutes({ registry, shopId }) {
+  return (app, { auth, sensitiveLimit }) => {
+    app.post('/api/feedback', auth, sensitiveLimit, (req, res) => {
+      const input = feedbackSchema.parse(req.body);
+      let id;
+      try { id = registry.addFeedback({ shopId, kind: input.kind, message: input.message, fromUser: req.user.username, fromRole: req.user.role, page: input.page }); }
+      catch (error) { throw new AppError(error.message, 400); }
+      res.status(201).json({ ok: true, id });
+    });
+    app.get('/api/feedback', auth, (req, res) => {
+      const all = registry.feedback({ status: 'all', shopId, limit: 50 }).map(({ shopId: _s, ...f }) => f);
+      res.json({ feedback: req.user.role === 'cashier' ? all.filter(f => f.fromUser === req.user.username) : all });
+    });
+  };
+}
