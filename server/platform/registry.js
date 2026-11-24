@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { slugProblem } from './slug.js';
@@ -21,6 +21,9 @@ export function newShopId() {
   return `shp_${[...bytes].map(byte => BASE32[byte & 31]).join('')}`;
 }
 const now = () => new Date().toISOString();
+const tokenHash = token => createHash('sha256').update(String(token)).digest('hex');
+export const newToken = () => randomBytes(32).toString('base64url');
+const json = text => { try { return text ? JSON.parse(text) : null; } catch { return null; } };
 const oneLine = (value, max) => [...String(value ?? '')].map(ch => (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? ' ' : ch)).join('').trim().slice(0, max);
 
 function shopView(row) {
@@ -29,6 +32,9 @@ function shopView(row) {
     id: row.id, slug: row.slug, name: row.name, storeUrl: row.store_url, status: row.status, stage: row.stage,
     features: JSON.parse(row.features), business: JSON.parse(row.business),
     createdAt: row.created_at, updatedAt: row.updated_at, version: row.version,
+    owner: { name: row.owner_name || '', email: row.owner_email || '', phone: row.owner_phone || '' },
+    trialEndsAt: row.trial_ends_at || null, connectedAt: row.connected_at || null,
+    health: json(row.health), healthAt: row.health_at || null,
   };
 }
 
@@ -61,11 +67,25 @@ export class PlatformRegistry {
         updated_at TEXT NOT NULL,
         PRIMARY KEY (shop_id, kind)
       );
+      CREATE TABLE IF NOT EXISTS woo_connect_requests (
+        nonce_hash TEXT PRIMARY KEY, shop_id TEXT NOT NULL REFERENCES shops(id),
+        created_at TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS signups (
+        id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, email TEXT NOT NULL, payload TEXT NOT NULL,
+        password_hash TEXT NOT NULL, created_at TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at TEXT, shop_id TEXT
+      );
       CREATE TABLE IF NOT EXISTS platform_audit (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, shop_id TEXT, detail TEXT NOT NULL DEFAULT ''
       );
     `);
+    // Columns added after phase 1: upgrade an existing registry in place.
+    const columns = new Set(this.db.prepare('PRAGMA table_info(shops)').all().map(c => c.name));
+    for (const [name, type] of [['owner_name', 'TEXT'], ['owner_email', 'TEXT'], ['owner_phone', 'TEXT'], ['trial_ends_at', 'TEXT'],
+      ['connected_at', 'TEXT'], ['health', 'TEXT'], ['health_at', 'TEXT']]) {
+      if (!columns.has(name)) this.db.exec(`ALTER TABLE shops ADD COLUMN ${name} ${type}`);
+    }
   }
 
   close() { this.db.close(); }
@@ -81,7 +101,7 @@ export class PlatformRegistry {
     return path.join(this.config.shopsDir, shop.id);
   }
 
-  createShop({ slug, name, storeUrl, actor = 'cli' }) {
+  createShop({ slug, name, storeUrl, owner = {}, trialDays = 0, actor = 'cli' }) {
     const problem = slugProblem(slug);
     if (problem) throw new Error(problem);
     const shopName = oneLine(name, 80);
@@ -90,8 +110,10 @@ export class PlatformRegistry {
     if (this.db.prepare('SELECT 1 FROM shops WHERE slug=?').get(slug)) throw new Error('That address is already taken.');
     const id = newShopId();
     const time = now();
-    this.db.prepare(`INSERT INTO shops(id,slug,name,store_url,status,stage,features,business,created_at,updated_at)
-      VALUES (?,?,?,?, 'active','setup','{}','{}',?,?)`).run(id, slug, shopName, origin, time, time);
+    const trialEnds = trialDays > 0 ? new Date(Date.now() + trialDays * 86400000).toISOString() : null;
+    this.db.prepare(`INSERT INTO shops(id,slug,name,store_url,status,stage,features,business,created_at,updated_at,owner_name,owner_email,owner_phone,trial_ends_at)
+      VALUES (?,?,?,?, 'active','setup','{}','{}',?,?,?,?,?,?)`).run(id, slug, shopName, origin, time, time,
+      oneLine(owner.name, 80) || null, oneLine(owner.email, 120).toLowerCase() || null, oneLine(owner.phone, 40) || null, trialEnds);
     this.audit(actor, 'shop.created', id, slug);
     return this.byId(id);
   }
@@ -148,6 +170,58 @@ export class PlatformRegistry {
     this.db.prepare('UPDATE shops SET version=version+1, updated_at=? WHERE id=?').run(now(), id);
     this.audit(actor, 'secret.set', id, kind);
   }
+
+  // One-time code linking a WooCommerce "authorise app" callback to this shop.
+  startWooConnect(id, actor = 'owner') {
+    const nonce = newToken();
+    this.db.prepare('INSERT INTO woo_connect_requests(nonce_hash,shop_id,created_at,expires_at) VALUES (?,?,?,?)')
+      .run(tokenHash(nonce), id, now(), Date.now() + 30 * 60000);
+    this.audit(actor, 'woo.connect_started', id);
+    return nonce;
+  }
+
+  // Valid only for this shop, unused and unexpired; consumed by the call.
+  consumeWooConnect(id, nonce) {
+    if (typeof nonce !== 'string' || nonce.length < 20 || nonce.length > 100) return false;
+    const result = this.db.prepare(`UPDATE woo_connect_requests SET used_at=? WHERE nonce_hash=? AND shop_id=? AND used_at IS NULL AND expires_at>?`)
+      .run(now(), tokenHash(nonce), id, Date.now());
+    return result.changes === 1;
+  }
+
+  markConnected(id, actor = 'woocommerce') {
+    const shop = this.byId(id);
+    this.db.prepare(`UPDATE shops SET connected_at=?, stage=CASE WHEN stage='setup' THEN 'read_only' ELSE stage END,
+      version=version+1, updated_at=? WHERE id=?`).run(now(), now(), id);
+    this.audit(actor, 'woo.connected', id, shop?.stage === 'setup' ? 'stage setup -> read_only' : '');
+  }
+
+  setHealth(id, result) {
+    this.db.prepare('UPDATE shops SET health=?, health_at=? WHERE id=?').run(JSON.stringify(result), now(), id);
+  }
+
+  createSignup({ email, payload, passwordHash }) {
+    const token = newToken();
+    const id = `sgn_${randomBytes(10).toString('hex')}`;
+    this.db.prepare('DELETE FROM signups WHERE expires_at < ?').run(Date.now() - 7 * 86400000);
+    this.db.prepare('INSERT INTO signups(id,token_hash,email,payload,password_hash,created_at,expires_at) VALUES (?,?,?,?,?,?,?)')
+      .run(id, tokenHash(token), email, JSON.stringify(payload), passwordHash, now(), Date.now() + 24 * 3600000);
+    return { id, token };
+  }
+
+  signupByToken(token) {
+    if (typeof token !== 'string' || token.length < 20 || token.length > 100) return null;
+    const row = this.db.prepare('SELECT * FROM signups WHERE token_hash=?').get(tokenHash(token));
+    if (!row) return null;
+    return { id: row.id, email: row.email, payload: json(row.payload), passwordHash: row.password_hash,
+      expired: row.expires_at < Date.now(), usedAt: row.used_at, shopId: row.shop_id };
+  }
+
+  // Claimed once: a second click on the same link finds it used.
+  claimSignup(id) {
+    return this.db.prepare('UPDATE signups SET used_at=? WHERE id=? AND used_at IS NULL AND expires_at>?').run(now(), id, Date.now()).changes === 1;
+  }
+
+  attachSignupShop(id, shopId) { this.db.prepare('UPDATE signups SET shop_id=? WHERE id=?').run(shopId, id); }
 
   hasSecret(id, kind) { return Boolean(this.db.prepare('SELECT 1 FROM shop_secrets WHERE shop_id=? AND kind=?').get(id, kind)); }
 

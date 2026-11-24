@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mansu POS — Start your shop</title>
+<meta name="description" content="A point of sale for WooCommerce shops in Ghana. Shop and website share one stock count.">
+<link rel="stylesheet" href="/static/signup.css">
+<script src="/static/signup.js" defer></script>
+</head>
+<body>
+<main class="page">
+  <section class="intro">
+    <p class="brand"><span class="mark">M</span> Mansu POS</p>
+    <h1>Your shop and your website, <em>one stock count.</em></h1>
+    <p class="lead">A till for WooCommerce shops in Ghana. Every sale lowers your website stock at once. Cash shifts, returns, purchasing and receipts included.</p>
+    <ul class="points">
+      <li>14-day free trial, no card needed</li>
+      <li>Connect your store in a few clicks</li>
+      <li>Practice mode before real sales</li>
+    </ul>
+  </section>
+  <section class="card" aria-labelledby="form-title">
+    <form id="signup" novalidate>
+      <h2 id="form-title">Start your shop</h2>
+      <fieldset>
+        <legend>Your shop</legend>
+        <label>Shop name<input name="shopName" autocomplete="organization" required maxlength="80"></label>
+        <label>Shop address
+          <span class="slug"><input name="slug" autocomplete="off" required maxlength="32" pattern="[a-z0-9-]{3,32}" aria-describedby="slug-hint"><span class="suffix" id="slug-suffix">.mansupos.com</span></span>
+          <small id="slug-hint" role="status">Lowercase letters, numbers and hyphens.</small>
+        </label>
+        <label>WooCommerce store address<input name="storeUrl" type="url" placeholder="https://yourshop.com" required maxlength="200"></label>
+      </fieldset>
+      <fieldset>
+        <legend>You</legend>
+        <label>Your name<input name="ownerName" autocomplete="name" required maxlength="80"></label>
+        <label>Email<input name="email" type="email" autocomplete="email" required maxlength="120"></label>
+        <label>Phone (optional)<input name="phone" type="tel" autocomplete="tel" maxlength="40"></label>
+        <label>Username for signing in<input name="username" autocomplete="username" required maxlength="40"></label>
+        <label>Password<input name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="256"><small>At least 12 characters.</small></label>
+      </fieldset>
+      <label class="check"><input name="acceptTerms" type="checkbox" required> I accept the terms of service and privacy notice.</label>
+      <p class="error" id="error" role="alert" hidden></p>
+      <button type="submit">Create my shop</button>
+    </form>
+    <div id="done" hidden>
+      <h2>Check your email</h2>
+      <p>We sent a confirmation link to <strong id="done-email"></strong>. It works for 24 hours.</p>
+    </div>
+  </section>
+</main>
+</body>
+</html>

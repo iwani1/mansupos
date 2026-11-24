@@ -47,6 +47,7 @@ import { WeeklyOperations } from './weekly-operations.js';
 import { InventoryService, adjustSchema, countSchema, priceSchema, movementQuery } from './inventory.js';
 import { ProductService, productSchema, productUpdateSchema } from './products.js';
 import { WordPressMedia } from './wp-media.js';
+import { createGuardedFetch } from './net-guard.js';
 import { ReturnsService, returnSchema, resolveSchema } from './returns.js';
 import { PurchasingService, supplierSchema, poSchema, poActionSchema, receiptSchema, costSchema } from './purchasing.js';
 
@@ -95,7 +96,7 @@ const passwordSchema = z.string().min(12).max(256);
 // reveal which staff usernames exist.
 const UNKNOWN_USER_HASH = hashPassword(randomBytes(24).toString('hex'));
 
-export function createApp({ env = process.env, api: injectedApi, bridge: injectedBridge, reservations: injectedReservations, logger: injectedLogger, media: injectedMedia } = {}) {
+export function createApp({ env = process.env, api: injectedApi, bridge: injectedBridge, reservations: injectedReservations, logger: injectedLogger, media: injectedMedia, fetch: injectedFetch, extend } = {}) {
   const config = readConfig(env);
   const logger = injectedLogger || createLogger(config.logLevel);
   const db = openDatabase(config);
@@ -111,7 +112,10 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     config.returnsEnabled = false;
     config.paymentMethods = ['cash'];
   }
-  const api = injectedApi || new WooCommerce(config, fetch, logger);
+  // Platform shops talk to a store address their owner typed: every outbound
+  // connection is checked against private/internal networks (net-guard.js).
+  const outboundFetch = injectedFetch || (config.tenantId ? createGuardedFetch() : fetch);
+  const api = injectedApi || new WooCommerce(config, outboundFetch, logger);
   const catalog = new Catalog(db, api, config);
   const wholesalePrices = new WholesalePrices(db, catalog, api, config);
   const desktop = new DesktopSyncService(db, config, catalog, api,
@@ -119,7 +123,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const sales = new SalesService(db, catalog, api, config);
   const inventory = new InventoryService(db, catalog, api, config);
   const purchasing = new PurchasingService(db, inventory, config);
-  const products = new ProductService(db, catalog, api, config, injectedMedia || new WordPressMedia(config));
+  const products = new ProductService(db, catalog, api, config, injectedMedia || new WordPressMedia(config, outboundFetch));
   // No bridge client, routes, plugin writes or new SQLite schema when OFF.
   const online = config.onlineBridgeEnabled
     ? new OnlineSalesService(db, catalog, injectedBridge || new OnlineBridgeClient(config), config)
@@ -235,7 +239,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   });
   // Signed out: only what the sign-in screen needs. Feature switches, version
   // and business details are sent after sign-in (login returns full config).
-  const signedOutConfig = () => { const full = publicConfig(config); return { mode: full.mode, configured: full.configured, liveReadOnly: full.liveReadOnly, businessName: full.businessName }; };
+  const signedOutConfig = () => { const full = publicConfig(config); return { mode: full.mode, configured: full.configured, liveReadOnly: full.liveReadOnly, businessName: full.businessName, ...(full.platformShop ? { platformShop: true } : {}) }; };
   app.get('/api/session', (req, res) => {
     const user = sessionUser(req, db, config);
     res.json({ user, config: user || config.mode === 'demo' ? publicConfig(config) : signedOutConfig() });
@@ -1337,6 +1341,9 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     res.json({ mode: config.mode, version: APP_VERSION, checks, ok: checks.every(c => c.ok) });
   });
 
+  // Extra routes supplied by the multi-shop platform (shop setup, store
+  // connection). They see the same auth/role guards as every other route.
+  if (extend) extend(app, { auth, role, config, db, api, catalog, sensitiveLimit, logger });
   app.use('/api', (req, res, next) => next(new AppError('API endpoint not found.', 404)));
   app.use((error, req, res, _next) => {
     if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '), code: 'VALIDATION_ERROR' });
@@ -1346,5 +1353,5 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     if (status >= 500) logger.error({ reqId: req.id, method: req.method, path: req.path, code: error.code || 'SERVER_ERROR', name: error.name || 'Error' });
     res.status(status).json({ error: error instanceof AppError ? error.message : 'An unexpected server error occurred. Check the sale history before retrying.', code: error.code || 'SERVER_ERROR', reqId: req.id });
   });
-  return { app, config, db, api, catalog, sales, inventory, products, purchasing, returns, desktop, inStore, shifts, logger };
+  return { app, config, db, api, outboundFetch, catalog, sales, inventory, products, purchasing, returns, desktop, inStore, shifts, logger };
 }

@@ -1,8 +1,8 @@
-# Mansu POS platform (multi-shop) — phase 1
+# Mansu POS platform (multi-shop) — phases 1 and 2
 
 **What it is:** one server process that runs many shops. Each shop has its own web address (`<shop>.<PLATFORM_BASE_DOMAIN>`), its own SQLite database in its own folder, its own staff, sessions and rate limits, and its own WooCommerce store and keys. It is a separate entry point (`server/platform/`); the single-shop MansutRENDZGH server (`npm start`) is unchanged and keeps running live.
 
-**Status (23 Nov 2026):** phase 1 of the [SaaS plan](https://claude.ai/artifact/QqLDEKcVAuoCtrD7ifALHR) is built and tested; not deployed. Sign-up, billing, the web console and the multi-shop Windows till are later phases.
+**Status (23 Nov 2026):** phases 1 (multi-shop core) and 2 (sign-up and store connection) of the [SaaS plan](https://claude.ai/artifact/QqLDEKcVAuoCtrD7ifALHR) are built and tested; not deployed. Billing, the web console and the multi-shop Windows till are later phases.
 
 ## How a request finds its shop
 
@@ -26,6 +26,21 @@
 | Product scope | MansutRENDZGH-only audit, evidence, reviewer, offline-till, in-store and payment-dossier routes and screens do not exist for platform shops | those APIs return 404 |
 
 Tests: `node --test tests/platform-isolation.test.js` (11 tests, part of `npm test`).
+
+## Sign-up and shop setup (phase 2)
+
+1. **Sign up** at `https://<base domain>/`: shop name, shop address (live availability check), WooCommerce store address, owner name, email, phone, username, password, terms. Limited to `PLATFORM_SIGNUPS_PER_HOUR` (default 5) per connection; cross-site posts refused; the password is stored only as a scrypt hash.
+2. **Confirm the email.** The link (`/verify#token=…`, 24 hours, single use) creates the shop in `setup` stage with a 14-day trial. The owner signs in with the password they chose (no forced change).
+3. **Shop setup** (owner only, opens automatically until the shop sells):
+   - **Connect store:** sends the owner to their store's WooCommerce *authorise app* page (`/wc-auth/v1/authorize`, Read/Write). WooCommerce posts the new keys to `https://<shop>.<domain>/api/setup/woo/callback`; they are accepted only with this shop's one-time code (30 minutes, single use, Read/Write only) and stored encrypted. The shop moves to **practice mode** (`read_only`: real catalogue, no sales).
+   - **Store check:** currency GHS, stock management on, hold-stock minutes, tax setting, published products, SKUs present and unique, simple products tracking stock (first 1,000 products). "Must fix" items block selling.
+   - **Receipt details:** name, address, phone, tax ID, footer, paper width.
+   - **Optional features:** stock control, product editing, returns (apply once selling).
+   - **Start selling:** needs a passing store check from the last 24 hours and an explicit "sales will be real" confirmation. Owners can pause back to practice.
+4. **Outbound safety:** every request a platform shop makes to its store (WooCommerce, WordPress photos, the store check) goes through `server/net-guard.js`: HTTPS only, no IP literals, and the connection's own DNS lookup refuses private, loopback, link-local, carrier-grade NAT, metadata, multicast and reserved addresses (IPv4 and IPv6, including IPv4-mapped forms), so DNS rebinding and redirects are covered too.
+5. **Email:** no provider is chosen yet. `PLATFORM_MAIL_DRIVER=outbox` (the only driver) writes messages to `<data>/outbox/`; read them with `npm run platform -- outbox` and forward the links yourself during an invited pilot. A provider driver is needed before public sign-up.
+
+Tests: `tests/platform-signup.test.js` (8 tests).
 
 ## Run it
 
@@ -76,10 +91,11 @@ server {
 }
 ```
 
-## Not in phase 1 (next)
+## Not built yet (next)
 
-- **Outbound address check at connection time:** store names are validated, but a shop's domain could still resolve to a private address. Phase 2 adds a resolver check in the WooCommerce/WordPress HTTP client before shops can enter their own address.
-- Self-service sign-up and the WooCommerce "authorise app" flow (phase 2); Paystack billing and the web console (phase 3); multi-shop Windows till (phase 4).
+- **Email provider** for verification and welcome emails (decision needed; outbox only today). Public sign-up should also get a bot check (e.g. Turnstile/hCaptcha) on top of the rate limit.
+- Paystack billing (trial end, renewals) and the web console (phase 3); multi-shop Windows till (phase 4).
+- Terms of service and privacy notice pages (the sign-up form links the wording, not documents yet).
 - Backups run on demand (`backup`); schedule them (systemd timer or cron) and copy off-server. Restore is manual for now: stop the platform, put `platform.db` and the shop folders back, start it.
 - Background order checks run only while a shop is open; a shop closed while it has an unpaid order is checked again when next opened.
 - The Mansutrendz-only modules are switched off for platform shops, not deleted; the single-shop server still uses them.

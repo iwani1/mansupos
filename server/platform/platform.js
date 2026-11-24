@@ -7,6 +7,10 @@ import { readPlatformConfig } from './config.js';
 import { PlatformRegistry } from './registry.js';
 import { buildShopEnv } from './shop-env.js';
 import { slugFromHost } from './slug.js';
+import { createMailer } from './mailer.js';
+import { createSignupApp } from './signup.js';
+import { handleWooCallback, setupRoutes } from './setup.js';
+import { createGuardedFetch } from '../net-guard.js';
 
 // One process, many shops. Every request is matched to exactly one shop by its
 // web address BEFORE any shop code runs; that shop's own POS app (its own
@@ -29,20 +33,24 @@ export function temporaryPassword() {
   return chars.match(/.{4}/g).join('-');
 }
 
-export function createPlatform({ env = process.env, appFactory, mountUi, logger: injectedLogger } = {}) {
+export function createPlatform({ env = process.env, appFactory, mountUi, logger: injectedLogger, setupFetch: injectedSetupFetch, mailer: injectedMailer } = {}) {
   const config = readPlatformConfig(env);
   const logger = injectedLogger || createLogger(config.logLevel);
   const registry = new PlatformRegistry(config);
   const view = { ...config, shopDir: shop => registry.shopDir(shop) };
   const factory = appFactory || (options => createApp(options));
   const open = new Map();
+  // Store checks during set-up use the same private-network guard as the shops.
+  const setupFetch = injectedSetupFetch || createGuardedFetch();
+  const mailer = injectedMailer || createMailer(config, logger);
 
   function startShop(shop, { owner } = {}) {
     const shopEnv = buildShopEnv(shop, registry.secretsFor(shop.id), view, { owner });
     const shopConfig = readConfig(shopEnv); // validate before touching the data folder
     const lease = acquireInstanceLease(shopConfig);
     let instance;
-    try { instance = factory({ env: shopEnv, logger: logger.child({ shop: shop.slug }) }); }
+    const extend = setupRoutes({ registry, shopId: shop.id, origin: config.shopOrigin(shop.slug), fetchImpl: setupFetch });
+    try { instance = factory({ env: shopEnv, logger: logger.child({ shop: shop.slug }), extend }); }
     catch (error) { lease.release(); throw error; }
     if (mountUi) mountUi(instance.app, instance.config);
     const timers = [];
@@ -60,7 +68,7 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
       try { instance.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now()); } catch { /* closed */ }
     }, 15 * 60000));
     for (const timer of timers) timer.unref();
-    return { shopId: shop.id, slug: shop.slug, version: shop.version, app: instance.app, db: instance.db,
+    return { shopId: shop.id, slug: shop.slug, version: shop.version, app: instance.app, db: instance.db, outboundFetch: instance.outboundFetch,
       config: instance.config, lease, timers, active: 0, lastUsed: Date.now() };
   }
 
@@ -69,6 +77,7 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
     for (const timer of entry.timers) clearInterval(timer);
     try { entry.db.exec('PRAGMA wal_checkpoint(TRUNCATE);'); } catch { /* already closed */ }
     try { entry.db.close(); } catch { /* already closed */ }
+    try { entry.outboundFetch?.close?.(); } catch { /* not a guarded fetch */ }
     try { entry.lease.release(); } catch (error) { logger.error({ msg: 'platform.lease_release_failed', shop: entry.slug, name: error.name }); }
   }
 
@@ -92,21 +101,21 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
     return entry;
   }
 
-  function platformHome(req, res) {
-    if (req.method === 'GET' && req.url === '/api/health') {
-      res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8' });
-      return res.end(JSON.stringify({ ok: true, platform: true }));
-    }
-    return reply(req, res, 404, 'Mansu POS');
-  }
 
   function handler(req, res) {
     const slug = slugFromHost(req.headers.host, config.baseDomain);
-    if (slug === '') return platformHome(req, res);
+    if (slug === '') return signupApp(req, res);
     if (!slug) return reply(req, res, 404, 'Shop not found.');
     const shop = registry.bySlug(slug);
     if (!shop || shop.status === 'closed') return reply(req, res, 404, 'Shop not found.');
     if (shop.status === 'suspended') return reply(req, res, 503, 'This shop is paused. Please contact Mansu POS support.');
+    // WooCommerce's own server posts new keys here after the owner approves.
+    if (req.method === 'POST' && String(req.url).split('?')[0] === '/api/setup/woo/callback') {
+      return handleWooCallback(req, res, { registry, shop, logger }).catch(error => {
+        logger.error({ msg: 'platform.woo_callback_failed', shop: shop.slug, name: error.name });
+        if (!res.headersSent) reply(req, res, 500, 'Could not save the connection.');
+      });
+    }
     let entry;
     try { entry = acquire(shop); }
     catch (error) {
@@ -124,13 +133,15 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
 
   // Creates a shop and its owner account. The temporary password is returned
   // once and never stored; the owner must change it at first sign-in.
-  function provisionShop({ slug, name, storeUrl, ownerUsername, actor = 'cli' }) {
+  function provisionShop({ slug, name, storeUrl, ownerUsername, owner = {}, trialDays = 0, actor = 'cli' }) {
     const username = String(ownerUsername || '').trim().toLowerCase();
     if (!/^[a-z0-9._-]{3,40}$/.test(username)) throw new Error('Owner username: 3 to 40 letters, numbers, dots, hyphens or underscores.');
-    const shop = registry.createShop({ slug, name, storeUrl, actor });
-    const password = temporaryPassword();
+    const shop = registry.createShop({ slug, name, storeUrl, owner, trialDays, actor });
+    // Signed-up owners chose their password (we hold only its hash); shops made
+    // by an admin get a temporary one, shown once and changed at first sign-in.
+    const password = owner.passwordHash ? null : temporaryPassword();
     try {
-      closeEntry(startShop(shop, { owner: { username, password } }));
+      closeEntry(startShop(shop, { owner: { username, password, passwordHash: owner.passwordHash, name: owner.name } }));
     } catch (error) {
       registry.update(shop.id, { status: 'closed' }, actor);
       throw error;
@@ -138,6 +149,7 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
     registry.audit(actor, 'shop.owner_created', shop.id, username);
     return { shop: registry.byId(shop.id), ownerUsername: username, ownerPassword: password };
   }
+  const signupApp = createSignupApp({ config, registry, provisionShop, mailer, logger });
 
   function evictIdle(maxIdleMs = config.idleMs) {
     const cutoff = Date.now() - maxIdleMs;
@@ -152,11 +164,12 @@ export function createPlatform({ env = process.env, appFactory, mountUi, logger:
   function close() {
     clearInterval(sweeper);
     for (const entry of [...open.values()]) closeEntry(entry);
+    try { setupFetch.close?.(); } catch { /* injected */ }
     registry.close();
   }
 
   return {
-    config, registry, logger, handler, provisionShop, evictIdle, close,
+    config, registry, logger, mailer, handler, provisionShop, evictIdle, close,
     openShops: () => [...open.values()].map(entry => ({ shopId: entry.shopId, slug: entry.slug, active: entry.active })),
   };
 }
