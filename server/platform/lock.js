@@ -34,7 +34,7 @@ export function acquireLock(dataDir, purpose) {
     } catch (error) {
       if (error.code !== 'EEXIST') throw error;
       const held = readLock(dataDir);
-      if (held) throw new Error(`The platform data folder is in use by process ${held.pid} (${held.purpose}, since ${held.since}). Stop it first.`);
+      if (held) throw new Error(`The platform data folder is in use by process ${held.pid} (${held.purpose}, since ${held.since}). Stop it first.`, { cause: error });
       fs.rmSync(file, { force: true }); // stale: its process has ended
     }
   }

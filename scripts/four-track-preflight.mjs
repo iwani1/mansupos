@@ -14,7 +14,7 @@ const env={
   POS_PUBLIC_ORIGIN:'https://pos.mansutrendzgh.com',
   WOO_BASE_URL:'https://mansutrendzgh.com',
 };
-let locked=false;
+let locked;
 try{
   const config=readConfig(env);
   locked=config.liveReadOnly===true&&config.writesEnabled===false&&

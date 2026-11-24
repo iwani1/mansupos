@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useRef } from 'react';
 import { X, LoaderCircle, Check, AlertCircle, ShoppingBag, Shirt, Banknote, Smartphone, CreditCard, SearchX, FileText, LayoutDashboard, Package, Tags, Boxes, Store, ReceiptText, ScrollText, ShieldCheck, Users, ChartNoAxesCombined, Settings2, PanelTop, UserRound, History, ClipboardCheck, Truck, Undo2 } from 'lucide-react';
 import { money, methodLabel, statusLabel } from './api.js';
 
@@ -16,8 +16,8 @@ export function Modal({ title, subtitle, children, onClose, wide = false, busy =
   const ref = useRef(null);
   const closeRef = useRef(onClose);
   const busyRef = useRef(busy);
-  closeRef.current = onClose;
-  busyRef.current = busy;
+  // Keep the latest handlers for the key listener without re-binding it.
+  useLayoutEffect(() => { closeRef.current = onClose; busyRef.current = busy; });
   useEffect(() => {
     const previous = document.activeElement;
     const overflow = document.body.style.overflow;
