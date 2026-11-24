@@ -36,7 +36,7 @@ test('Windows till has its own identity, no offline POS/website bundle and no pu
   assert.equal(config.electronVersion, pos.devDependencies.electron);
   assert.equal(config.asar, true);
   assert.equal(config.npmRebuild, false);
-  assert.deepEqual([...config.files].sort(), ['main.cjs', 'policy.cjs', 'preload.cjs', 'drawer.cjs', 'till.json', 'picker.html', 'picker.js', 'picker.css', 'picker-preload.cjs', 'package.json'].sort());
+  assert.deepEqual([...config.files].sort(), ['main.cjs', 'policy.cjs', 'preload.cjs', 'drawer.cjs', 'updater.cjs', 'till.json', 'picker.html', 'picker.js', 'picker.css', 'picker-preload.cjs', 'package.json'].sort());
   assert.equal(config.publish, undefined);
   assert.equal(config.extraFiles, undefined);
   assert.equal(config.extraResources, undefined);

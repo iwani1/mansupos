@@ -24,6 +24,7 @@
 - [UI-DESIGN.md](UI-DESIGN.md) — Visual design notes
 - [WEEKLY-STAFF-SCORECARD.md](WEEKLY-STAFF-SCORECARD.md) — Weekly staff review
 - [WINDOWS-ONLINE-TILL.md](WINDOWS-ONLINE-TILL.md) — Mansu POS for Windows: the online till app, installer and shop-PC acceptance checklist
+- [WINDOWS-CODE-SIGNING.md](WINDOWS-CODE-SIGNING.md) — Code-signing certificate, signed CI builds, publishing a release and signed automatic updates
 - [WORKSPACE-REDESIGN.md](WORKSPACE-REDESIGN.md) — Workspace layout
 
 ## Historical (superseded plans, audits and locked features)

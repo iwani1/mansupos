@@ -7,7 +7,7 @@ try {
   const file = process.argv[2];
   if (!file || !fs.existsSync(file)) throw new Error('Pass the Windows till resources/app.asar for inspection.');
   const entries = listPackage(file).map(name => name.replaceAll('\\', '/').replace(/^\/+/, '')).sort();
-  const expected = ['main.cjs', 'policy.cjs', 'preload.cjs', 'drawer.cjs', 'till.json', 'picker.html', 'picker.js', 'picker.css', 'picker-preload.cjs', 'package.json'].sort();
+  const expected = ['main.cjs', 'policy.cjs', 'preload.cjs', 'drawer.cjs', 'updater.cjs', 'till.json', 'picker.html', 'picker.js', 'picker.css', 'picker-preload.cjs', 'package.json'].sort();
   assert.deepEqual(entries, expected, 'Unexpected Windows online package contents (offline ledger, web bundle or secrets?).');
   // Files packed on a Windows checkout have CRLF line endings.
   const content = name => extractFile(file, name.split('/').join(path.sep)).toString().replace(/\r\n/g, '\n');
@@ -43,9 +43,17 @@ try {
   assert.match(drawer, /\$env:MANSU_DRAWER_PRINTER/);
   assert.doesNotMatch(drawer, /shell:\s*true|execSync/);
   assert.doesNotMatch(preload, /\bfs\b|child_process|shell|sendSync|webFrame/);
-  assert.doesNotMatch(main + policy, /\bnode:sqlite\b|\bsafeStorage\b|\belectron-updater\b|\bDesktopStore\b|\bDesktopRemote\b|\bmansuDesktop\s*=/);
+  // Signed updates: SHA-256 + same-publisher Authenticode check, file path via
+  // the environment only, no shell, and only when the till itself is signed.
+  const updater = content('updater.cjs');
+  assert.match(updater, /Get-AuthenticodeSignature -LiteralPath \$env:MANSU_SIGNED_FILE/);
+  assert.match(updater, /samePublisher\(ownSignature, signature\)/);
+  assert.match(updater, /sha256\(bytes\) !== release\.sha256/);
+  assert.match(updater, /if \(!\(await signedTill\(\)\)\)/);
+  assert.doesNotMatch(updater, /shell:\s*true|execSync|electron-updater/);
+  assert.doesNotMatch(main + policy + updater, /\bnode:sqlite\b|\bsafeStorage\b|\belectron-updater\b|\bDesktopStore\b|\bDesktopRemote\b|\bmansuDesktop\s*=/);
   assert.doesNotMatch(policy, /process\.env|trading\.mansutrendzgh\.com|http:\/\//);
-  console.log('Packaged Mansu POS till: ten files (shop picker + receipt-print bridge; ESC/POS drawer pulse; shop pinned at first launch), pinned HTTPS POS, no offline ledger/queue/renderer, no updater or publisher.');
+  console.log('Packaged Mansu POS till: eleven files (shop picker + receipt-print bridge; ESC/POS drawer pulse; signed-update check; shop pinned at first launch), pinned HTTPS POS, no offline ledger/queue/renderer, no electron-updater or publisher.');
 } catch (error) {
   const brief = String(error.message).replaceAll('%', '%25').replace(/[\r\n]+/g, ' | ').slice(0, 900);
   console.error(`::error title=Windows till package isolation::${brief}`);
