@@ -23,7 +23,8 @@
 
 - Owner: staff, connection, audit, all sales/reports/shifts; can enter an optional wholesale buyer name and approve negotiated prices.
 - Manager: all POS sales/reports/shifts and optional name/price approval; no staff/connection management.
-- Cashier: own sales and own shifts; no wholesale preparation/approval, historical buyer directory, reports/staff/connection/audit. For the separate physical In-store collection, owner/manager can inspect stock movements and cash reports, and only owner can make reason-bearing physical counts on eligible goods. All approved roles can record cash-only POS sales; cashier sees only their own in-store receipts.
+- Cashier: own sales and own shifts; no wholesale preparation/approval, historical buyer directory, reports/staff/connection/audit.
+- Reviewer (retired): accounts made for the removed stock-evidence workflow are refused at sign-in and on every API call. Deactivate any that remain under Staff.
 - Permissions are enforced by the API, not only hidden in the UI.
 
 ## Request protection
@@ -37,7 +38,7 @@
 
 ## Payment boundary
 
-The POS records externally collected payments. It does not process MoMo or card payments, store PAN/PIN/CVV, or connect to a payment gateway. The separate physical In-store collection accepts cash only: one local ledger transaction debits verified in-store stock and records a gross-only POS receipt. It does not call WooCommerce or Paystack, adjust online inventory, or rely on Woo checkout approvals. MoMo/Card references must be merchant/terminal references, not customer card data. Wholesale orders also require a separately authorized write gate, an approved tax-inclusive quote, an exact WooCommerce tax/total match and a matching full POS payment record before they can be marked paid. Neither **Leave unpaid** nor the unimplemented five-account dispatch-on-credit exception permits unpaid wholesale goods to be released.
+The POS records externally collected payments. It does not process MoMo or card payments, store PAN/PIN/CVV, or connect to a payment gateway. MoMo/Card references must be merchant/terminal references, not customer card data. Wholesale orders also require a separately authorized write gate, an approved tax-inclusive quote, an exact WooCommerce tax/total match and a matching full POS payment record before they can be marked paid. Neither **Leave unpaid** nor the unimplemented five-account dispatch-on-credit exception permits unpaid wholesale goods to be released.
 
 ## Data protection
 

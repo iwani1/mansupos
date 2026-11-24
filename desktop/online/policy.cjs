@@ -13,12 +13,7 @@ const READ_ENDPOINTS = new Set([
   '/api/wholesale-prices', '/api/wholesale-buyers',
   '/api/shifts', '/api/shifts/current', '/api/reports', '/api/reports/export',
   '/api/staff', '/api/audit', '/api/connection/diagnostics',
-  '/api/instore/catalog', '/api/instore/sales', '/api/instore/reports',
 ]);
-const READ_PATTERNS = [
-  /^\/api\/instore\/sales\/(?:by-key\/)?[0-9a-f-]{36}$/i,
-  /^\/api\/instore\/stock\/[^/]+\/movements$/,
-];
 const AUTH_POSTS = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/password']);
 
 function pilotRoot(value) {
@@ -44,7 +39,7 @@ function requestAllowed({ url: value, method, resourceType }) {
     if (resourceType === 'xhr' && verb === 'POST' && !url.search) return AUTH_POSTS.has(url.pathname);
     if (verb !== 'GET' && verb !== 'HEAD') return false;
     if (url.pathname.startsWith('/api/')) return resourceType === 'xhr' &&
-      (READ_ENDPOINTS.has(url.pathname) || READ_PATTERNS.some(pattern => pattern.test(url.pathname)));
+      READ_ENDPOINTS.has(url.pathname);
     if (url.pathname === '/' || url.pathname === '/favicon.svg' ||
         url.pathname === '/manifest.webmanifest' || url.pathname.startsWith('/icons/') ||
         url.pathname.startsWith('/assets/')) return true;

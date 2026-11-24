@@ -63,7 +63,7 @@ test('read-only request policy allows pilot login, catalogue and constrained pro
     assert.ok(request(`${PILOT_ORIGIN}${path}`, 'GET', 'script'), path);
   }
   for (const path of ['/api/session', '/api/catalog?refresh=1', '/api/sales?cursor=fake', '/api/wholesale-prices',
-    '/api/instore/catalog', '/api/connection/diagnostics']) {
+    '/api/connection/diagnostics']) {
     assert.ok(request(`${PILOT_ORIGIN}${path}`), path);
   }
   for (const path of ['/api/auth/login', '/api/auth/logout', '/api/auth/password']) {

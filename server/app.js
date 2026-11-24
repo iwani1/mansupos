@@ -8,7 +8,6 @@ import { openDatabase, hashPassword, verifyPassword, passwordProblem, userView, 
 import { WooCommerce } from './woocommerce.js';
 import { Catalog } from './catalog.js';
 import { WholesalePrices, priceInputSchema, priceRemovalSchema } from './wholesale-prices.js';
-import { InStoreService, inStoreSaleSchema, inStoreCountSchema } from './instore.js';
 import { OfflineReservations } from './offline-reservations.js';
 import { DesktopSyncService } from './desktop-sync.js';
 import { SalesService, prepareSchema, paymentSchema } from './sales.js';
@@ -19,24 +18,6 @@ import { ShiftService, openShiftSchema, closeShiftSchema, cashMovementSchema } f
 import { AppError, now } from './errors.js';
 import { createLogger, requestId } from './logger.js';
 import { localTransaction, readSaleEvents } from './sale-events.js';
-import { auditSharedWooStock } from './phase2-stock-audit.js';
-import { auditCrossChannelSkus, listCrossChannelSkuFindings } from './cross-channel-sku-audit.js';
-import { listPhysicalMappingCoverage } from './physical-mapping-coverage.js';
-import { planPhysicalRecounts } from './physical-recount-plan.js';
-import { PhysicalCountClaims } from './physical-count-claims.js';
-import { CountSupervisionEvidence } from './count-supervision-evidence.js';
-import { PrivateCountFileManifests } from './private-count-file-manifests.js';
-import { EvidenceCustodyReview } from './evidence-custody-review.js';
-import { ReviewerResponseIntake } from './reviewer-response-intake.js';
-import { IndependentReviewerAccess } from './independent-reviewer-access.js';
-import { InventoryEvidenceExceptionReview } from './inventory-evidence-exceptions.js';
-import { buildInventoryVerificationReadiness } from './inventory-verification-readiness.js';
-import { InventoryReconciliationPackets } from './inventory-reconciliation-packets.js';
-import { InventoryAuditHandoff } from './inventory-audit-handoff.js';
-import { FullLaunchReadiness } from './full-launch-readiness.js';
-import { OwnerMappingEvidence } from './owner-mapping-evidence.js';
-import { buildInventoryDossier } from './inventory-evidence-dossier.js';
-import { prepareInventoryAcceptance } from './inventory-acceptance-preparation.js';
 import { paymentReconciliation } from './payment-reconciliation.js';
 import { refundEvidencePolicy } from './refund-evidence-policy.js';
 import { refundResolutionDossier, draftRefundResolution, ownerReviewRefundResolution, resolutionIntents, resolutionReasons } from './refund-resolution-dossier.js';
@@ -73,6 +54,12 @@ function sessionUser(req, db, config) {
   if (!token) return null;
   const row = db.prepare('SELECT users.*, sessions.last_seen, sessions.expires_at FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash=? AND expires_at>? AND users.active=1').get(hash(token), Date.now());
   if (!row) return null;
+  // Reviewer accounts belonged to the retired stock-evidence workflow. Treat
+  // any session they still hold as signed out, everywhere.
+  if (row.role === 'reviewer') {
+    db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hash(token));
+    return null;
+  }
   const idleMs = config.sessionIdleMinutes * 60000;
   if (row.last_seen && Date.now() - row.last_seen > idleMs) {
     db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hash(token));
@@ -127,20 +114,6 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const returns = new ReturnsService(db, api, inventory, shifts, config);
   const operations = new DailyOperations(db);
   const weekly = new WeeklyOperations(db);
-  const countClaims = new PhysicalCountClaims(db);
-  const countSupervision = new CountSupervisionEvidence(db,countClaims);
-  const countFiles = new PrivateCountFileManifests(db,countSupervision);
-  const custodyReview = new EvidenceCustodyReview(db,countFiles);
-  const reviewerIntake = new ReviewerResponseIntake(db,custodyReview);
-  const reviewerAccess = new IndependentReviewerAccess(db,reviewerIntake);
-  const evidenceExceptions = new InventoryEvidenceExceptionReview(db,reviewerIntake,reviewerAccess);
-  const mappingEvidence = new OwnerMappingEvidence(db);
-  const reconciliationPackets = new InventoryReconciliationPackets(db,mappingEvidence,countClaims,evidenceExceptions,reviewerAccess);
-  const auditHandoff = new InventoryAuditHandoff(mappingEvidence,countClaims,evidenceExceptions,reconciliationPackets);
-  const fullLaunchReadiness = new FullLaunchReadiness(auditHandoff);
-  let inStore;
-  try { inStore = new InStoreService(db, config); }
-  catch (error) { db.close(); throw error; }
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
@@ -187,16 +160,6 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   const auth = (req, res, next) => {
     req.user = sessionUser(req, db, config);
     if (!req.user) return next(new AppError('Sign in to continue.', 401));
-    // Reviewer sessions are deny-by-default for ALL existing POS routes,
-    // including endpoints that never had an explicit staff-role middleware.
-    if (req.user.role === 'reviewer') {
-      const permitted = (req.method === 'POST' &&
-        ['/api/auth/password','/api/auth/logout','/api/reviewer/acknowledgements',
-          '/api/reviewer/handoff-receipt','/api/reviewer/reconciliation-packets/response'].includes(req.path)) ||
-        (req.method === 'GET' && ['/api/reviewer/cases',
-          '/api/reviewer/reconciliation-packets'].includes(req.path));
-      if (!permitted) return next(new AppError('Reviewer accounts cannot access staff, catalogue, customers, payments or stock.',403,'REVIEWER_PORTAL_ONLY'));
-    }
     if (req.user.mustChangePassword && !['/api/auth/password', '/api/auth/logout', '/api/session'].includes(req.path)) {
       return next(new AppError('Change your temporary password before continuing.', 403, 'PASSWORD_CHANGE_REQUIRED'));
     }
@@ -211,7 +174,7 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
       db.prepare('SELECT 1').get();
       const issues = [];
       if (config.mode !== 'demo' && !config.configured) issues.push('WooCommerce credentials are not configured.');
-      if (config.mode === 'live' && !config.liveReadOnly && !config.writesEnabled && !config.inStoreCashEnabled) issues.push('Live write gates are disabled.');
+      if (config.mode === 'live' && !config.liveReadOnly && !config.writesEnabled) issues.push('Live write gates are disabled.');
       if (config.onlineBridgeLiveEnabled) {
         try { await online.assertLiveBridgeReady(); }
         catch { issues.push('The signed Woo reservation bridge or trading ledger is not verified. Live checkout is not ready.'); }
@@ -245,6 +208,10 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
         });
       } else audit(db, 'anonymous', 'auth.failed', 'unrecognized account (no username stored)');
       return next(new AppError('Username or password is incorrect.', 401));
+    }
+    if (row.role === 'reviewer') {
+      audit(db, row.id, 'auth.reviewer_retired', row.id);
+      return next(new AppError('Reviewer accounts are retired.', 403, 'REVIEWER_RETIRED'));
     }
     const token = localTransaction(db, () => {
       db.prepare('UPDATE users SET failed_attempts=0,locked_until=NULL WHERE id=?').run(row.id);
@@ -331,531 +298,6 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
   app.post('/api/products', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.status(201).json(await products.create(req.user, productSchema.parse(req.body))));
   app.get('/api/products/:id/edit', auth, role('owner', 'manager'), async (req, res) => res.json({ product: await products.editable(productId(req.params.id)) }));
   app.put('/api/products/:id', auth, role('owner', 'manager'), sensitiveLimit, async (req, res) => res.json(await products.update(req.user, productId(req.params.id), productUpdateSchema.parse(req.body))));
-  // Owner/Manager Phase 2 evidence, not permission to trade. This refreshes
-  // Woo products/variations only and never calls an order or stock write API.
-  app.get('/api/stock-safety/audit', auth, role('owner', 'manager'), async (_req, res) => {
-    res.json(auditSharedWooStock(await catalog.get(true)));
-  });
-  // An owner/manager may compare exact product/variation SKUs with the signed
-  // historical physical-store source. This does not sync or reserve stock.
-  // Keep the pilot restricted to authenticated Woo product GETs only.
-  app.get('/api/stock-safety/source-match', auth, role('owner', 'manager'), async (_req, res) => {
-    if (config.mode !== 'live' || !config.liveReadOnly) {
-      throw new AppError('Physical SKU reconciliation is available only in the read-only live pilot.', 403, 'SOURCE_AUDIT_LOCKED');
-    }
-    const physical = inStore.snapshot();
-    const website = await catalog.get(true);
-    res.json(auditCrossChannelSkus(physical, website));
-  });
-  // Read-only, server-paginated owner/manager review of ALL source SKU problems.
-  // The expected snapshot checksum rejects page 2+ if Woo was refreshed since
-  // page 1; never allow two independent catalogue reads to appear atomic.
-  app.get('/api/stock-safety/source-review', auth, role('owner', 'manager'), async (req, res) => {
-    if (config.mode !== 'live' || !config.liveReadOnly) {
-      throw new AppError('Physical SKU reconciliation is available only in the read-only live pilot.', 403, 'SOURCE_AUDIT_LOCKED');
-    }
-    const options = z.object({
-      page: z.coerce.number().int().min(1).max(10000).default(1),
-      pageSize: z.coerce.number().int().min(1).max(50).default(25),
-      code: z.string().regex(/^[a-z_]{1,80}$/).default('all'),
-      search: z.string().trim().max(64).default(''),
-      expectedRef: z.string().regex(/^[a-f0-9]{64}$/).optional(),
-    }).strict().parse(req.query);
-    const physical = inStore.snapshot();
-    // Use a recent cached Woo GET rather than refetching all product pages
-    // for every review-queue page. A changed catalogue invalidates the token.
-    const website = await catalog.get();
-    let findings;
-    try {
-      findings = listCrossChannelSkuFindings(physical, website, options);
-    } catch (error) {
-      if (error instanceof RangeError) {
-        throw new AppError('Unknown SKU issue filter. Start a new review.', 400, 'INVALID_SOURCE_FILTER');
-      }
-      throw error;
-    }
-    if (options.expectedRef && findings.snapshotRef !== options.expectedRef) {
-      throw new AppError('The website or physical-source snapshot changed. Restart the issue review from page one.', 409, 'SKU_REVIEW_SNAPSHOT_CHANGED');
-    }
-    res.set('Cache-Control', 'no-store');
-    res.json(findings);
-  });
-  // Owner/manager mapping review of every historical physical-source row.
-  // Provisional SKU links are not stock allocations, authorized mappings or
-  // permission to write WooCommerce inventory. This endpoint is GET-only.
-  app.get('/api/stock-safety/physical-mapping', auth, role('owner', 'manager'), async (req, res) => {
-    if (config.mode !== 'live' || !config.liveReadOnly) {
-      throw new AppError('Physical identity mapping is available only in the read-only live pilot.', 403, 'SOURCE_AUDIT_LOCKED');
-    }
-    const options = z.object({
-      page: z.coerce.number().int().min(1).max(10000).default(1),
-      pageSize: z.coerce.number().int().min(1).max(50).default(25),
-      status: z.string().regex(/^[a-z_]{1,80}$/).default('all'),
-      search: z.string().trim().max(64).default(''),
-      expectedRef: z.string().regex(/^[a-f0-9]{64}$/).optional(),
-    }).strict().parse(req.query);
-    const physical = inStore.snapshot();
-    const website = await catalog.get();
-    let report;
-    try {
-      report = listPhysicalMappingCoverage(physical, website, options);
-    } catch (error) {
-      if (error instanceof RangeError) {
-        throw new AppError('Unknown mapping status. Restart the review with valid filters.', 400, 'INVALID_MAPPING_FILTER');
-      }
-      throw error;
-    }
-    if (options.expectedRef && options.expectedRef !== report.snapshotRef) {
-      throw new AppError('The physical or Woo snapshot changed. Restart the mapping review from page one.', 409, 'MAPPING_SNAPSHOT_CHANGED');
-    }
-    res.set('Cache-Control', 'no-store');
-    res.json(report);
-  });
-  // A planning-only view of every historical stock row's recount blockers.
-  // No physical counts are submitted or kept in the POS ledger.
-  app.get('/api/stock-safety/recount-plan', auth, role('owner', 'manager'), async (req, res) => {
-    if (config.mode !== 'live' || !config.liveReadOnly) {
-      throw new AppError('Stock-count planning is available only in the read-only live pilot.', 403, 'RECOUNT_PLANNING_LOCKED');
-    }
-    const options = z.object({
-      page: z.coerce.number().int().min(1).max(10000).default(1),
-      pageSize: z.coerce.number().int().min(1).max(50).default(25),
-      priority: z.enum(['all','P0','P1','P2']).default('all'),
-      action: z.string().regex(/^[a-z_]{1,80}$/).default('all'),
-      search: z.string().trim().max(64).default(''),
-      expectedRef: z.string().regex(/^[a-f0-9]{64}$/).optional(),
-    }).strict().parse(req.query);
-    const physical = inStore.snapshot();
-    const website = await catalog.get();
-    let report;
-    try {
-      report = planPhysicalRecounts(physical, website, options);
-    } catch (error) {
-      if (error instanceof RangeError) {
-        throw new AppError('Invalid recount priority or review action.', 400, 'RECOUNT_PLAN_FILTER_INVALID');
-      }
-      throw error;
-    }
-    if (options.expectedRef && options.expectedRef !== report.snapshotRef) {
-      throw new AppError('The source or website catalogue changed. Restart the recount plan from page one.', 409, 'RECOUNT_PLAN_CHANGED');
-    }
-    res.set('Cache-Control', 'no-store');
-    res.json(report);
-  });
-  // Local staff count CLAIMS: separate named accounts and append-only audit
-  // events. This pilot still cannot create Woo orders or modify Woo stock.
-  const countQuery = z.object({
-    page:z.coerce.number().int().min(1).max(10000).default(1),
-    pageSize:z.coerce.number().int().min(1).max(50).default(25),
-    search:z.string().trim().max(64).default(''),
-    expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-  }).strict();
-  const countPilot = (req,res,next) =>
-    config.mode==='live' && config.liveReadOnly
-      ? next() : next(new AppError('Physical count claims require the read-only live pilot.',403,'COUNT_PILOT_LOCKED'));
-
-  app.get('/api/stock-safety/count-worklist',auth,role('owner','manager','cashier'),countPilot,async(req,res)=>{
-    const options=countQuery.parse(req.query);
-    const result=countClaims.worklist(req.user,inStore.snapshot(),await catalog.get(),options);
-    if(options.expectedRef && options.expectedRef!==result.snapshotRef){
-      throw new AppError('The source or catalogue changed. Reload the count worklist.',409,'COUNT_SNAPSHOT_CHANGED');
-    }
-    res.set('Cache-Control','no-store');
-    res.json(result);
-  });
-
-  app.post('/api/stock-safety/count-claim',auth,role('manager','cashier'),countPilot,sensitiveLimit,async(req,res)=>{
-    // Never accept userId, product quantity from Woo, or client-claimed
-    // approvals. The caller identity comes solely from the POS session.
-    const result=countClaims.submit(req.user,inStore.snapshot(),await catalog.get(),req.body);
-    res.set('Cache-Control','no-store');
-    res.status(201).json(result);
-  });
-
-  app.get('/api/stock-safety/count-claims-review',auth,role('owner'),countPilot,async(req,res)=>{
-    const options=countQuery.parse(req.query);
-    const result=countClaims.ownerReview(inStore.snapshot(),await catalog.get(),options);
-    if(options.expectedRef && options.expectedRef!==result.snapshotRef){
-      throw new AppError('The source or catalogue changed. Reload count review from page one.',409,'COUNT_REVIEW_SNAPSHOT_CHANGED');
-    }
-    res.set('Cache-Control','no-store');
-    res.json(result);
-  });
-  // Staff may not see or change owner investigation notes. This is a local,
-  // append-only FOLLOW-UP ONLY; it never approves or adjusts Woo stock.
-  app.post('/api/stock-safety/count-owner-triage',
-    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
-      const result=countClaims.recordOwnerTriage(
-        req.user,inStore.snapshot(),await catalog.get(),req.body);
-      res.set('Cache-Control','no-store');
-      res.status(201).json(result);
-    });
-
-
-  // Append-only, Owner-only identity PROPOSALS in the read-only pilot.
-  // No Woo order/stock writes and no physical stock authorization.
-  app.get('/api/stock-safety/owner-mapping-evidence',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        page:z.coerce.number().int().min(1).max(10000).default(1),
-        pageSize:z.coerce.number().int().min(1).max(50).default(25),
-        status:z.enum(['all','not_reviewed','proposed','investigation','hold']).default('all'),
-        search:z.string().trim().max(64).default(''),
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const output=mappingEvidence.review(inStore.snapshot(),await catalog.get(),options);
-      if(options.expectedRef&&output.identityRef!==options.expectedRef)
-        throw new AppError('The source or published Woo identities changed; restart mapping review.',409,'MAPPING_EVIDENCE_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(output);
-    });
-
-  app.post('/api/stock-safety/owner-mapping-evidence',
-    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
-      const output=mappingEvidence.submit(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body);
-      res.set('Cache-Control','no-store');
-      res.status(201).json(output);
-    });
-
-  // Pre-launch Owner dossier: join ONLY existing local count/mapping review
-  // records to a single authenticated Woo product GET observation. No writes.
-  app.get('/api/stock-safety/inventory-dossier',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        page:z.coerce.number().int().min(1).max(10000).default(1),
-        pageSize:z.coerce.number().int().min(1).max(50).default(25),
-        focus:z.enum([
-          'all','identity_hold','mapping_not_proposed','mapping_investigation',
-          'sku_difference','first_count_missing','second_count_missing',
-          'count_discrepancy','matching_count_unverified','source_mismatch',
-        ]).default('all'),
-        search:z.string().trim().max(64).default(''),
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const physical=inStore.snapshot();
-      const website=await catalog.get();
-      const report=buildInventoryDossier(
-        physical,website,mappingEvidence,countClaims,options);
-      if(options.expectedRef&&options.expectedRef!==report.dossierRef)
-        throw new AppError('Inventory evidence changed; restart the dossier from page one.',409,
-          'INVENTORY_DOSSIER_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(report);
-    });
-
-  // Owner-only, GET-only acceptance PREPARATION. No signoff or import path.
-  app.get('/api/stock-safety/acceptance-preparation',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        page:z.coerce.number().int().min(1).max(10000).default(1),
-        pageSize:z.coerce.number().int().min(1).max(50).default(25),
-        gate:z.enum([
-          'all','identity_resolution','owner_option_proposal','two_count_claims',
-          'independent_physical_witness','formal_mapping_signoff',
-          'live_woo_stock_and_payment_safety','historical_source_integrity',
-        ]).default('all'),
-        search:z.string().trim().max(64).default(''),
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const result=prepareInventoryAcceptance(
-        inStore.snapshot(),await catalog.get(),mappingEvidence,countClaims,options);
-      if(options.expectedRef&&options.expectedRef!==result.preparationRef)
-        throw new AppError('Acceptance evidence changed. Restart from the first page.',409,
-          'ACCEPTANCE_PREPARATION_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(result);
-    });
-
-  // Phase 5.0: Owner-only LOCAL supervision notes, NOT witnessed stock proof.
-  app.get('/api/stock-safety/count-supervision',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        page:z.coerce.number().int().min(1).max(10000).default(1),
-        pageSize:z.coerce.number().int().min(1).max(50).default(25),
-        search:z.string().trim().max(64).default(''),
-        status:z.enum([
-          'all','identity_hold','waiting_for_two_counts',
-          'count_discrepancy_open','supervision_note_stale',
-          'supervision_note_unverified','supervision_note_needed',
-        ]).default('all'),
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const report=countSupervision.list(inStore.snapshot(),await catalog.get(),options);
-      if(options.expectedRef&&options.expectedRef!==report.snapshotRef)
-        throw new AppError('Count identities changed; restart supervised evidence review.',409,
-          'COUNT_SUPERVISION_SNAPSHOT_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(report);
-    });
-
-  app.post('/api/stock-safety/count-supervision',
-    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
-      const report=countSupervision.submit(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body);
-      res.set('Cache-Control','no-store');
-      res.status(201).json(report);
-    });
-
-  // Phase 5.1: Owner-only SHA-256 file MANIFESTS. No file bytes are received.
-  app.get('/api/stock-safety/count-file-manifests',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        page:z.coerce.number().int().min(1).max(10000).default(1),
-        pageSize:z.coerce.number().int().min(1).max(50).default(25),
-        status:z.enum([
-          'all','missing_manifest','manifest_unverified',
-          'count_discrepancy_open','identity_hold','waiting_for_counts',
-        ]).default('all'),
-        search:z.string().trim().max(64).default(''),
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const result=countFiles.list(inStore.snapshot(),await catalog.get(),options);
-      if(options.expectedRef&&options.expectedRef!==result.snapshotRef)
-        throw new AppError('Count file register changed. Restart from page one.',409,
-          'COUNT_DOCUMENT_SNAPSHOT_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(result);
-    });
-
-  app.post('/api/stock-safety/count-file-manifests',
-    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
-      // JSON metadata ONLY; no multipart parser, no file upload endpoint.
-      const result=countFiles.submit(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body);
-      res.set('Cache-Control','no-store');
-      res.status(201).json(result);
-    });
-
-  // Phase 5.2: Owner-only custody assertions and independent review
-  // HANDOFF PREPARATION. Neither endpoint receives original document bytes.
-  app.get('/api/stock-safety/evidence-custody',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        page:z.coerce.number().int().min(1).max(10000).default(1),
-        pageSize:z.coerce.number().int().min(1).max(50).default(25),
-        status:z.enum([
-          'all','file_manifest_missing','custody_entry_needed',
-          'custody_declared_unverified','review_requested_unconfirmed',
-          'count_discrepancy_open','identity_hold','waiting_for_counts',
-        ]).default('all'),
-        search:z.string().trim().max(64).default(''),
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const result=custodyReview.list(inStore.snapshot(),await catalog.get(),options);
-      if(options.expectedRef&&options.expectedRef!==result.snapshotRef)
-        throw new AppError('Custody evidence changed. Restart the review from page one.',409,
-          'EVIDENCE_CUSTODY_SNAPSHOT_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(result);
-    });
-
-  app.post('/api/stock-safety/evidence-custody',
-    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
-      const result=custodyReview.submit(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body);
-      res.set('Cache-Control','no-store');
-      res.status(201).json(result);
-    });
-
-  // Phase 5.3: OWNER-REPORTED external reviewer messages only, not
-  // authenticated external reviewer acknowledgement or witness verification.
-  app.get('/api/stock-safety/reviewer-responses',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        page:z.coerce.number().int().min(1).max(10000).default(1),
-        pageSize:z.coerce.number().int().min(1).max(50).default(25),
-        status:z.enum([
-          'all','request_missing','awaiting_external_response',
-          'acknowledgement_unverified','reported_discrepancy_open',
-          'review_unavailable','custody_or_source_hold',
-        ]).default('all'),
-        search:z.string().trim().max(64).default(''),
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const report=reviewerIntake.list(inStore.snapshot(),await catalog.get(),options);
-      if(options.expectedRef&&options.expectedRef!==report.snapshotRef)
-        throw new AppError('Reviewer intake evidence changed. Restart on page one.',409,
-          'REVIEWER_INTAKE_SNAPSHOT_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(report);
-    });
-
-  app.post('/api/stock-safety/reviewer-responses',
-    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
-      const report=reviewerIntake.submit(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body);
-      res.set('Cache-Control','no-store');
-      res.status(201).json(report);
-    });
-
-  // Phase 5.4: dedicated reviewer ACCOUNT, one-case metadata grants and
-  // account-authenticated responses. No proof of human identity, document
-  // delivery, independent witnessing or approval is implied.
-  app.get('/api/stock-safety/reviewer-access',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      res.json(reviewerAccess.listOwner(req.user,inStore.snapshot(),await catalog.get()));
-    });
-  app.post('/api/stock-safety/reviewer-access/accounts',
-    auth,role('owner'),countPilot,sensitiveLimit,(req,res)=>{
-      res.status(201).json(reviewerAccess.provision(req.user,req.body));
-    });
-  app.post('/api/stock-safety/reviewer-access/grants',
-    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
-      res.status(201).json(reviewerAccess.grant(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body));
-    });
-  app.post('/api/stock-safety/reviewer-access/revoke',
-    auth,role('owner'),countPilot,sensitiveLimit,(req,res)=>{
-      res.json(reviewerAccess.revoke(req.user,req.body));
-    });
-  app.get('/api/reviewer/cases',
-    auth,role('reviewer'),countPilot,async(req,res)=>{
-      res.json(reviewerAccess.listAssigned(req.user,inStore.snapshot(),await catalog.get()));
-    });
-  app.post('/api/reviewer/acknowledgements',
-    auth,role('reviewer'),countPilot,sensitiveLimit,async(req,res)=>{
-      res.status(201).json(reviewerAccess.acknowledge(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body));
-    });
-
-  // Phase 5.5: Owner declares an out-of-band reviewer identity check and
-  // issues a one-time secret; the reviewer confirms possession and submits an
-  // account-authenticated fingerprint CLAIM. No file transfer or approval.
-  app.post('/api/stock-safety/reviewer-access/handoff',
-    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
-      res.status(201).json(reviewerAccess.issueHandoff(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body));
-    });
-  app.post('/api/reviewer/handoff-receipt',
-    auth,role('reviewer'),countPilot,sensitiveLimit,async(req,res)=>{
-      res.status(201).json(reviewerAccess.receiveHandoff(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body));
-    });
-
-  // Phase 5.6: independent evidence exception queue and Owner FOLLOW-UP notes.
-  // Never resolves physical count disputes, accepts stock, or enables trading.
-  app.get('/api/stock-safety/evidence-exceptions',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        page:z.coerce.number().int().min(1).max(10000).default(1),
-        pageSize:z.coerce.number().int().min(1).max(50).default(25),
-        status:z.enum(['all','count_disagreement','reviewer_evidence_issue',
-          'handoff_action_needed','custody_or_source_hold','other_unverified']).default('all'),
-        search:z.string().trim().max(64).default(''),
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const {expectedRef,...filters}=options;
-      const result=evidenceExceptions.list(req.user,inStore.snapshot(),
-        await catalog.get(),filters);
-      if(expectedRef&&result.snapshotRef!==expectedRef)
-        throw new AppError('Inventory exception evidence changed; refresh the queue.',409,
-          'EVIDENCE_EXCEPTION_SNAPSHOT_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(result);
-    });
-  app.post('/api/stock-safety/evidence-exceptions/followup',
-    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
-      const result=evidenceExceptions.followup(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body);
-      res.set('Cache-Control','no-store');
-      res.status(201).json(result);
-    });
-
-  // Phase 5.7: Owner-only verification-readiness ANALYSIS, not an
-  // acceptance certificate. No POST/approval/import/stock/checkout path.
-  app.get('/api/stock-safety/verification-readiness',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        page:z.coerce.number().int().min(1).max(10000).default(1),
-        pageSize:z.coerce.number().int().min(1).max(50).default(25),
-        focus:z.enum(['all','count_disputes','identity_holds','document_problems',
-          'reviewer_handoff','other_missing']).default('all'),
-        search:z.string().trim().max(64).default(''),
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const {expectedRef,...filters}=options;
-      const result=buildInventoryVerificationReadiness(
-        inStore.snapshot(),await catalog.get(),mappingEvidence,countClaims,
-        evidenceExceptions,req.user,filters);
-      if(expectedRef&&result.readinessRef!==expectedRef)
-        throw new AppError('Inventory verification evidence changed. Restart from page one.',409,
-          'INVENTORY_READINESS_SNAPSHOT_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(result);
-    });
-
-  // Phase 5.8: Owner provisional reconciliation plans and dedicated reviewer
-  // account objections only. Neither role may accept, sign off or release stock.
-  app.get('/api/stock-safety/reconciliation-packets',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        page:z.coerce.number().int().min(1).max(10000).default(1),
-        pageSize:z.coerce.number().int().min(1).max(50).default(25),
-        search:z.string().trim().max(64).default(''),
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const {expectedRef,...filters}=options;
-      const report=reconciliationPackets.listOwner(req.user,inStore.snapshot(),
-        await catalog.get(),filters);
-      if(expectedRef&&expectedRef!==report.snapshotRef)
-        throw new AppError('Reconciliation packet evidence changed. Refresh the Owner register.',409,
-          'RECONCILIATION_PACKETS_SNAPSHOT_STALE');
-      res.set('Cache-Control','no-store');
-      res.json(report);
-    });
-  app.post('/api/stock-safety/reconciliation-packets',
-    auth,role('owner'),countPilot,sensitiveLimit,async(req,res)=>{
-      const result=reconciliationPackets.propose(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body);
-      res.set('Cache-Control','no-store');
-      res.status(201).json(result);
-    });
-  app.get('/api/reviewer/reconciliation-packets',
-    auth,role('reviewer'),countPilot,async(req,res)=>{
-      const result=reconciliationPackets.listReviewer(req.user,inStore.snapshot(),
-        await catalog.get());
-      res.set('Cache-Control','no-store');
-      res.json(result);
-    });
-  app.post('/api/reviewer/reconciliation-packets/response',
-    auth,role('reviewer'),countPilot,sensitiveLimit,async(req,res)=>{
-      const result=reconciliationPackets.respond(req.user,inStore.snapshot(),
-        await catalog.get(true),req.body);
-      res.set('Cache-Control','no-store');
-      res.status(201).json(result);
-    });
-
-  // Phase 5.9: Owner-only, GET-only offline audit metadata export. This is
-  // NOT a digital signature, independent physical count or import authority.
-  app.get('/api/stock-safety/audit-handoff',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const options=z.object({
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const result=auditHandoff.build(req.user,inStore.snapshot(),await catalog.get());
-      if(options.expectedRef&&result.sha256!==options.expectedRef)
-        throw new AppError('Audit handoff evidence changed; repeat the Owner review.',409,
-          'AUDIT_HANDOFF_SNAPSHOT_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(result);
-    });
-
-  // Four remaining tracks: read-only Owner inspection of synthetic safety
-  // scenarios and the STILL MISSING external proofs. No release/enable POST.
-  app.get('/api/stock-safety/full-launch-readiness',
-    auth,role('owner'),countPilot,async(req,res)=>{
-      const input=z.object({
-        expectedRef:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-      }).strict().parse(req.query);
-      const result=fullLaunchReadiness.build(req.user,inStore.snapshot(),await catalog.get());
-      if(input.expectedRef&&input.expectedRef!==result.evidenceRef)
-        throw new AppError('Release readiness evidence changed. Refresh the full report.',409,
-          'FULL_LAUNCH_SNAPSHOT_CHANGED');
-      res.set('Cache-Control','no-store');
-      res.json(result);
-    });
-
   // Separately gated live trading service only. The read-only pilot, demo and
   // ordinary Woo checkout never enroll a device or issue offline allocations.
   app.post('/api/desktop/enroll', auth, role('owner'), sensitiveLimit, (req, res) => res.json(desktop.enroll(req.user, req.body)));
@@ -878,42 +320,6 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     const { productId, variationId } = priceIds(req.params);
     res.json(wholesalePrices.remove(req.user, productId, variationId, priceRemovalSchema.parse(req.body)));
   });
-  // A completely separate cash/stock ledger: no WooCommerce IDs, order
-  // creation or Paystack call is reachable through these routes. The live
-  // catalogue pilot forces its own gate OFF even if its env file is copied.
-  if (config.mode === 'live') {
-    app.get('/api/instore/catalog', auth, (_req, res) => res.json(inStore.catalog()));
-    app.get('/api/instore/sales', auth, (req, res) => {
-      const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit || 50);
-      const before = req.query.before ? z.coerce.number().int().positive().parse(req.query.before) : null;
-      res.json(inStore.list(req.user, limit, before));
-    });
-    app.get('/api/instore/sales/by-key/:key', auth, (req, res) => res.json({ sale: inStore.byKey(req.user, z.string().uuid().parse(req.params.key)) }));
-    app.get('/api/instore/sales/:id', auth, (req, res) => res.json({ sale: inStore.sale(req.user, z.string().uuid().parse(req.params.id)) }));
-    app.post('/api/instore/sales', auth, sensitiveLimit, (req, res) => {
-      if (!config.inStoreCashEnabled) inStore.locked();
-      res.status(201).json({ sale: inStore.recordSale(req.user, inStoreSaleSchema.parse(req.body)) });
-    });
-    app.get('/api/instore/reports', auth, role('owner', 'manager'), (req, res) => {
-      const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
-      res.json(inStore.report(days));
-    });
-    app.get('/api/instore/reports/export', auth, role('owner', 'manager'), (req, res) => {
-      const days = z.coerce.number().int().min(1).max(90).parse(req.query.days || 7);
-      const { csv, count } = inStore.exportCsv(days);
-      audit(db, req.user.id, 'instore.reports_export', `${count} sales`);
-      res.type('text/csv').attachment(`mansu-pos-instore-${now().slice(0, 10)}.csv`).send(csv);
-    });
-    app.get('/api/instore/stock/:sku/movements', auth, role('owner', 'manager'), (req, res) => {
-      const limit = z.coerce.number().int().min(1).max(200).parse(req.query.limit || 100);
-      const before = req.query.before ? z.coerce.number().int().positive().parse(req.query.before) : null;
-      res.json(inStore.movements(z.string().regex(/^\d{1,8}$/).parse(req.params.sku), limit, before));
-    });
-    app.post('/api/instore/stock/:sku/count', auth, role('owner'), sensitiveLimit, (req, res) => {
-      inStore.locked();
-      res.json(inStore.recordCount(req.user, z.string().regex(/^\d{1,8}$/).parse(req.params.sku), inStoreCountSchema.parse(req.body)));
-    });
-  }
   // Retain the v4 table name to preserve existing named buyers and sale FKs.
   app.get('/api/wholesale-buyers', auth, role('owner', 'manager'), (req, res) => {
     res.json({ buyers: db.prepare('SELECT id,name,created_at FROM trade_buyers ORDER BY name COLLATE NOCASE, id').all()
@@ -1271,14 +677,12 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
       { name: 'Server-side credentials', ok: config.mode === 'demo' || config.configured, detail: config.mode === 'demo' ? 'Not needed for demo' : config.configured ? 'Configured' : 'Missing' },
       { name: 'Public origin configured', ok: !config.production || Boolean(config.publicOrigin) || config.mode === 'demo' },
       { name: config.liveReadOnly ? 'Live catalogue (read-only)' : 'Checkout availability',
-        ok: config.liveReadOnly ? !config.writesEnabled && !config.wholesaleWritesEnabled && !config.inStoreCashEnabled
-          : config.mode === 'demo' || config.writesEnabled || config.inStoreCashEnabled,
+        ok: config.liveReadOnly ? !config.writesEnabled && !config.wholesaleWritesEnabled
+          : config.mode === 'demo' || config.writesEnabled,
         detail: config.liveReadOnly ? 'All checkout locked; only catalogue reads are tested'
           : config.mode === 'demo' ? 'Demo only' : config.onlineBridgeEnabled ? 'Bridge profile configured; signed health and last-unit acceptance still required'
           : config.writesEnabled ? 'Woo orders enabled'
-          : config.inStoreCashEnabled ? 'Woo orders locked; only separate physical-store cash is enabled' : 'All checkout locked' },
-      ...(config.mode === 'live' ? [{ name: 'In-store collection cash gate', ok: !config.liveReadOnly || !config.inStoreCashEnabled,
-        detail: config.inStoreCashEnabled ? 'Separately approved source and POS-only ledger' : 'Physical-store checkout locked' }] : []),
+          : 'All checkout locked' },
     ];
     if (config.mode !== 'demo' && config.configured) {
       try { const products = await api.request('products', { query: { per_page: 1, status: 'publish' } }); checks.push({ name: 'WooCommerce catalogue read', ok: true, detail: `${products.total} published products` }); }
@@ -1320,5 +724,5 @@ export function createApp({ env = process.env, api: injectedApi, bridge: injecte
     if (status >= 500) logger.error({ reqId: req.id, method: req.method, path: req.path, code: error.code || 'SERVER_ERROR', name: error.name || 'Error' });
     res.status(status).json({ error: error instanceof AppError ? error.message : 'An unexpected server error occurred. Check the sale history before retrying.', code: error.code || 'SERVER_ERROR', reqId: req.id });
   });
-  return { app, config, db, api, catalog, sales, inventory, products, purchasing, returns, desktop, inStore, shifts, logger };
+  return { app, config, db, api, catalog, sales, inventory, products, purchasing, returns, desktop, shifts, logger };
 }

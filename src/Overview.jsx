@@ -34,7 +34,7 @@ export default function Overview({ catalog, config, sales, salesHasMore, refresh
   const largestChannel = Math.max(0, ...(week?.saleTypes || []).map(channel => channel.total));
 
   return <div className="overview-page">
-    <PageHeading eyebrow="MansutRENDZGH / business overview" title="Overview" description="A clear view of this POS. Website orders and legacy In-store cash receipts are not included.">
+    <PageHeading eyebrow="MansutRENDZGH / business overview" title="Overview" description="A clear view of this POS. Website orders are not included.">
       <button className="button secondary" onClick={() => refresh(true)}><RefreshCw size={16} />Refresh workspace</button>
     </PageHeading>
     <div className="overview-intro"><div><span className="eyebrow">Your daily workspace</span><h2>Everything in its place.</h2><p>Retail activity, stock attention and unsettled transactions—drawn from your POS ledger.</p></div><span>{new Intl.DateTimeFormat('en-GH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Accra' }).format(new Date())}</span></div>

@@ -8,32 +8,18 @@ import { WorkspaceSidebar, WorkspaceHeader } from './WorkspaceChrome.jsx';
 import WorkspaceCommandMenu from './WorkspaceCommandMenu.jsx';
 import { Sales, Inventory, Reports, Staff, Connection, Help, Shifts, Audit } from './Pages.jsx';
 import { Checkout, Receipt } from './Checkout.jsx';
-import IndependentReviewerPortal from './IndependentReviewerPortal.jsx';
 import { Spinner, Toast, Notice, Modal } from './components.jsx';
 // The till (Register, Checkout, Sales) loads up front. Owner and back-office
 // pages load on first visit so the register opens faster on slow connections.
 const Wholesale = lazy(() => import('./Wholesale.jsx'));
-const InStore = lazy(() => import('./InStore.jsx'));
 const Customers = lazy(() => import('./Customers.jsx'));
 const RecoveryQueue = lazy(() => import('./RecoveryQueue.jsx'));
 const PaymentReconciliation = lazy(() => import('./PaymentReconciliation.jsx'));
-const StockSafety = lazy(() => import('./StockSafety.jsx'));
 const StockControl = lazy(() => import('./StockControl.jsx'));
 const Purchasing = lazy(() => import('./Purchasing.jsx'));
 const Returns = lazy(() => import('./Returns.jsx'));
 const DailyOperations = lazy(() => import('./DailyOperations.jsx'));
 const WeeklyScorecard = lazy(() => import('./WeeklyScorecard.jsx'));
-const PhysicalCountWorkspace = lazy(() => import('./PhysicalCountWorkspace.jsx'));
-const CountSupervisionEvidence = lazy(() => import('./CountSupervisionEvidence.jsx'));
-const PrivateCountFileRegister = lazy(() => import('./PrivateCountFileRegister.jsx'));
-const CustodyReview = lazy(() => import('./CustodyReview.jsx'));
-const ReviewerResponseIntake = lazy(() => import('./ReviewerResponseIntake.jsx'));
-const ReviewerAccessPanel = lazy(() => import('./ReviewerAccessPanel.jsx'));
-const InventoryEvidenceExceptions = lazy(() => import('./InventoryEvidenceExceptions.jsx'));
-const InventoryVerificationReadiness = lazy(() => import('./InventoryVerificationReadiness.jsx'));
-const ProvisionalReconciliationPanel = lazy(() => import('./ProvisionalReconciliationPanel.jsx'));
-const InventoryAuditHandoff = lazy(() => import('./InventoryAuditHandoff.jsx'));
-const FullLaunchReadinessPanel = lazy(() => import('./FullLaunchReadinessPanel.jsx'));
 
 const navigation = [
   { id:'overview', label:'Overview', short:'Home', icon:LayoutDashboard, group:'Workspace', roles:['owner','manager'] },
@@ -44,7 +30,6 @@ const navigation = [
   { id:'inventory', label:'Inventory', short:'Stock', icon:Boxes, group:'Catalogue' },
   { id:'stockControl', label:'Stock control', short:'Restock', icon:ClipboardCheck, group:'Catalogue', roles:['owner','manager'] },
   { id:'purchasing', label:'Purchasing', short:'Buying', icon:Truck, group:'Catalogue', roles:['owner','manager'], hideReadOnly:true },
-  { id:'stockSafety', label:'Stock safety review', short:'Audit stock', icon:ShieldCheck, group:'Catalogue', roles:['owner','manager'], liveOnly:true },
   { id:'sales', label:'Sales history', short:'Sales', icon:ReceiptText, group:'Operations' },
   { id:'orders', label:'Orders', short:'Orders', icon:ScrollText, group:'Operations' },
   { id:'returns', label:'Customer returns', short:'Returns', icon:Undo2, group:'Operations', roles:['owner','manager'], hideReadOnly:true },
@@ -53,10 +38,8 @@ const navigation = [
   { id:'customers', label:'Customers', short:'Buyers', icon:Users, group:'Operations', roles:['owner','manager'] },
   { id:'shifts', label:'Shifts & drawer', short:'Drawer', icon:Banknote, group:'Operations' },
   { id:'operations', label:'Daily staff operations', short:'Daily duties', icon:ShieldCheck, group:'Operations' },
-  { id:'physicalCounts', label:'Physical stock counts', short:'Recount', icon:ClipboardCheck, group:'Operations', liveOnly:true },
   { id:'weeklyScorecard', label:'Weekly staff scorecard', short:'Team score', icon:Users, group:'Operations', roles:['owner','manager'] },
   { id:'reports', label:'Reports & analytics', short:'Reports', icon:ChartNoAxesCombined, group:'Operations', roles:['owner','manager'] },
-  { id:'instore', label:'Physical source review', short:'Source', icon:Package, group:'Operations', liveOnly:true },
   { id:'staff', label:'Staff & permissions', short:'Staff', icon:Users, group:'Administration', roles:['owner'] },
   { id:'audit', label:'Audit log', short:'Audit', icon:ScrollText, group:'Administration', roles:['owner'] },
   { id:'connection', label:'Settings & connection', short:'Settings', icon:Settings2, group:'Administration' },
@@ -119,7 +102,7 @@ export default function App() {
     setSession(data);return data;
   },[]);
   useEffect(()=>{if(initialized.current)return;initialized.current=true;loadSession().catch(e=>setCatalogError(e.message));},[loadSession]);
-  const userId=session?.user?.id;const mode=session?.config?.mode;const mustChangePassword=session?.user?.mustChangePassword;const isReviewer=session?.user?.role==='reviewer';
+  const userId=session?.user?.id;const mode=session?.config?.mode;const mustChangePassword=session?.user?.mustChangePassword;
   useEffect(()=>{
     function onCommandKey(event) {
       if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'&&userId&&!mustChangePassword&&!pending&&!receipt&&!help&&!passwordOpen) {
@@ -130,7 +113,7 @@ export default function App() {
     return()=>window.removeEventListener('keydown',onCommandKey);
   },[userId,mustChangePassword,pending,receipt,help,passwordOpen]);
   const refresh=useCallback(async(force=false)=>{
-    if(!userId||isReviewer)return;
+    if(!userId)return;
     setRefreshing(true);
     try{const [c,s,sh]=await Promise.allSettled([api(`/catalog${force?'?refresh=1':''}`),api('/sales'),api('/shifts/current')]);
       if(c.status==='fulfilled')setCatalog(c.value);
@@ -142,13 +125,13 @@ export default function App() {
       // and operational reads have actually succeeded on this device.
       if(c.status==='fulfilled'&&Array.isArray(c.value?.products)&&!c.value.stale&&!c.value.error&&s.status==='fulfilled'&&sh.status==='fulfilled'&&navigator.onLine!==false)setConnectionRecheck(false);
     }finally{setRefreshing(false);}
-  },[userId,isReviewer]);
+  },[userId]);
   useEffect(()=>{if(!offline&&connectionRecheck&&userId&&!mustChangePassword)refresh(true);},[offline,connectionRecheck,userId,mustChangePassword,refresh]);
   const loadMoreSales=useCallback(async()=>{if(!salesCursor||salesLoadingMore)return;setSalesLoadingMore(true);try{const page=await api(`/sales?cursor=${encodeURIComponent(salesCursor)}`);setSales(previous=>{const seen=new Set(previous.map(s=>s.id));return [...previous,...page.sales.filter(s=>!seen.has(s.id))];});setSalesCursor(page.nextCursor||'');setSalesHasMore(Boolean(page.hasMore));}catch(e){notify(e.message,'error');}finally{setSalesLoadingMore(false);}},[salesCursor,salesLoadingMore,notify]);
-  useEffect(()=>{if(userId&&!mustChangePassword&&!isReviewer){refresh();const key=`mansu-held-${mode}-${userId}`;heldKey.current=key;try{setSavedCarts(JSON.parse(localStorage.getItem(key)||'[]'));}catch{setSavedCarts([]);}}},[userId,mode,mustChangePassword,isReviewer,refresh]);
+  useEffect(()=>{if(userId&&!mustChangePassword){refresh();const key=`mansu-held-${mode}-${userId}`;heldKey.current=key;try{setSavedCarts(JSON.parse(localStorage.getItem(key)||'[]'));}catch{setSavedCarts([]);}}},[userId,mode,mustChangePassword,refresh]);
   useEffect(()=>{const expired=()=>{setSessionToken('');setSession(s=>s?{...s,user:null}:s);setCatalog(null);setSales([]);setSalesCursor('');setSalesHasMore(false);setSavedCarts([]);setShift(null);heldKey.current='';};window.addEventListener('mansu:session-expired',expired);return()=>window.removeEventListener('mansu:session-expired',expired);},[]);
   useEffect(()=>{if(heldKey.current){try{localStorage.setItem(heldKey.current,JSON.stringify(savedCarts));}catch{/* Storage full or blocked: held carts stay in memory for this session. */}}},[savedCarts]);
-  useEffect(()=>{if(mode==='demo'||!userId||isReviewer)return;const timer=setInterval(()=>{if(document.visibilityState==='visible'&&!pending&&!receipt)refresh();},60000);return()=>clearInterval(timer);},[mode,userId,isReviewer,refresh,pending,receipt]);
+  useEffect(()=>{if(mode==='demo'||!userId)return;const timer=setInterval(()=>{if(document.visibilityState==='visible'&&!pending&&!receipt)refresh();},60000);return()=>clearInterval(timer);},[mode,userId,refresh,pending,receipt]);
   // A resizable installed window can cross the drawer breakpoint while the
   // menu is open. Release the focus trap and restore the main workspace.
   useEffect(()=>{
@@ -192,14 +175,12 @@ export default function App() {
   if(!user)return <div className="login-page"><section className="login-story"><div className="login-brand"><div className="brand-mark">M<span>·</span></div><span>MANSUTRENDZGH<small>RETAIL STUDIO · GHANA</small></span></div><div className="login-editorial"><span className="eyebrow">In-store workspace</span><h1>Your shop.<br/>Your people.<br/><em>One clear workspace.</em></h1><p>Retail, wholesale, stock and recorded POS transactions, organised in one place.</p></div><span className="login-story-footer"><ShieldCheck size={16}/>Designed for the way your boutique sells.</span></section><div className="login-form-wrap"><form onSubmit={signIn} className="login-form"><span className="eyebrow">Your workspace</span><h2>{config.liveReadOnly?'View live products.':'Open your register.'}</h2><p>{config.mode==='demo'?'Safe practice workspace. No real payments or live store changes.':config.liveReadOnly?'Live store catalogue · checkout locked.':`Sign in to your ${config.mode} workspace.`}</p>{config.liveReadOnly&&<Notice tone="warning">This workspace reads live product and stock data but cannot create orders or record payments. Do not collect money or release goods through this POS.</Notice>}{config.mode!=='demo'&&!config.configured&&<Notice>Owner setup required. Configure credentials and the first owner account using docs/RETAIL-CASH-GO-LIVE-RUNBOOK.md.</Notice>}{loginError&&<Notice tone="error">{loginError}</Notice>}{config.mode==='demo'?<button type="button" className="button primary" onClick={openDemo} disabled={loginBusy}>{loginBusy?<LoaderCircle className="spin" size={18}/>:<ArrowRight size={18}/>} {loginBusy?'Opening demo…':'Open demo workspace'}</button>:<><label>Username<input className="input" autoComplete="username" required value={login.username} onChange={e=>setLogin({...login,username:e.target.value})}/></label><label>Password<input className="input" type="password" autoComplete="current-password" required value={login.password} onChange={e=>setLogin({...login,password:e.target.value})}/></label><button className="button primary" disabled={loginBusy}>{loginBusy?<LoaderCircle className="spin" size={18}/>:<ArrowRight size={18}/>} {loginBusy?'Signing in…':'Sign in'}</button></>}{installPrompt&&!installed&&<button type="button" className="button secondary" onClick={installApp}><Download size={17}/>Install app</button>}<small>{config.mode==='demo'?<><ShieldCheck size={13}/>No username or password. Enters as Demo Owner.</>:<><LockKeyhole size={13}/>Named accounts. Secure, eight-hour sessions.</>}</small></form></div></div>;
   const allowed=navigation.filter(n=>(!n.liveOnly||config.mode==='live')&&(!n.hideReadOnly||!config.liveReadOnly)&&(!n.roles||n.roles.includes(user.role)));
   if(user.mustChangePassword)return <div className="boot-screen"><div className="brand-mark">M<span>·</span></div><h1>Set your password</h1><p className="muted">This is a temporary password. Choose a new one before using the register.</p><form className="login-form force-password" onSubmit={async e=>{e.preventDefault();setPasswordBusy(true);try{const result=await api('/auth/password',{method:'POST',body:passwordForm});setSession(s=>({...s,user:result.user}));setPasswordForm({currentPassword:'',newPassword:''});notify('Password updated. You can now use the POS.');}catch(err){notify(err.message,'error');}finally{setPasswordBusy(false);}}}><label>Temporary password<input className="input" type="password" autoComplete="current-password" required value={passwordForm.currentPassword} onChange={e=>setPasswordForm({...passwordForm,currentPassword:e.target.value})}/></label><label>New password<input className="input" type="password" autoComplete="new-password" required minLength={12} maxLength={256} value={passwordForm.newPassword} onChange={e=>setPasswordForm({...passwordForm,newPassword:e.target.value})}/></label><button className="button primary" disabled={passwordBusy}>{passwordBusy?'Saving…':'Set password'}</button></form><Toast toast={toast} onClose={closeToast}/></div>;
-  if(user.role==='reviewer')return <IndependentReviewerPortal user={user} logout={logout}/>;
   const currentNav=navigation.find(n=>n.id===page);
   const catalogueIncomplete=!isDemo&&catalog?.complete===false;
-  const badgeTone=page==='instore'?'amber':isDemo?'amber':catalogError||catalog?.stale||catalog?.error||catalogueIncomplete?'red':!catalog||!config.configured||!config.writesEnabled?'amber':'green';
-  const badgeLabel=page==='instore'?config.inStoreCashEnabled?'In-store cash only':'In-store locked'
-    :isDemo?'Demo mode':config.liveReadOnly?'No checkout':catalogError?'Connection review':!catalog?'Loading catalogue'
+  const badgeTone=isDemo?'amber':catalogError||catalog?.stale||catalog?.error||catalogueIncomplete?'red':!catalog||!config.configured||!config.writesEnabled?'amber':'green';
+  const badgeLabel=isDemo?'Demo mode':config.liveReadOnly?'No checkout':catalogError?'Connection review':!catalog?'Loading catalogue'
     :!config.configured?'Setup required':catalog.stale||catalog.error?'Connection review':catalogueIncomplete?'Incomplete catalogue'
-    :!config.writesEnabled?config.inStoreCashEnabled?'In-store cash only':'Checkout locked':refreshing?'Syncing':'Catalogue synced';
+    :!config.writesEnabled?'Checkout locked':refreshing?'Syncing':'Catalogue synced';
   return <div className={`app-shell ${collapsed ? 'is-collapsed' : ''}`}>
     <a className="skip-link" href="#main-content" inert={sidebar}>Skip to content</a>
     {sidebar&&<div className="sidebar-scrim" aria-hidden="true" onClick={()=>setSidebar(false)}/>}
@@ -212,22 +193,10 @@ export default function App() {
       {(offline||connectionRecheck)&&<div className="offline-banner" role="alert"><WifiOff size={18}/><span>{offline?<><strong>Device offline.</strong> Current stock cannot be checked. Do not take payment or release goods; reconnect and refresh first.</>:<><strong>Reconnected · verifying stock.</strong> Do not take payment or release goods until the current catalogue is confirmed. <button className="offline-refresh" onClick={()=>refresh(true)} disabled={refreshing}>{refreshing?'Checking…':'Retry refresh'}</button></>}</span></div>}
       <main id="main-content" tabIndex={-1} className={`main-content ${page==='register'?'register-main':''}`}>
         <Suspense fallback={<Spinner label="Loading page…" />}>
-        {catalogError&&page!=='instore'&&<Notice tone="error">{catalogError}<button className="text-button" onClick={()=>refresh(true)}>Try again</button></Notice>}
+        {catalogError&&<Notice tone="error">{catalogError}<button className="text-button" onClick={()=>refresh(true)}>Try again</button></Notice>}
         {page==='operations'&&<DailyOperations user={user}/>}
-        {page==='physicalCounts'&&config.mode==='live'&&<PhysicalCountWorkspace user={user}/>}
-        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<CountSupervisionEvidence/>}
-        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<PrivateCountFileRegister/>}
-        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<CustodyReview/>}
-        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<ReviewerResponseIntake/>}
-        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<ReviewerAccessPanel/>}
-        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<InventoryEvidenceExceptions/>}
-        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<InventoryVerificationReadiness/>}
-        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<ProvisionalReconciliationPanel/>}
-        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<InventoryAuditHandoff/>}
-        {page==='physicalCounts'&&config.mode==='live'&&user.role==='owner'&&<FullLaunchReadinessPanel/>}
         {page==='weeklyScorecard'&&user.role!=='cashier'&&<WeeklyScorecard user={user}/>}
-        {page==='instore'&&config.mode==='live'&&<InStore config={config} user={user} shift={shift} onOpenShift={()=>navigate('shifts')} notify={notify}/>}
-        {page!=='physicalCounts'&&page!=='instore'&&page!=='operations'&&page!=='weeklyScorecard'&&(!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>
+        {page!=='operations'&&page!=='weeklyScorecard'&&(!catalog&&!catalogError?<Spinner label="Loading your catalogue…"/>:<>
           {page==='overview'&&user.role!=='cashier'&&<Overview catalog={catalog} config={config} sales={sales} salesHasMore={salesHasMore} refresh={refresh} refreshKey={refreshKey} onNavigate={navigate}/>}
           <div style={{display:page==='register'?'block':'none'}}><Register key={`${config.mode}-${user.id}`} active={page==='register'} catalog={catalog} config={config} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} onOpenWholesale={()=>navigate('wholesale')} canWholesale={user.role!=='cashier'} searchSignal={searchSignal} savedCarts={savedCarts} setSavedCarts={setSavedCarts} setHelp={()=>setHelp(true)} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>
           {user.role!=='cashier'&&<div style={{display:page==='wholesale'?'block':'none'}}><Wholesale key={`${config.mode}-${user.id}`} catalog={catalog} config={config} user={user} active={page==='wholesale'} checkoutScope={`${config.mode}-${user.id}`} refresh={refresh} notify={notify} onPrepared={setPending} onOpenSales={()=>navigate('sales')} onOpenRetail={()=>navigate('register')} shift={shift} onOpenShift={()=>navigate('shifts')}/></div>}
@@ -238,7 +207,6 @@ export default function App() {
           {page==='returns'&&user.role!=='cashier'&&!config.liveReadOnly&&<Returns notify={notify} refreshCatalog={refresh}/>}
           {page==='purchasing'&&user.role!=='cashier'&&!config.liveReadOnly&&<Purchasing user={user} notify={notify} refreshCatalog={refresh}/>}
           {page==='stockControl'&&user.role!=='cashier'&&<StockControl user={user} notify={notify} refreshCatalog={refresh} config={config}/>}
-          {page==='stockSafety'&&config.mode==='live'&&user.role!=='cashier'&&<StockSafety active={page==='stockSafety'} user={user}/>}
           {page==='customers'&&user.role!=='cashier'&&<Customers refreshKey={refreshKey}/>}
           {page==='recovery'&&user.role!=='cashier'&&<RecoveryQueue/>}
           {page==='paymentReconciliation'&&user.role!=='cashier'&&<PaymentReconciliation user={user}/>}
@@ -254,7 +222,7 @@ export default function App() {
     {commandOpen&&<WorkspaceCommandMenu allowed={allowed} onNavigate={navigate} onSearchProducts={openProductSearch} onClose={()=>setCommandOpen(false)}/>}
     {pending&&<Checkout sale={pending} config={config} onClose={()=>{setPending(null);refresh();if(config.onlineBridgeEnabled && pending.onlineBridge)notify('Inspect the original Woo attempt in Sales. Cash custody may be unresolved; never retry payment or issue a receipt without verification.', 'error');else if(config.mode!=='demo')notify('Unpaid order saved in Sales. Do not release goods until the full payment is verified and recorded.');}} onPaid={paid} notify={notify}/>}
     {receipt&&<Receipt sale={receipt} config={config} onClose={()=>setReceipt(null)}/>}
-    {help&&<Help config={config} scope={page} onClose={()=>setHelp(false)} canInstall={Boolean(installPrompt)&&!installed} installed={installed} onInstall={installApp}/>}
+    {help&&<Help config={config} onClose={()=>setHelp(false)} canInstall={Boolean(installPrompt)&&!installed} installed={installed} onInstall={installApp}/>}
     {passwordOpen&&<Modal title="Change your password" subtitle="Other sessions will be signed out." onClose={()=>setPasswordOpen(false)} busy={passwordBusy}><form onSubmit={async e=>{e.preventDefault();setPasswordBusy(true);try{await api('/auth/password',{method:'POST',body:passwordForm});setPasswordOpen(false);setPasswordForm({currentPassword:'',newPassword:''});notify('Password changed. Other sessions were signed out.');}catch(err){notify(err.message,'error');}finally{setPasswordBusy(false);}}}><div className="modal-body form-stack"><label>Current password<input className="input" type="password" autoComplete="current-password" required value={passwordForm.currentPassword} onChange={e=>setPasswordForm({...passwordForm,currentPassword:e.target.value})}/></label><label>New password<input className="input" type="password" autoComplete="new-password" required minLength={12} maxLength={256} value={passwordForm.newPassword} onChange={e=>setPasswordForm({...passwordForm,newPassword:e.target.value})}/><small className="field-hint">Use at least 12 characters. Do not reuse your WordPress password.</small></label></div><div className="modal-footer" role="group" aria-label="Dialog actions"><button type="button" className="button secondary" onClick={()=>setPasswordOpen(false)}>Cancel</button><button className="button primary" disabled={passwordBusy}>{passwordBusy?'Saving…':'Change password'}</button></div></form></Modal>}
     <Toast toast={toast} onClose={closeToast}/>
   </div>;

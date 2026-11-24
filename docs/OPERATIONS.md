@@ -10,23 +10,13 @@
 4. Refresh the catalogue and check the connection badge.
 5. Test the scanner with a known SKU if needed.
 
-## Selling WooCommerce-linked Retail goods (not the physical In-store collection)
+## Selling Retail goods
 
 - Search, tap, or scan products. Variable products open a size picker.
 - Hold a sale if needed; held carts are browser-local and do not create orders.
 - Prepare the order. WooCommerce confirms the authoritative total and tax.
 - Record Cash, MoMo, or Card only after payment is collected/verified externally.
 - Print the receipt on the verified printer. Live POS Retail/Wholesale recording is cash-only; MoMo/Card instructions above apply only to isolated demo/staging.
-
-## Physical In-store collection (separate acceptance)
-
-The deployed pilot shows this collection **read-only** and cannot open a cash shift or sell. **The former POS-only stock/cash workflow below is historical and retired for the owner's shared-Woo-stock target; it cannot be enabled in non-test services.** Do not use it as a future rollout checklist or sell these goods from a second stock pool. See [SHARED-WOO-STOCK.md](archive/SHARED-WOO-STOCK.md) and [INSTORE-COLLECTION.md](archive/INSTORE-COLLECTION.md). For historical receipt review only, the former workflow was:
-
-1. Open a counted shift and open **In-store collection → Collection**. Search by name/SKU/group; most goods have no barcode. Check the actual POS balance, final all-in GHS unit amount and physical goods. Never sell the 41 quarantined negative/unknown-unit/missing-SKU/fractional-cent items, even if a PDF number looks positive.
-2. Add eligible goods, enter and **count cash already received**, confirm the exact gross total, then record the sale once. The POS creates a paid cash receipt and deducts **only its private physical stock** atomically. It neither creates a Woo order nor changes online stock or Paystack. Print the separate 58/80 mm/A4 gross-only receipt; do not claim tax is zero.
-3. If the response is lost, do **not** take more cash or start another sale. Select **Check saved attempt** to retrieve its receipt; if absent, retry the **same** attempt key without collecting cash again. An owner must reconcile any counted money before discarding an attempt.
-4. Review **Cash receipts** or **Cash reports** in this section, not Woo Sales history/Reports. Cashiers see their own receipts; owners/managers see the report and formula-safe CSV. The shared shift drawer includes this cash and shows the in-store subset.
-5. Only the owner may use **Record count** for an already eligible SKU after a physical check and with a reason. Owners/managers can view paginated **Stock history** for source import, cash-sale deductions and counted corrections. Neither action can clear a quarantined item. Returns/refunds of physical goods are not implemented; agree an owner procedure before live use.
 
 ## Wholesale workspace (owner or manager only)
 

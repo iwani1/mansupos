@@ -23,10 +23,10 @@ test('live catalogue pilot cannot be mistaken for staging or unlocked through a 
   assert.equal(pilot.liveReadOnly, true);
   assert.equal(pilot.writesEnabled, false);
   assert.equal(pilot.wholesaleWritesEnabled, false);
-  assert.equal(pilot.inStoreCashEnabled, false);
+  assert.ok(!pilot.inStoreCashEnabled);
   assert.deepEqual(pilot.paymentMethods, ['cash']);
   assert.throws(() => readConfig({ ...pilotEnvironment, POS_ALLOW_LIVE_WRITES: 'true', POS_OWNER_APPROVAL_REFERENCE: 'written-owner-approval' }), /read-only live pilot/);
-  assert.throws(() => readConfig({ ...pilotEnvironment, POS_INSTORE_CASH_APPROVED: 'true', POS_INSTORE_ACCEPTANCE_REFERENCE: 'copied-instore-approval', POS_INSTORE_SOURCE_SHA256: 'a'.repeat(64) }), /read-only pilot/);
+  assert.throws(() => readConfig({ ...pilotEnvironment, POS_INSTORE_CASH_APPROVED: 'true', POS_INSTORE_ACCEPTANCE_REFERENCE: 'copied-instore-approval', POS_INSTORE_SOURCE_SHA256: 'a'.repeat(64) }), /In-store cash is retired/);
   assert.throws(() => readConfig({ ...pilotEnvironment, POS_MODE: 'staging', WOO_BASE_URL: 'https://staging.example.com' }), /POS_LIVE_READ_ONLY/);
   assert.throws(() => readConfig({ ...pilotEnvironment, POS_LIVE_READ_ONLY: 'maybe' }), /POS_LIVE_READ_ONLY/);
   assert.throws(() => readConfig({ ...pilotEnvironment, WOO_BASE_URL: 'http://mansutrendzgh.com' }), /HTTPS origin/);
@@ -45,8 +45,8 @@ test('preflight accepts a locked live catalogue pilot but requires an owner and 
   });
   const good = run();
   assert.equal(good.status, 0, good.stdout + good.stderr);
-  assert.match(good.stdout, /PASS {2}Live catalogue pilot — Woo catalogue and verified physical-source reads only; all three checkout gates locked/);
-  assert.match(good.stdout, /PASS {2}In-store CSV \/ PDF source — 1571 products; 41 quarantined/);
+  assert.match(good.stdout, /PASS {2}Live catalogue pilot — Woo catalogue reads only; checkout gates locked/);
+  assert.doesNotMatch(good.stdout, /In-store/);
   assert.match(good.stdout, /PASS {2}Live approval — writes locked/);
   assert.equal(fs.existsSync(path.join(dir, 'pos-live.db')), false, 'Preflight must not create a live ledger');
   const missingKey = run({ WOO_CONSUMER_KEY: '' });
@@ -127,7 +127,7 @@ test('native pilot units override unsafe env flags and cannot bind an existing a
     assert.equal(config.liveReadOnly, true);
     assert.equal(config.writesEnabled, false);
     assert.equal(config.wholesaleWritesEnabled, false);
-    assert.equal(config.inStoreCashEnabled, false);
+    assert.ok(!config.inStoreCashEnabled);
     assert.equal(effective.POS_INSTORE_CASH_APPROVED, 'false');
     assert.equal(config.bindHost, '127.0.0.1');
     assert.equal(config.port, 3187);

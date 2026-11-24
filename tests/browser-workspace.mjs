@@ -10,7 +10,7 @@ import { money } from '../src/api.js';
 const { browser, page, pageErrors } = await openBrowser({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
 const mutations = [];
 page.on('request', request => {
-  if (/\/api\/(sales|wholesale-prices|wholesale-buyers|instore)\b/.test(new URL(request.url()).pathname) && request.method() !== 'GET') {
+  if (/\/api\/(sales|wholesale-prices|wholesale-buyers)\b/.test(new URL(request.url()).pathname) && request.method() !== 'GET') {
     mutations.push(`${request.method()} ${new URL(request.url()).pathname}`);
   }
 });
@@ -71,7 +71,7 @@ try {
   ], 'Overview amounts must be reported POS values, not invented dashboard figures.');
   assert.equal(await page.locator('.overview-operational > button').nth(1).locator('strong').innerText(),
     String(stockAlerts(catalog.products, session.config.lowStockThreshold, false).low.length));
-  await page.getByText('Website orders and legacy In-store cash receipts are not included.', { exact: false }).waitFor();
+  await page.getByText('Website orders are not included.', { exact: false }).waitFor();
 
 
   // New staff operations workspace must load without sale, stock or Woo writes.
